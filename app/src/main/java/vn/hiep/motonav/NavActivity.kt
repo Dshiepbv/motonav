@@ -189,7 +189,12 @@ class NavActivity : Activity() {
         col.addView(turnText)
         row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
         turnCard.addView(row)
-        thenText = tv(16f, Color.parseColor("#CFEFE3")).apply { visibility = View.GONE }
+        thenText = tv(17f, Color.parseColor("#E3F6EE"), true).apply {
+            visibility = View.GONE
+            maxLines = 2
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), dp(8f), 0, 0)
+        }
         turnCard.addView(thenText)
 
         alertBanner = tv(18f, Color.BLACK, true).apply {
@@ -1115,6 +1120,29 @@ class NavActivity : Activity() {
                 PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
             ),
         )
+        // Biển báo phía trước cắm trên tuyến (cấm dừng đỗ, cấm rẽ…) kèm số mét
+        s.addSource(GeoJsonSource("mn-signs", emptyFc))
+        val sl = SymbolLayer("mn-signs-icon", "mn-signs").withProperties(
+            PropertyFactory.iconImage(Expression.get("img")),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.iconIgnorePlacement(true),
+            PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+            PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
+            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
+            PropertyFactory.textField(Expression.get("d")),
+            PropertyFactory.textSize(13f),
+            PropertyFactory.textColor("#FFFFFF"),
+            PropertyFactory.textHaloColor("#111111"),
+            PropertyFactory.textHaloWidth(3f),
+            PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
+            PropertyFactory.textAllowOverlap(true),
+            PropertyFactory.textIgnorePlacement(true),
+            PropertyFactory.textPitchAlignment(Property.TEXT_PITCH_ALIGNMENT_VIEWPORT),
+        )
+        labelFont?.let { sl.setProperties(PropertyFactory.textFont(it)) }
+        s.addLayer(sl)
+        shownSignsMap = -1
+
         // Biển tốc độ sắp đổi, cắm ngay tại điểm đổi
         s.addSource(GeoJsonSource("mn-limit", emptyFc))
         val lim = SymbolLayer("mn-limit-sign", "mn-limit").withProperties(
@@ -1152,6 +1180,8 @@ class NavActivity : Activity() {
     }
 
     private var shownAlerts = -1
+    private var shownThenSign = -999
+    private var shownSignsMap = -1
     private var shownChoicesMap = -1
 
     /** Biểu tượng cảnh báo: vòng tròn trắng viền màu, có hình bên trong, chân nhọn. */
@@ -1280,6 +1310,26 @@ class NavActivity : Activity() {
                 src("mn-choices")?.setGeoJson(emptyFc)
             }
         }
+        if (shownSignsMap != Live.signsVersion) {
+            shownSignsMap = Live.signsVersion
+            val js = Live.signsJson
+            if (js != null) {
+                // Tạo hình biển còn thiếu
+                try {
+                    val st = style
+                    if (st != null && st.isFullyLoaded) {
+                        Regex(""""t":(\d+),"v":(\d+)""").findAll(js).forEach { m ->
+                            val t = m.groupValues[1].toInt()
+                            val v = m.groupValues[2].toInt()
+                            val id = "sign-$t-$v"
+                            if (st.getImage(id) == null) st.addImage(id, SignType.icon(t, v, dp(34f)))
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+            src("mn-signs")?.setGeoJson(js ?: emptyFc)
+        }
         if (shownAlerts != Live.alertsVersion) {
             shownAlerts = Live.alertsVersion
             src("mn-alerts")?.setGeoJson(Live.alertsJson ?: emptyFc)
@@ -1361,6 +1411,13 @@ class NavActivity : Activity() {
             val t = Live.thenText
             thenText.visibility = if (t != null) View.VISIBLE else View.GONE
             thenText.text = t ?: ""
+            if (t != null && shownThenSign != Live.thenSign) {
+                shownThenSign = Live.thenSign
+                val d = android.graphics.drawable.BitmapDrawable(resources, ArrowIcon.get(Live.thenSign, dp(26f)))
+                d.setBounds(0, 0, dp(26f), dp(26f))
+                thenText.setCompoundDrawables(d, null, null, null)
+                thenText.compoundDrawablePadding = dp(8f)
+            }
         } else {
             turnCard.visibility = View.GONE
         }

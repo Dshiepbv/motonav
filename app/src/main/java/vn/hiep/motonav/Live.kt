@@ -63,6 +63,7 @@ object Live {
     @Volatile var maneuverLabel: String? = null
     @Volatile var maneuverSign = 0
     @Volatile var thenText: String? = null
+    @Volatile var thenSign = 0
     /** Các tuyến để chọn (tuyến đang đi là phần tử [choiceSelected]). */
     @Volatile var routeChoices: List<Route> = emptyList()
     @Volatile var choiceSelected = 0
@@ -95,6 +96,9 @@ object Live {
 
     /** Biển báo phía trước: (loại, giá trị, khoảng cách m; -1 = đoạn đang đi). Tối đa 3. */
     @Volatile var signsAhead: List<Triple<Int, Int, Int>> = emptyList()
+    /** Biển báo phía trước có toạ độ, để cắm lên bản đồ (GeoJSON). */
+    @Volatile var signsJson: String? = null
+    @Volatile var signsVersion = 0
 
     // Dải chữ cảnh báo (hiện kèm mọi âm thanh)
     @Volatile var alertText: String? = null

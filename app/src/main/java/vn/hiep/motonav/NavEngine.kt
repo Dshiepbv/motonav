@@ -224,9 +224,14 @@ class NavEngine(
 
         // Bước sau nữa (hiện dòng "Sau đó")
         val after = r.steps.getOrNull(nextIdx + 1)
-        Live.thenText = if (after != null && after.sign != 4 && r.cum[min(after.from, n - 1)] - r.cum[mIdx] < 150) {
-            "Sau đó " + Maneuver.verb(after.sign)
-        } else null
+        // Luôn hiện lần rẽ kế tiếp: "Sau đó · 380 m: Rẽ trái vào Lê Lợi"
+        if (after != null && after.sign != 0) {
+            val gap = r.cum[min(after.from, n - 1)] - r.cum[mIdx]
+            Live.thenText = "Sau đó · ${fmtDist(gap)}: " + Maneuver.phrase(after)
+            Live.thenSign = after.sign
+        } else {
+            Live.thenText = null
+        }
 
         // Đưa vào các trường dùng chung (ô nổi, thẻ rẽ, tiếng bíp khi sắp rẽ)
         Live.navActive = true

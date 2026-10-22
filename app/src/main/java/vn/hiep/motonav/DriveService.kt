@@ -540,6 +540,18 @@ class DriveService : Service(), LocationListener {
                 if (ahead) found.add(Pair(sg, d))
             }
             found.sortBy { it.second }
+            // Cắm lên bản đồ: tối đa 6 biển gần nhất
+            val sb = StringBuilder("""{"type":"FeatureCollection","features":[""")
+            found.take(6).forEachIndexed { k, (sg, d) ->
+                if (k > 0) sb.append(',')
+                sb.append("""{"type":"Feature","properties":{"img":"sign-${sg.type}-${sg.value}","t":${sg.type},"v":${sg.value},"d":"${d.roundToInt()} m"},"geometry":{"type":"Point","coordinates":[${sg.lon},${sg.lat}]}}""")
+            }
+            sb.append("]}")
+            val js = sb.toString()
+            if (js != Live.signsJson) {
+                Live.signsJson = js
+                Live.signsVersion++
+            }
             for ((sg, d) in found) {
                 if (out.size >= 3) break
                 out.add(Triple(sg.type, sg.value, d.roundToInt()))
