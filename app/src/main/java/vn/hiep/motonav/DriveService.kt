@@ -298,6 +298,8 @@ class DriveService : Service(), LocationListener {
                 currentWayId = m.way.id
                 currentWay = m.way
                 Live.street = m.way.name ?: roadTypeName(m.way.highway)
+                checkUrban(m.way, snap.urbanArea)
+                checkCameraStreet(m.way, lat, lon)
                 if (m.way.highway == "motorway" && m.way.id != warnedMotorway && speedMps > 3) {
                     warnedMotorway = m.way.id
                     alert("CẢNH BÁO: đây là đường cao tốc, xe máy không được đi!", "Cảnh báo, xe máy không được đi đường cao tốc", urgent = true, showMs = 10000)
@@ -479,6 +481,43 @@ class DriveService : Service(), LocationListener {
         sb.append("]}")
         Live.alertsJson = sb.toString()
         Live.alertsVersion++
+    }
+
+    // ---------- Khu đông dân cư ----------
+
+    private var urbanPending: Boolean? = null
+    private var urbanCount = 0
+
+    private fun checkUrban(way: Way, urbanArea: Boolean?) {
+        val (u, est) = SpeedRules.urbanOf(way, prefs, urbanArea)
+        if (u == urbanPending) urbanCount++ else {
+            urbanPending = u
+            urbanCount = 1
+        }
+        if (urbanCount < 4) return
+        val prev = Live.urban
+        Live.urbanEst = est
+        if (prev == u) return
+        Live.urban = u
+        if (prev != null) {
+            val lim = if (prefs.moped) "40" else if (u) "50–60" else "60–70"
+            if (u) alert("Vào khu đông dân cư · xe máy tối đa $lim km/h", "Vào khu đông dân cư", beep = false, showMs = 5000)
+            else alert("Ra khỏi khu đông dân cư · xe máy tối đa $lim km/h", "Ra khỏi khu đông dân cư", beep = false, showMs = 5000)
+        }
+    }
+
+    // ---------- Tuyến đường có camera phạt nguội (danh sách công khai) ----------
+
+    private var lastCamStreetAlert: String? = null
+
+    private fun checkCameraStreet(way: Way, lat: Double, lon: Double) {
+        val s = CameraStreets.match(way.name, way.tags["ref"], lat, lon)
+        Live.camStreet = s
+        if (s != null && s != lastCamStreetAlert) {
+            lastCamStreetAlert = s
+            alert("Tuyến $s có camera phạt nguội – chú ý", "Chú ý, tuyến đường có camera phạt nguội", showMs = 7000)
+        }
+        if (s == null && way.name != null) lastCamStreetAlert = null
     }
 
     private var lastJunctions = 0L

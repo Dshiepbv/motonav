@@ -83,6 +83,11 @@ object Live {
     @Volatile var alertsJson: String? = null
     @Volatile var alertsVersion = 0
 
+    // Khu dân cư & tuyến có camera
+    @Volatile var urban: Boolean? = null
+    @Volatile var urbanEst = true
+    @Volatile var camStreet: String? = null
+
     // Dải chữ cảnh báo (hiện kèm mọi âm thanh)
     @Volatile var alertText: String? = null
     @Volatile var alertUntil = 0L

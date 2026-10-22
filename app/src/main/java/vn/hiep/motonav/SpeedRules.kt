@@ -44,6 +44,19 @@ object SpeedRules {
         return LimitResult(min(estimateValue(way, urban), vehicleCap), true)
     }
 
+    /** Đoạn đường đang đi có trong khu đông dân cư không. Trả về (trong KDC?, ước tính?). */
+    fun urbanOf(way: Way, prefs: Prefs, urbanArea: Boolean?): Pair<Boolean, Boolean> {
+        for (k in listOf("maxspeed:motorcycle", "maxspeed")) {
+            val raw = way.tags[k]?.lowercase() ?: continue
+            if (raw.startsWith("vn:")) return Pair(raw.contains("urban"), false)
+        }
+        return when (prefs.areaMode) {
+            Prefs.AREA_URBAN -> Pair(true, false)
+            Prefs.AREA_RURAL -> Pair(false, false)
+            else -> Pair(urbanArea ?: !(way.highway.startsWith("motorway") || way.highway.startsWith("trunk")), true)
+        }
+    }
+
     private fun parseNumber(raw: String): Int? {
         val first = raw.split(';', '|').first().trim()
         val m = numberRe.matchEntire(first) ?: return null

@@ -257,6 +257,14 @@ class NavActivity : Activity() {
             visibility = View.GONE
         }
         speedBox.addView(camBox, LinearLayout.LayoutParams(dp(90f), -2).apply { topMargin = dp(6f) })
+        camStreetBadge = tv(12f, Color.WHITE, true).apply {
+            gravity = Gravity.CENTER
+            text = "📷 Tuyến có\ncamera phạt nguội"
+            background = rounded(Color.parseColor("#B23C00"), 8f)
+            setPadding(dp(4f), dp(4f), dp(4f), dp(4f))
+            visibility = View.GONE
+        }
+        speedBox.addView(camStreetBadge, LinearLayout.LayoutParams(dp(90f), -2).apply { topMargin = dp(6f) })
         // Biển tốc độ sắp đổi + đếm ngược (hiện khi còn ≤ 200 m)
         nextBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -321,6 +329,10 @@ class NavActivity : Activity() {
         }
 
         // Nút tam giác vàng nhạt báo cảnh báo, góc dưới phải (kiểu Waze)
+        urbanSign = UrbanSignView(this).apply {
+            elevation = dp(4f).toFloat()
+            visibility = View.GONE
+        }
         reportBtn = WarnButton(this).apply {
             elevation = dp(6f).toFloat()
             setOnClickListener { AppActions.markAlert(this@NavActivity) }
@@ -332,6 +344,8 @@ class NavActivity : Activity() {
     private lateinit var nextSign: SpeedSignView
     private lateinit var nextDist: TextView
     private lateinit var reportBtn: WarnButton
+    private lateinit var urbanSign: UrbanSignView
+    private lateinit var camStreetBadge: TextView
     private lateinit var btnRow: LinearLayout
 
     // ---------- Nhà / Công ty / Yêu thích ----------
@@ -516,12 +530,17 @@ class NavActivity : Activity() {
 
             // Nút "!" góc dưới phải, nằm trên thanh dưới
             root.addView(reportBtn, FrameLayout.LayoutParams(dp(68f), dp(62f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(14f) })
+            // Biển khu dân cư ngay trên nút tam giác
+            root.addView(urbanSign, FrameLayout.LayoutParams(dp(62f), dp(62f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(17f) })
             bottomBar.addOnLayoutChangeListener { _, _, top2, _, bottom2, _, _, _, _ ->
                 val lp = reportBtn.layoutParams as FrameLayout.LayoutParams
                 val m = (bottom2 - top2) + dp(14f)
                 if (lp.bottomMargin != m) {
                     lp.bottomMargin = m
                     reportBtn.requestLayout()
+                    val up = urbanSign.layoutParams as FrameLayout.LayoutParams
+                    up.bottomMargin = m + dp(62f) + dp(10f)
+                    urbanSign.requestLayout()
                 }
             }
         } else {
@@ -560,6 +579,12 @@ class NavActivity : Activity() {
                 reportBtn,
                 FrameLayout.LayoutParams(dp(64f), dp(58f), Gravity.BOTTOM or Gravity.END).apply {
                     rightMargin = dp(14f); bottomMargin = dp(14f)
+                },
+            )
+            mapBox.addView(
+                urbanSign,
+                FrameLayout.LayoutParams(dp(58f), dp(58f), Gravity.BOTTOM or Gravity.END).apply {
+                    rightMargin = dp(17f); bottomMargin = dp(14f + 58f + 10f)
                 },
             )
             row.addView(mapBox, LinearLayout.LayoutParams(0, -1, 0.58f))
@@ -1268,6 +1293,9 @@ class NavActivity : Activity() {
         sign.estimated = Live.limitEstimated
         speedText.text = if (Live.gpsOk && Live.speedKmh >= 0) Live.speedKmh.toString() else "--"
         speedText.setTextColor(if (Live.overspeed) danger else Color.WHITE)
+        urbanSign.urban = Live.urban
+        urbanSign.estimated = Live.urbanEst
+        camStreetBadge.visibility = if (Live.camStreet != null) View.VISIBLE else View.GONE
         val nl = Live.nextLimit
         if (nl != null && Live.nextLimitDist in 0..200) {
             nextBox.visibility = View.VISIBLE
