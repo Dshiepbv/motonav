@@ -103,6 +103,68 @@ object VietMap {
         return Pair(la, lo)
     }
 
+    /** Tải file kiểu bản đồ và điền mã vào mọi link (VietMap để trống "apikey="). */
+    fun patchedStyle(key: String, night: Boolean): String {
+        val c = URL(styleUrl(key, night)).openConnection() as HttpURLConnection
+        val body: String
+        try {
+            c.connectTimeout = 12000
+            c.readTimeout = 20000
+            val code = c.responseCode
+            if (code != 200) throw RuntimeException("Tải kiểu bản đồ lỗi HTTP $code – kiểm tra mã Tilemap")
+            body = c.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } finally {
+            c.disconnect()
+        }
+        val k = enc(key)
+        val root = JSONObject(body)
+        fun withKey(u: String): String {
+            if (!u.contains("vietmap.vn")) return u
+            val base = u.replace(Regex("""([?&])apikey=[^&]*&?"""), "$1").trimEnd('?', '&')
+            return base + (if (base.contains('?')) "&" else "?") + "apikey=" + k
+        }
+        val sources = root.optJSONObject("sources")
+        if (sources != null) {
+            val it = sources.keys()
+            while (it.hasNext()) {
+                val src = sources.getJSONObject(it.next())
+                src.optJSONArray("tiles")?.let { arr ->
+                    for (i in 0 until arr.length()) arr.put(i, withKey(arr.getString(i)))
+                }
+                if (src.has("url")) src.put("url", withKey(src.getString("url")))
+            }
+        }
+        if (root.has("sprite") && root.get("sprite") is String) root.put("sprite", withKey(root.getString("sprite")))
+        if (root.has("glyphs")) root.put("glyphs", withKey(root.getString("glyphs")))
+        return root.toString()
+    }
+
+    /** Thử tải 1 mảnh bản đồ tại vị trí; trả về mã HTTP và link đã dùng. */
+    fun testTile(styleJson: String, lat: Double, lon: Double): Pair<Int, String> {
+        val root = JSONObject(styleJson)
+        val sources = root.optJSONObject("sources") ?: return Pair(-1, "không có nguồn")
+        var tpl: String? = null
+        val it = sources.keys()
+        while (it.hasNext() && tpl == null) {
+            tpl = sources.getJSONObject(it.next()).optJSONArray("tiles")?.optString(0)
+        }
+        if (tpl == null) return Pair(-1, "không có link mảnh bản đồ")
+        val z = 14
+        val n = 1 shl z
+        val x = ((lon + 180) / 360 * n).toInt()
+        val latR = Math.toRadians(lat)
+        val y = ((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2 * n).toInt()
+        val u = tpl.replace("{z}", "$z").replace("{x}", "$x").replace("{y}", "$y")
+        val c = URL(u).openConnection() as HttpURLConnection
+        return try {
+            c.connectTimeout = 10000
+            c.readTimeout = 15000
+            Pair(c.responseCode, u.substringBefore("apikey="))
+        } finally {
+            c.disconnect()
+        }
+    }
+
     fun autocomplete(key: String, text: String, focusLat: Double?, focusLon: Double?): List<Suggestion> {
         var url = "$BASE/autocomplete/v4?apikey=${enc(key)}&text=${enc(text)}&display_type=1"
         if (focusLat != null && focusLon != null) url += "&focus=" + ll(focusLat, focusLon)

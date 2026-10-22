@@ -513,12 +513,43 @@ class NavActivity : Activity() {
         MapHttp.key = key
         MapHttp.reset()
         styleError = null
-        m.setStyle(Style.Builder().fromUri(VietMap.styleUrl(key, isNight()))) { s ->
-            style = s
-            shownRouteVersion = -1
-            labelFont = findFont(s)
-            addLayers(s)
-            render()
+        val night = isNight()
+        io.execute {
+            val json = try {
+                VietMap.patchedStyle(key, night)
+            } catch (e: Exception) {
+                ui.post {
+                    styleError = e.message ?: "Không tải được kiểu bản đồ"
+                    render()
+                }
+                return@execute
+            }
+            ui.post {
+                m.setStyle(Style.Builder().fromJson(json)) { s ->
+                    style = s
+                    shownRouteVersion = -1
+                    labelFont = findFont(s)
+                    addLayers(s)
+                    render()
+                }
+            }
+            // Tự kiểm tra: tải thử 1 mảnh bản đồ tại vị trí hiện tại
+            if (Live.gpsOk) {
+                try {
+                    val (code, url) = VietMap.testTile(json, Live.lat, Live.lon)
+                    if (code !in 200..299 && code != 204) {
+                        ui.post {
+                            styleError = "Mảnh bản đồ lỗi HTTP $code ($url). Mã Tilemap có thể chưa được VietMap kích hoạt."
+                            render()
+                        }
+                    }
+                } catch (e: Exception) {
+                    ui.post {
+                        styleError = "Không tải thử được mảnh bản đồ: ${e.message}"
+                        render()
+                    }
+                }
+            }
         }
     }
 
