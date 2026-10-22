@@ -28,20 +28,20 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:label="Màn hình tốc độ"
+            android:launchMode="singleTask"
+            android:screenOrientation="unspecified" />
+
+        <activity
+            android:name=".NavActivity"
+            android:exported="true"
+            android:label="MotoNav"
             android:launchMode="singleTask"
             android:screenOrientation="unspecified">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
-
-        <activity
-            android:name=".NavActivity"
-            android:exported="true"
-            android:label="MotoNav dẫn đường"
-            android:launchMode="singleTask"
-            android:screenOrientation="unspecified">
             <!-- Google Maps → Chia sẻ → MotoNav -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

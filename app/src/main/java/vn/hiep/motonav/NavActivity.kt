@@ -115,6 +115,7 @@ class NavActivity : Activity() {
                 if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
                     follow = false
                     recenterBtn.visibility = View.VISIBLE
+                    btnRow.visibility = View.VISIBLE
                 }
             }
             m.addOnMapLongClickListener { p ->
@@ -203,7 +204,7 @@ class NavActivity : Activity() {
             setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
         }
         searchInput = EditText(this).apply {
-            hint = "🔍  Tìm địa điểm…"
+            hint = "🔍  Đi đâu?"
             setHintTextColor(muted)
             setTextColor(Color.WHITE)
             setSingleLine()
@@ -270,10 +271,71 @@ class NavActivity : Activity() {
             follow = true
         }
         btns.addView(endBtn, lp())
-        btns.addView(btn("⚙ Cài đặt", Color.parseColor("#252B33")) {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        }, lp())
         bottomBar.addView(btns)
+        btnRow = btns
+
+        // Nút ☰ (menu) góc trên trái
+        menuBtn = TextView(this).apply {
+            text = "☰"
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.argb(235, 22, 26, 32))
+                setStroke(dp(1f), Color.parseColor("#3A424C"))
+            }
+            elevation = dp(4f).toFloat()
+            setOnClickListener { showMenu() }
+        }
+
+        // Nút "!" báo cảnh báo góc dưới phải (kiểu Waze)
+        reportBtn = TextView(this).apply {
+            text = "!"
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#FF8C00"))
+                setStroke(dp(3f), Color.WHITE)
+            }
+            elevation = dp(6f).toFloat()
+            setOnClickListener { AppActions.markAlert(this@NavActivity) }
+        }
+    }
+
+    private lateinit var menuBtn: TextView
+    private lateinit var reportBtn: TextView
+    private lateinit var btnRow: LinearLayout
+
+    private fun showMenu() {
+        val items = arrayOf(
+            "⚙   Cài đặt",
+            "🗺   Mở Google Maps (ô nổi tốc độ)",
+            "⏱   Màn hình tốc độ lớn",
+            "⚠️   Báo cảnh báo tại đây",
+            if (Live.serviceRunning) "⏸   Tạm dừng theo dõi tốc độ" else "▶   Bật theo dõi tốc độ",
+        )
+        AlertDialog.Builder(this)
+            .setTitle("MotoNav")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> startActivity(Intent(this, SettingsActivity::class.java))
+                    1 -> AppActions.openGoogleMaps(this, prefs)
+                    2 -> startActivity(Intent(this, MainActivity::class.java))
+                    3 -> AppActions.markAlert(this)
+                    4 -> if (Live.serviceRunning) {
+                        Live.userStopped = true
+                        DriveService.stop(this)
+                    } else {
+                        Live.userStopped = false
+                        DriveService.start(this)
+                    }
+                }
+            }
+            .show()
     }
 
     private fun buildUi(): View {
@@ -285,23 +347,42 @@ class NavActivity : Activity() {
         if (!landscape) {
             // ---- Màn hình dọc: thẻ rẽ trên, bản đồ giữa, thanh dưới ----
             root.addView(mapView, FrameLayout.LayoutParams(-1, -1))
-            val top = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
+            // Hàng trên: nút ☰ + (thẻ rẽ / ô tìm kiếm)
+            val topRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
                 setPadding(dp(10f), dp(10f), dp(10f), 0)
             }
+            topRow.addView(menuBtn, LinearLayout.LayoutParams(dp(50f), dp(50f)).apply { rightMargin = dp(8f) })
+            val top = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             top.addView(turnCard, LinearLayout.LayoutParams(-1, -2))
             top.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             top.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
-            root.addView(top, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+            topRow.addView(top, LinearLayout.LayoutParams(0, -2, 1f))
+            root.addView(topRow, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
 
             bottomBar.background = rounded(Color.argb(242, 22, 26, 32), 0f)
             root.addView(bottomBar, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
-            root.addView(
-                speedBox,
-                FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
-                    leftMargin = dp(10f); bottomMargin = dp(150f)
-                },
-            )
+
+            // Ô biển giới hạn + tốc độ: sát cạnh trái, ở khoảng 1/3 màn hình từ trên xuống
+            root.addView(speedBox, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { leftMargin = dp(10f) })
+            root.post {
+                val h = root.height
+                val want = (h / 3) - speedBox.height / 2
+                val minTop = topRow.bottom + dp(8f)
+                (speedBox.layoutParams as FrameLayout.LayoutParams).topMargin = maxOf(want, minTop)
+                speedBox.requestLayout()
+            }
+
+            // Nút "!" góc dưới phải, nằm trên thanh dưới
+            root.addView(reportBtn, FrameLayout.LayoutParams(dp(64f), dp(64f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(14f) })
+            bottomBar.addOnLayoutChangeListener { _, _, top2, _, bottom2, _, _, _, _ ->
+                val lp = reportBtn.layoutParams as FrameLayout.LayoutParams
+                val m = (bottom2 - top2) + dp(14f)
+                if (lp.bottomMargin != m) {
+                    lp.bottomMargin = m
+                    reportBtn.requestLayout()
+                }
+            }
         } else {
             // ---- Màn hình ngang: bảng thông tin trái, bản đồ phải ----
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -312,6 +393,7 @@ class NavActivity : Activity() {
             }
             val scroll = ScrollView(this).apply { isFillViewport = true }
             val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            inner.addView(menuBtn, LinearLayout.LayoutParams(dp(50f), dp(50f)).apply { bottomMargin = dp(8f) })
             inner.addView(turnCard, LinearLayout.LayoutParams(-1, -2))
             inner.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             inner.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
@@ -324,8 +406,14 @@ class NavActivity : Activity() {
             mapBox.addView(mapView, FrameLayout.LayoutParams(-1, -1))
             mapBox.addView(
                 speedBox,
-                FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
-                    leftMargin = dp(10f); bottomMargin = dp(10f)
+                FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply {
+                    leftMargin = dp(10f); topMargin = dp(16f)
+                },
+            )
+            mapBox.addView(
+                reportBtn,
+                FrameLayout.LayoutParams(dp(60f), dp(60f), Gravity.BOTTOM or Gravity.END).apply {
+                    rightMargin = dp(14f); bottomMargin = dp(14f)
                 },
             )
             row.addView(mapBox, LinearLayout.LayoutParams(0, -1, 0.58f))
@@ -469,7 +557,7 @@ class NavActivity : Activity() {
             return
         }
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 7)
+            requestPermissions(basePerms(), 7)
             toast("Cho phép vị trí rồi chọn lại điểm đến")
             return
         }
@@ -492,7 +580,7 @@ class NavActivity : Activity() {
                 DriveService.start(this)
             }
         } else {
-            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 7)
+            requestPermissions(basePerms(), 7)
         }
     }
 
@@ -501,6 +589,12 @@ class NavActivity : Activity() {
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             DriveService.start(this)
         }
+    }
+
+    private fun basePerms(): Array<String> {
+        val l = arrayListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (android.os.Build.VERSION.SDK_INT >= 33) l.add(Manifest.permission.POST_NOTIFICATIONS)
+        return l.toTypedArray()
     }
 
     private fun askKey(after: (() -> Unit)? = null) {
@@ -895,6 +989,7 @@ class NavActivity : Activity() {
         }
         searchBox.visibility = if (nav) View.GONE else View.VISIBLE
         endBtn.visibility = if (nav) View.VISIBLE else View.GONE
+        btnRow.visibility = if (endBtn.visibility == View.VISIBLE || recenterBtn.visibility == View.VISIBLE) View.VISIBLE else View.GONE
 
         // Cảnh báo chữ
         val a = Live.activeAlert()
