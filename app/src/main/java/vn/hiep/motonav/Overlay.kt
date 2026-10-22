@@ -41,6 +41,8 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
     private lateinit var speed: TextView
     private lateinit var unit: TextView
     private lateinit var camBox: LinearLayout
+    private lateinit var signsCol: LinearLayout
+    private var shownSigns: List<Triple<Int, Int, Int>>? = null
     private lateinit var camTitle: TextView
     private lateinit var camDist: TextView
     private var builtScale = -1f
@@ -180,6 +182,9 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
         }
         camBox.addView(camDist, LinearLayout.LayoutParams(-2, -2))
         box.addView(camBox, LinearLayout.LayoutParams(d(96f), -2).apply { topMargin = d(6f) })
+        signsCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+        box.addView(signsCol, LinearLayout.LayoutParams(-2, -2))
+        shownSigns = null
 
         val p = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -263,6 +268,26 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
 
     private fun render() {
         if (root == null) return
+        // Biển báo phía trước
+        val sa = Live.signsAhead
+        if (sa != shownSigns) {
+            shownSigns = sa
+            signsCol.removeAllViews()
+            val sz = px(40f * builtScale)
+            for ((t, v, dist) in sa) {
+                signsCol.addView(
+                    android.widget.ImageView(ctx).apply { setImageBitmap(SignType.icon(t, v, sz)) },
+                    LinearLayout.LayoutParams(sz, sz).apply { topMargin = px(6f * builtScale) },
+                )
+                signsCol.addView(TextView(ctx).apply {
+                    setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14f * builtScale)
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER
+                    text = if (dist < 0) "Đoạn này" else "$dist m"
+                })
+            }
+        }
         // Dải chữ cảnh báo
         val a = Live.activeAlert()
         if (a != null) {

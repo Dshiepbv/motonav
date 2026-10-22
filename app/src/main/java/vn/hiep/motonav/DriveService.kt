@@ -330,6 +330,7 @@ class DriveService : Service(), LocationListener {
         updateJunctions(lat, lon)
         updateLimitAhead()
         updateAlertIcons(lat, lon)
+        updateSigns(lat, lon, movingHeading)
         if (!Live.ownNav) checkTurn()
         checkCameras(snap, lat, lon, speedMps, movingHeading)
         Live.changed()
@@ -481,6 +482,47 @@ class DriveService : Service(), LocationListener {
         sb.append("]}")
         Live.alertsJson = sb.toString()
         Live.alertsVersion++
+    }
+
+    // ---------- Biển báo phía trước ----------
+
+    private val announcedSigns = HashSet<String>()
+
+    private fun updateSigns(lat: Double, lon: Double, hdg: Double?) {
+        val snap = snapshot
+        val out = ArrayList<Triple<Int, Int, Int>>()
+        currentWay?.let { w -> if (w.parkingRule != 0) out.add(Triple(w.parkingRule, 0, -1)) }
+        if (snap != null && hdg != null) {
+            val way = currentWay
+            val found = ArrayList<Pair<RoadSign, Double>>()
+            for (sg in snap.signs) {
+                if (sg.type == SignType.SPEED) continue // giới hạn tốc độ đã có ô riêng
+                val d = Geo.distance(lat, lon, sg.lat, sg.lon)
+                if (d > 300) {
+                    if (d > 500) announcedSigns.remove(sg.id)
+                    continue
+                }
+                if (sg.heading >= 0 && Geo.angleDiff(sg.heading, hdg) > 60) continue
+                val diff = Geo.angleDiff(hdg, Geo.bearing(lat, lon, sg.lat, sg.lon))
+                val near = way != null && distToWay(way, Camera(sg.id, sg.lat, sg.lon, 0, -1.0, false)) < 25
+                val ahead = when {
+                    d < 25 -> diff < 100
+                    near -> diff < 70
+                    else -> diff < 15
+                }
+                if (ahead) found.add(Pair(sg, d))
+            }
+            found.sortBy { it.second }
+            for ((sg, d) in found) {
+                if (out.size >= 3) break
+                out.add(Triple(sg.type, sg.value, d.roundToInt()))
+                if (SignType.important(sg.type) && d <= 120 && announcedSigns.add(sg.id)) {
+                    val txt = SignType.label(sg.type, sg.value)
+                    alert("$txt · ${d.roundToInt()} m", "Phía trước, $txt", showMs = 5000)
+                }
+            }
+        }
+        Live.signsAhead = out
     }
 
     // ---------- Khu đông dân cư ----------

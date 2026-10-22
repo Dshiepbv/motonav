@@ -30,6 +30,20 @@ class Way(
 
     val lanes: Int? = tags["lanes"]?.trim()?.toIntOrNull()
 
+    /** Cấm dừng/đỗ dọc đoạn đường (bên phải theo chiều xe chạy ở VN, hoặc cả hai bên). */
+    val parkingRule: Int = run {
+        var rule = 0
+        for (side in listOf("both", "right")) {
+            val vals = listOfNotNull(
+                tags["parking:$side"], tags["parking:lane:$side"], tags["parking:$side:restriction"],
+                tags["parking:condition:$side"], tags["parking:$side:condition"],
+            ).joinToString(";").lowercase()
+            if (vals.contains("no_stopping")) return@run SignType.NO_STOP
+            if (vals.contains("no_parking") || vals.split(';').any { it == "no" }) rule = SignType.NO_PARK
+        }
+        rule
+    }
+
     val minLat = lats.minOrNull() ?: 0.0
     val maxLat = lats.maxOrNull() ?: 0.0
     val minLon = lons.minOrNull() ?: 0.0
@@ -129,6 +143,7 @@ class OsmSnapshot(
     /** true = phường/thị trấn, false = xã, null = không rõ. */
     val urbanArea: Boolean?,
     val areaName: String?,
+    val signs: List<RoadSign> = emptyList(),
 )
 
 /** Tải đường và camera quanh vị trí từ OpenStreetMap (Overpass API). */
@@ -164,6 +179,12 @@ object Overpass {
             append("nwr(around:$wayRadius,$p)[\"amenity\"=\"marketplace\"];\n")
             append(");\n")
             append("out center tags;\n")
+            // Biển báo (cấm rẽ, cấm dừng đỗ, nhường đường, nguy hiểm…)
+            append("(\n")
+            append("node(around:$wayRadius,$p)[\"traffic_sign\"];\n")
+            append("node(around:$wayRadius,$p)[\"highway\"~\"^(stop|give_way)\$\"];\n")
+            append(");\n")
+            append("out;\n")
             append("is_in($p)->.a;\n")
             append("area.a[\"boundary\"=\"administrative\"];\n")
             append("out tags;\n")
@@ -205,6 +226,7 @@ object Overpass {
         val els = root.optJSONArray("elements") ?: throw RuntimeException("Dữ liệu rỗng")
         val ways = ArrayList<Way>()
         val cams = ArrayList<Camera>()
+        val signs = ArrayList<RoadSign>()
         var bestAreaLevel = -1
         var urban: Boolean? = null
         var areaName: String? = null
@@ -251,6 +273,19 @@ object Overpass {
                     ways.add(Way(e.optLong("id"), tags, la, lo))
                 }
                 "node" -> {
+                    val isCam = tags["highway"] == "speed_camera" || tags.containsKey("enforcement") ||
+                        tags["man_made"] == "surveillance" || tags.containsKey("hazard") ||
+                        tags["railway"] == "level_crossing" || tags["railway"] == "crossing" ||
+                        tags["amenity"] == "school" || tags["amenity"] == "marketplace"
+                    if (!isCam) {
+                        val sp = SignType.parse(tags)
+                        if (sp != null) {
+                            signs.add(
+                                RoadSign("s" + e.optLong("id"), e.optDouble("lat"), e.optDouble("lon"), sp.first, sp.second, SignType.headingOf(tags)),
+                            )
+                        }
+                        continue
+                    }
                     val kind = when {
                         tags["amenity"] == "school" -> CamKind.SCHOOL
                         tags["amenity"] == "marketplace" -> CamKind.MARKET
@@ -285,6 +320,6 @@ object Overpass {
                 }
             }
         }
-        return OsmSnapshot(lat, lon, ways, cams, urban, areaName)
+        return OsmSnapshot(lat, lon, ways, cams, urban, areaName, signs)
     }
 }

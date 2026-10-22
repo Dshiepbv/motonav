@@ -279,6 +279,9 @@ class NavActivity : Activity() {
         nextDist = tv(16f, Color.parseColor("#FFD60A"), true).apply { gravity = Gravity.CENTER }
         nextBox.addView(nextDist)
         speedBox.addView(nextBox, LinearLayout.LayoutParams(dp(90f), -2).apply { topMargin = dp(6f) })
+        // Biển báo phía trước (cấm rẽ, cấm dừng đỗ…) kèm số mét
+        signsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+        speedBox.addView(signsBox, LinearLayout.LayoutParams(dp(90f), -2).apply { topMargin = dp(4f) })
 
         bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -341,6 +344,8 @@ class NavActivity : Activity() {
 
     private lateinit var menuBtn: TextView
     private lateinit var nextBox: LinearLayout
+    private lateinit var signsBox: LinearLayout
+    private var shownSigns: List<Triple<Int, Int, Int>>? = null
     private lateinit var nextSign: SpeedSignView
     private lateinit var nextDist: TextView
     private lateinit var reportBtn: WarnButton
@@ -1293,6 +1298,18 @@ class NavActivity : Activity() {
         sign.estimated = Live.limitEstimated
         speedText.text = if (Live.gpsOk && Live.speedKmh >= 0) Live.speedKmh.toString() else "--"
         speedText.setTextColor(if (Live.overspeed) danger else Color.WHITE)
+        val sa = Live.signsAhead
+        if (sa != shownSigns) {
+            shownSigns = sa
+            signsBox.removeAllViews()
+            for ((t, v, d) in sa) {
+                signsBox.addView(ImageView(this).apply { setImageBitmap(SignType.icon(t, v, dp(44f))) }, LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { topMargin = dp(6f) })
+                signsBox.addView(tv(15f, Color.WHITE, true).apply {
+                    gravity = Gravity.CENTER
+                    text = if (d < 0) "Đoạn này" else "$d m"
+                })
+            }
+        }
         urbanSign.urban = Live.urban
         urbanSign.estimated = Live.urbanEst
         camStreetBadge.visibility = if (Live.camStreet != null) View.VISIBLE else View.GONE

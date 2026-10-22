@@ -88,6 +88,9 @@ object Live {
     @Volatile var urbanEst = true
     @Volatile var camStreet: String? = null
 
+    /** Biển báo phía trước: (loại, giá trị, khoảng cách m; -1 = đoạn đang đi). Tối đa 3. */
+    @Volatile var signsAhead: List<Triple<Int, Int, Int>> = emptyList()
+
     // Dải chữ cảnh báo (hiện kèm mọi âm thanh)
     @Volatile var alertText: String? = null
     @Volatile var alertUntil = 0L
