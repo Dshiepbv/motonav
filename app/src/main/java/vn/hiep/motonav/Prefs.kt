@@ -51,6 +51,11 @@ class Prefs(ctx: Context) {
         get() = sp.getString("vmkey", "") ?: ""
         set(v) = sp.edit().putString("vmkey", v.trim()).apply()
 
+    /** Mã của "Tilemap consumer" trên VietMap (để hiện bản đồ); trống thì dùng mã API. */
+    var vietmapTileKey: String
+        get() = sp.getString("vmtile", "") ?: ""
+        set(v) = sp.edit().putString("vmtile", v.trim()).apply()
+
     companion object {
         const val AREA_AUTO = 0
         const val AREA_URBAN = 1

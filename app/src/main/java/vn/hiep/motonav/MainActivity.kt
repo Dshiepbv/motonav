@@ -353,23 +353,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun askVietmapKey() {
-        val input = android.widget.EditText(this).apply {
-            setText(prefs.vietmapKey)
-            hint = "Dán mã API VietMap vào đây"
-            setSingleLine()
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Mã API VietMap")
-            .setMessage("Đăng ký miễn phí tại maps.vietmap.vn → Console → API key. Bật các dịch vụ Route, Tilemap, Autocomplete, Place.")
-            .setView(input)
-            .setPositiveButton("Lưu") { _, _ -> prefs.vietmapKey = input.text.toString() }
-            .setNeutralButton("Mở trang đăng ký") { _, _ ->
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.vietmap.vn/console-v2/")))
-            }
-            .setNegativeButton("Đóng", null)
-            .show()
-    }
+    private fun askVietmapKey() = KeyDialog.show(this, prefs)
 
     private fun askOverlayPermission() {
         AlertDialog.Builder(this)
@@ -478,7 +462,7 @@ class MainActivity : Activity() {
                 else -> "Vừa"
             },
             "Theo dõi tốc độ & camera: " + if (Live.serviceRunning) "Đang chạy (chạm để dừng)" else "Đã dừng (chạm để chạy)",
-            "Mã API VietMap (dẫn đường riêng): " + if (prefs.vietmapKey.isBlank()) "chưa nhập" else "đã nhập",
+            "Mã VietMap (dẫn đường riêng): " + if (prefs.vietmapKey.isBlank() || prefs.vietmapTileKey.isBlank()) "chưa nhập đủ 2 mã" else "đã nhập",
         )
         AlertDialog.Builder(this)
             .setTitle("Cài đặt")

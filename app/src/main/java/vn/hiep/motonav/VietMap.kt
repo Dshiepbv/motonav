@@ -44,7 +44,7 @@ object VietMap {
         val sb = StringBuilder("$BASE/route/v4?apikey=").append(enc(key))
             .append("&point=").append(ll(fromLat, fromLon))
             .append("&point=").append(ll(toLat, toLon))
-            .append("&vehicle=motorcycle&points_encoded=true")
+            .append("&vehicle=motorcycle&points_encoded=true&avoid=ferry")
         if (heading != null && heading >= 0) sb.append("&heading=").append(heading.toInt())
         val root = JSONObject(get(sb.toString()))
         val code = root.optString("code", "OK")

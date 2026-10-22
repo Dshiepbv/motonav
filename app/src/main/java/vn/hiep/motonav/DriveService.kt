@@ -86,6 +86,7 @@ class DriveService : Service(), LocationListener {
 
     private var currentWayId: Long? = null
     private var currentWay: Way? = null
+    private var warnedMotorway: Long? = null
     private var noMatchCount = 0
     private var pendingKey: String? = null
     private var pendingCount = 0
@@ -277,6 +278,10 @@ class DriveService : Service(), LocationListener {
                 currentWayId = m.way.id
                 currentWay = m.way
                 Live.street = m.way.name ?: roadTypeName(m.way.highway)
+                if (m.way.highway == "motorway" && m.way.id != warnedMotorway && speedMps > 3) {
+                    warnedMotorway = m.way.id
+                    alert("CẢNH BÁO: đây là đường cao tốc, xe máy không được đi!", "Cảnh báo, xe máy không được đi đường cao tốc", urgent = true, showMs = 10000)
+                }
                 val res = SpeedRules.resolve(m.way, m.forward, prefs, snap.urbanArea)
                 val key = res?.let { "${it.kmh}/${it.estimated}" } ?: "none"
                 if (key == pendingKey) pendingCount++ else {

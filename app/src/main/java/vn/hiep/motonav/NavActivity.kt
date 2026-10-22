@@ -426,7 +426,7 @@ class NavActivity : Activity() {
     // ---------- Mã API ----------
 
     private fun ensureReady() {
-        if (prefs.vietmapKey.isBlank()) askKey()
+        if (prefs.vietmapKey.isBlank() || prefs.vietmapTileKey.isBlank()) askKey()
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             if (!Live.serviceRunning) {
                 Live.userStopped = false
@@ -445,28 +445,10 @@ class NavActivity : Activity() {
     }
 
     private fun askKey(after: (() -> Unit)? = null) {
-        val input = EditText(this).apply {
-            setText(prefs.vietmapKey)
-            hint = "Dán mã API VietMap vào đây"
-            setSingleLine()
+        KeyDialog.show(this, prefs) {
+            loadStyle()
+            after?.invoke()
         }
-        AlertDialog.Builder(this)
-            .setTitle("Mã API VietMap")
-            .setMessage(
-                "Dùng để tìm đường xe máy và hiện bản đồ. Đăng ký miễn phí tại maps.vietmap.vn " +
-                    "(Console → API key), bật dịch vụ Route, Tilemap, Autocomplete, Place.",
-            )
-            .setView(input)
-            .setPositiveButton("Lưu") { _, _ ->
-                prefs.vietmapKey = input.text.toString()
-                loadStyle()
-                after?.invoke()
-            }
-            .setNeutralButton("Mở trang đăng ký") { _, _ ->
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.vietmap.vn/console-v2/")))
-            }
-            .setNegativeButton("Đóng", null)
-            .show()
     }
 
     // ---------- Bản đồ ----------
@@ -478,7 +460,7 @@ class NavActivity : Activity() {
 
     private fun loadStyle() {
         val m = map ?: return
-        val key = prefs.vietmapKey
+        val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
         if (key.isBlank()) return
         m.setStyle(Style.Builder().fromUri(VietMap.styleUrl(key, isNight()))) { s ->
             style = s
