@@ -30,6 +30,13 @@ object KeyDialog {
             setSingleLine()
         }
         box.addView(tile)
+        box.addView(TextView(a).apply { text = "\nLink kiểu bản đồ (tuỳ chọn) – link style.json mở được trong trình duyệt:" })
+        val styleUrl = EditText(a).apply {
+            setText(prefs.vietmapStyleUrl)
+            hint = "https://maps.vietmap.vn/…/style.json?apikey=…"
+            setSingleLine()
+        }
+        box.addView(styleUrl)
         AlertDialog.Builder(a)
             .setTitle("Mã VietMap")
             .setMessage("Đăng ký miễn phí tại maps.vietmap.vn → Console. VietMap tách 2 mã: mã API và mã Tilemap.")
@@ -37,6 +44,7 @@ object KeyDialog {
             .setPositiveButton("Lưu") { _, _ ->
                 prefs.vietmapKey = api.text.toString()
                 prefs.vietmapTileKey = tile.text.toString()
+                prefs.vietmapStyleUrl = styleUrl.text.toString()
                 after?.invoke()
             }
             .setNeutralButton("Mở VietMap Console") { _, _ ->

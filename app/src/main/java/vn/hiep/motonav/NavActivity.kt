@@ -511,7 +511,7 @@ class NavActivity : Activity() {
         val night = isNight()
         val useVm = prefs.mapSource == 1
         val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
-        loadedStyleId = "${prefs.mapSource}/$key/$night"
+        loadedStyleId = "${prefs.mapSource}/$key/$night/${prefs.vietmapStyleUrl}"
         styleError = null
         MapHttp.reset()
         val onLoaded = { s: Style ->
@@ -527,29 +527,22 @@ class NavActivity : Activity() {
             return
         }
         MapHttp.key = key
+        val custom = prefs.vietmapStyleUrl
+        val lat = if (Live.gpsOk) Live.lat else 10.7769
+        val lon = if (Live.gpsOk) Live.lon else 106.7009
         io.execute {
-            val json = try {
-                VietMap.patchedStyle(key, night)
+            val res = try {
+                VietMap.findWorkingStyle(key, night, custom, lat, lon)
             } catch (e: Exception) {
                 ui.post {
-                    styleError = (e.message ?: "Không tải được kiểu bản đồ VietMap") + " → đang dùng OpenFreeMap"
+                    styleError = (e.message ?: "Không tải được bản đồ VietMap") + " → đang dùng OpenFreeMap"
                     m.setStyle(Style.Builder().fromUri(OFM_STYLE)) { s -> onLoaded(s) }
                 }
                 return@execute
             }
-            ui.post { m.setStyle(Style.Builder().fromJson(json)) { s -> onLoaded(s) } }
-            // Tự kiểm tra: tải thử 1 mảnh bản đồ
-            val lat = if (Live.gpsOk) Live.lat else 10.7769
-            val lon = if (Live.gpsOk) Live.lon else 106.7009
-            val diag = try {
-                val (code, url) = VietMap.testTile(json, lat, lon)
-                "Kiểm tra VietMap: mảnh bản đồ HTTP $code ($url)"
-            } catch (e: Exception) {
-                "Kiểm tra VietMap: lỗi ${e.message}"
-            }
             ui.post {
-                vmDiag = diag
-                render()
+                vmDiag = "VietMap: " + res.url.substringAfter("vietmap.vn").substringBefore("?") + " · " + res.log
+                m.setStyle(Style.Builder().fromJson(res.json)) { s -> onLoaded(s) }
             }
         }
     }
@@ -825,7 +818,7 @@ class NavActivity : Activity() {
         Live.addListener(listener)
         // Quay lại từ Cài đặt: đổi mã hoặc chế độ đêm thì tải lại bản đồ
         val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
-        if (map != null && loadedStyleId != null && loadedStyleId != "${prefs.mapSource}/$key/${isNight()}") loadStyle()
+        if (map != null && loadedStyleId != null && loadedStyleId != "${prefs.mapSource}/$key/${isNight()}/${prefs.vietmapStyleUrl}") loadStyle()
         render()
     }
 

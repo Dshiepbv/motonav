@@ -73,6 +73,11 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("mapSource", 0)
         set(v) = sp.edit().putInt("mapSource", v).apply()
 
+    /** Link kiểu bản đồ VietMap do người dùng dán (tuỳ chọn). */
+    var vietmapStyleUrl: String
+        get() = sp.getString("vmstyle", "") ?: ""
+        set(v) = sp.edit().putString("vmstyle", v.trim()).apply()
+
     companion object {
         const val AREA_AUTO = 0
         const val AREA_URBAN = 1

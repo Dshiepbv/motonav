@@ -103,24 +103,44 @@ object VietMap {
         return Pair(la, lo)
     }
 
-    /** Tải file kiểu bản đồ và điền mã vào mọi link (VietMap để trống "apikey="). */
-    fun patchedStyle(key: String, night: Boolean): String {
-        val c = URL(styleUrl(key, night)).openConnection() as HttpURLConnection
-        val body: String
+    /** Các link kiểu bản đồ VietMap đã biết (mỗi loại tài khoản dùng một link khác nhau). */
+    fun styleCandidates(key: String, night: Boolean, custom: String): List<String> {
+        val k = enc(key)
+        val list = ArrayList<String>()
+        if (custom.isNotBlank()) {
+            list.add(if (custom.contains("apikey=")) custom else custom + (if (custom.contains('?')) "&" else "?") + "apikey=" + k)
+        }
+        if (night) {
+            list.add("https://maps.vietmap.vn/mt/dm/style.json?apikey=$k")
+            list.add("https://maps.vietmap.vn/api/maps/dark/styles.json?apikey=$k")
+        }
+        list.add("https://maps.vietmap.vn/mt/tm/style.json?apikey=$k")
+        list.add("https://maps.vietmap.vn/api/maps/light/styles.json?apikey=$k")
+        list.add("https://maps.vietmap.vn/maps/styles/${if (night) "dm" else "tm"}/style.json?apikey=$k")
+        return list.distinct()
+    }
+
+    private fun download(url: String): Pair<Int, String?> {
+        val c = URL(url).openConnection() as HttpURLConnection
         try {
             c.connectTimeout = 12000
             c.readTimeout = 20000
             val code = c.responseCode
-            if (code != 200) throw RuntimeException("Tải kiểu bản đồ lỗi HTTP $code – kiểm tra mã Tilemap")
-            body = c.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            if (code != 200) return Pair(code, null)
+            return Pair(code, c.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
         } finally {
             c.disconnect()
         }
+    }
+
+    /** Tải file kiểu bản đồ và điền mã vào mọi link còn trống "apikey=". */
+    fun patchStyle(body: String, key: String): String {
         val k = enc(key)
         val root = JSONObject(body)
         fun withKey(u: String): String {
             if (!u.contains("vietmap.vn")) return u
-            val base = u.replace(Regex("""([?&])apikey=[^&]*&?"""), "$1").trimEnd('?', '&')
+            if (Regex("""apikey=[^&]+""").containsMatchIn(u)) return u // đã có mã → giữ nguyên
+            val base = u.replace(Regex("""([?&])apikey=&?"""), "$1").trimEnd('?', '&')
             return base + (if (base.contains('?')) "&" else "?") + "apikey=" + k
         }
         val sources = root.optJSONObject("sources")
@@ -137,6 +157,33 @@ object VietMap {
         if (root.has("sprite") && root.get("sprite") is String) root.put("sprite", withKey(root.getString("sprite")))
         if (root.has("glyphs")) root.put("glyphs", withKey(root.getString("glyphs")))
         return root.toString()
+    }
+
+    class StyleResult(val json: String, val url: String, val log: String)
+
+    /** Thử lần lượt các link, chọn link nào tải được mảnh bản đồ thật. */
+    fun findWorkingStyle(key: String, night: Boolean, custom: String, lat: Double, lon: Double): StyleResult {
+        val log = StringBuilder()
+        var fallback: StyleResult? = null
+        for (u in styleCandidates(key, night, custom)) {
+            val shortName = u.substringAfter("vietmap.vn").substringBefore("?")
+            try {
+                val (code, body) = download(u)
+                if (body == null) {
+                    log.append("$shortName: HTTP $code; ")
+                    continue
+                }
+                val json = patchStyle(body, key)
+                val (tcode, _) = testTile(json, lat, lon)
+                log.append("$shortName: mảnh $tcode; ")
+                if (tcode in 200..299) return StyleResult(json, u, log.toString())
+                if (fallback == null) fallback = StyleResult(json, u, "")
+            } catch (e: Exception) {
+                log.append("$shortName: ${e.javaClass.simpleName}; ")
+            }
+        }
+        fallback?.let { return StyleResult(it.json, it.url, log.toString()) }
+        throw RuntimeException("Không link kiểu bản đồ VietMap nào dùng được: $log")
     }
 
     /** Thử tải 1 mảnh bản đồ tại vị trí; trả về mã HTTP và link đã dùng. */
