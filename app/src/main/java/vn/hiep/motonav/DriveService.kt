@@ -95,6 +95,7 @@ class DriveService : Service(), LocationListener {
     private var currentWay: Way? = null
     private var warnedMotorway: Long? = null
     private var noMatchCount = 0
+    private var logMatchKey = ""
     private var matchMax = MATCH_MAX
     private var pendingKey: String? = null
     private var pendingCount = 0
@@ -110,6 +111,7 @@ class DriveService : Service(), LocationListener {
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
+        try { TripLog.start(this) } catch (_: Exception) {}
         voice = Voice(this)
         overlay = Overlay(this, prefs)
         nav = NavEngine(prefs, navExecutor) { text, speech, urgent -> alert(text, speech, urgent = urgent) }
@@ -226,6 +228,7 @@ class DriveService : Service(), LocationListener {
         Live.speedKmh = -1
         Live.status = "Đã dừng"
         Live.changed()
+        TripLog.stop()
         super.onDestroy()
     }
 
@@ -290,6 +293,7 @@ class DriveService : Service(), LocationListener {
     private val startedAt = SystemClock.elapsedRealtime()
 
     override fun onLocationChanged(loc: Location) {
+        TripLog.fix(loc)
         val now = SystemClock.elapsedRealtime()
         if (loc.provider == LocationManager.GPS_PROVIDER) lastGpsFix = now
         else if (now - lastGpsFix < 2500) return
@@ -374,8 +378,15 @@ class DriveService : Service(), LocationListener {
                 }
                 // Đoạn đường không xác định được tốc độ: giữ biển cũ, chỉ xoá nếu kéo dài ~6 giây
                 if (pendingCount >= (if (res == null) 6 else 2)) applyLimit(res)
+                val lk = "${m.way.id}/$key"
+                if (lk != logMatchKey) {
+                    logMatchKey = lk
+                    TripLog.ev("match", "way" to m.way.id, "name" to m.way.name, "hw" to m.way.highway,
+                        "lim" to res?.kmh, "est" to res?.estimated, "shown" to shownLimit?.kmh, "score" to m.score, "mm" to matchMax.toDouble())
+                }
             } else {
                 noMatchCount++
+                if (noMatchCount == 1 || noMatchCount == 12) TripLog.ev("nomatch", "n" to noMatchCount, "mm" to matchMax.toDouble())
                 // Mất khớp đường: giữ biển tốc độ cũ ~12 giây (GPS chập chờn) rồi mới xoá
                 if (noMatchCount >= 12) {
                     currentWayId = null
@@ -406,6 +417,7 @@ class DriveService : Service(), LocationListener {
      * luôn có tiếng bíp, và đọc thành tiếng nếu bật Giọng nói.
      */
     private fun alert(text: String, speech: String = text, beep: Boolean = true, urgent: Boolean = false, showMs: Long = 6000) {
+        TripLog.ev("alert", "text" to text, "urgent" to urgent)
         Live.alertText = text
         Live.alertUntil = SystemClock.elapsedRealtime() + showMs
         Live.alertUrgent = urgent

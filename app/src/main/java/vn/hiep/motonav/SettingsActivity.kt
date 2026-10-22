@@ -299,6 +299,24 @@ class SettingsActivity : Activity() {
 
         header("Hệ thống")
         action(
+            "Gửi nhật ký chuyến đi",
+            "Gửi các chuyến gần nhất (đã nén) qua Zalo / Drive / Gmail để kiểm tra lỗi. Nhật ký chỉ lưu trong app, tự xoá sau 7 ngày",
+        ) {
+            val files = TripLog.files(this).take(3)
+            if (files.isEmpty()) {
+                toast("Chưa có nhật ký nào")
+            } else {
+                val uris = ArrayList(files.map { TripLogProvider.uri(this, it) })
+                val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = "application/gzip"
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                    putExtra(Intent.EXTRA_SUBJECT, "Nhật ký MotoNav")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(send, "Gửi nhật ký"))
+            }
+        }
+        action(
             "Cập nhật phần mềm",
             "Đang dùng bản ${Updater.currentVersion(this)} · tải bản mới từ GitHub và cài luôn (không lưu file trong máy)",
             Color.parseColor("#7CC4FF"),

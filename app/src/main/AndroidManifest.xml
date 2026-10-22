@@ -73,6 +73,12 @@
             android:exported="false"
             android:label="Cài đặt" />
 
+        <provider
+            android:name=".TripLogProvider"
+            android:authorities="${applicationId}.triplog"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <receiver
             android:name=".InstallReceiver"
             android:exported="false" />

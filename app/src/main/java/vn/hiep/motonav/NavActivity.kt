@@ -552,8 +552,42 @@ class NavActivity : Activity() {
             .show()
     }
 
+    /** Ghi chú sự cố ngay lúc đang chạy: lưu kèm thời gian + vị trí vào nhật ký chuyến đi. */
+    private fun noteDialog() {
+        val kinds = arrayOf(
+            "Biển tốc độ sai / mất biển",
+            "Bản đồ giật, nháy, xoay lung tung",
+            "Tìm đường sai / bắt quay đầu",
+            "Báo lệch tuyến sai",
+            "Cảnh báo sai (camera, biển báo)",
+            "Tên đường 3D sai / lộn xộn",
+            "Khác (gõ chữ)",
+        )
+        AlertDialog.Builder(this)
+            .setTitle("Ghi chú sự cố")
+            .setItems(kinds) { _, i ->
+                if (i == kinds.size - 1) {
+                    val ed = EditText(this).apply { hint = "Mô tả ngắn…" }
+                    AlertDialog.Builder(this).setTitle("Ghi chú").setView(ed)
+                        .setPositiveButton("Lưu") { _, _ -> saveNote(ed.text.toString()) }
+                        .setNegativeButton("Huỷ", null).show()
+                } else {
+                    saveNote(kinds[i])
+                }
+            }
+            .setNegativeButton("Huỷ", null)
+            .show()
+    }
+
+    private fun saveNote(text: String) {
+        TripLog.ev("note", "text" to text, "lat" to Live.lat, "lon" to Live.lon, "spd" to Live.speedKmh,
+            "limit" to Live.limit, "street" to Live.street, "nav" to Live.ownNav, "off" to Live.offRoute)
+        toast("Đã ghi vào nhật ký: $text")
+    }
+
     private fun showMenu() {
         val items = arrayOf(
+            "📝   Ghi chú sự cố (vào nhật ký)",
             "⚙   Cài đặt",
             "🗺   Mở Google Maps",
             "⏱   Màn hình tốc độ lớn",
@@ -563,10 +597,11 @@ class NavActivity : Activity() {
             .setTitle("MotoNav")
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> startActivity(Intent(this, SettingsActivity::class.java))
-                    1 -> AppActions.openGoogleMaps(this, prefs)
-                    2 -> startActivity(Intent(this, MainActivity::class.java))
-                    3 -> if (Live.serviceRunning) {
+                    0 -> noteDialog()
+                    1 -> startActivity(Intent(this, SettingsActivity::class.java))
+                    2 -> AppActions.openGoogleMaps(this, prefs)
+                    3 -> startActivity(Intent(this, MainActivity::class.java))
+                    4 -> if (Live.serviceRunning) {
                         Live.userStopped = true
                         DriveService.stop(this)
                     } else {
@@ -1523,6 +1558,8 @@ class NavActivity : Activity() {
             // Hướng GPS thô (lệch tuyến, chưa khớp đường) dao động khi lách xe/đổi làn → vùng chết lớn hơn
             camCourseRaw = course >= 0 && course == Live.heading && course != Live.roadBearing
             camCourse = course
+            TripLog.ev("view", "b" to camBearing, "src" to (if (camUsingCompass) "compass" else if (camCourseRaw) "gps" else "road"),
+                "cmp" to compass.bearing, "course" to course, "rb" to Live.roadBearing, "hd" to Live.heading)
             if (prefs.rotateMap) {
                 // Vòng lặp camTick xoay + trượt bản đồ mượt (kiểu Google Maps), ở đây chỉ đặt đích
                 camTarget = doubleArrayOf(lat, lon, zoom, if (nav) 55.0 else 40.0, topPad)

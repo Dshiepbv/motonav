@@ -132,6 +132,7 @@ class NavEngine(
                     Live.choicesVersion++
                     Live.route = r
                     Live.routeVersion++
+                    TripLog.route(r, if (reroute) "reroute" else if (offerChoice) "start" else "retry")
                     if (!(offerChoice && list.size == 1 && Live.routeError != null)) Live.routeError = null
                     seg = 0
                     offCount = 0
@@ -186,7 +187,9 @@ class NavEngine(
         val segBrg = Geo.bearing(r.lats[bestI], r.lons[bestI], r.lats[bestI + 1], r.lons[bestI + 1])
         val turnedAway = heading != null && speedMps > 1.5 && Geo.angleDiff(heading, segBrg) > 35
         val off = (bestD > 12 && turnedAway) || bestD > 22
+        if (off != Live.offRoute) TripLog.ev("off", "on" to off, "d" to bestD, "hdg" to heading, "seg" to segBrg)
         Live.offRoute = off
+        TripLog.ev("nav", "d" to bestD, "p" to progress, "i" to bestI)
         // Hướng tuyến phía trước (nhìn trước ~30 m) để bản đồ luôn để đường thẳng dọc màn hình.
         // Đã lệch tuyến thì bản đồ theo hướng xe thật, không kéo ngược về tuyến cũ.
         if (off) {
@@ -221,6 +224,7 @@ class NavEngine(
         val gap = if (rerouteTimes.size >= 3) 60_000 else 8_000
         if (moving && (offCount >= 2 || bestD > 40) && !routing && now - lastReroute > gap) {
             rerouteTimes.add(now)
+            TripLog.ev("reroute", "d" to bestD, "n" to offCount, "spd" to speedMps, "hdg" to heading)
             rrLat = lat; rrLon = lon
             alert("Đi lệch tuyến, đang tìm đường mới", "Đang tìm đường mới", false)
             requestRoute(lat, lon, heading)
