@@ -29,8 +29,9 @@ object MapHttp {
             .addInterceptor(Interceptor { chain ->
                 var req = chain.request()
                 val url = req.url
-                if (url.host.endsWith("vietmap.vn") && url.queryParameter("apikey").isNullOrBlank() && key.isNotBlank()) {
-                    req = req.newBuilder().url(url.newBuilder().addQueryParameter("apikey", key).build()).build()
+                // Kiểu bản đồ VietMap để trống "apikey=" trong link mảnh bản đồ → thay bằng mã Tilemap
+                if (url.host.endsWith("vietmap.vn") && key.isNotBlank() && url.queryParameter("apikey") != key) {
+                    req = req.newBuilder().url(url.newBuilder().setQueryParameter("apikey", key).build()).build()
                 }
                 val resp = chain.proceed(req)
                 if (req.url.host.endsWith("vietmap.vn")) {
