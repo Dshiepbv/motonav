@@ -21,7 +21,9 @@ object GoogleLink {
 
     /** Tên địa điểm (dòng đầu của nội dung chia sẻ, nếu không phải link). */
     fun nameFromText(text: String): String? =
-        text.lines().map { it.trim() }.firstOrNull { it.isNotEmpty() && !it.startsWith("http") }
+        text.lines().map { it.trim() }.firstOrNull {
+            it.isNotEmpty() && !it.startsWith("http") && !it.contains("được chia sẻ") && !it.contains("shared", true)
+        }
 
     /** Phân tích toạ độ trực tiếp (không cần mạng). */
     fun parseCoords(s: String): Pair<Double, Double>? {

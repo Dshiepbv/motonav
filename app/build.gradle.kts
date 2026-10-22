@@ -11,8 +11,8 @@ android {
         applicationId = "vn.hiep.motonav"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "2.1"
+        versionCode = 8
+        versionName = "2.2"
     }
 
     // Khoá ký cố định: các bản build sau cài đè lên bản cũ được, không phải gỡ app.
@@ -51,4 +51,5 @@ android {
 dependencies {
     // Bản đồ (hiển thị kiểu bản đồ VietMap)
     implementation("org.maplibre.gl:android-sdk:11.5.2")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

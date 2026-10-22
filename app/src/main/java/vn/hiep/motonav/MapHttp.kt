@@ -1,0 +1,68 @@
+package vn.hiep.motonav
+
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
+import org.maplibre.android.module.http.HttpRequestUtil
+import java.util.concurrent.TimeUnit
+
+/**
+ * Bộ tải dữ liệu bản đồ:
+ *  - Tự gắn mã Tilemap vào mọi yêu cầu tới maps.vietmap.vn (mảnh bản đồ, font chữ, biểu tượng)
+ *    nếu kiểu bản đồ không tự gắn.
+ *  - Ghi lại lỗi tải để hiện lên màn hình (vd mã sai → HTTP 401/403).
+ */
+object MapHttp {
+    @Volatile var key: String = ""
+    @Volatile var okCount = 0
+    @Volatile var failCount = 0
+    @Volatile var lastFailCode = 0
+    @Volatile var lastFailUrl: String? = null
+
+    private var installed = false
+
+    fun install() {
+        if (installed) return
+        installed = true
+        val client = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(Interceptor { chain ->
+                var req = chain.request()
+                val url = req.url
+                if (url.host.endsWith("vietmap.vn") && url.queryParameter("apikey").isNullOrBlank() && key.isNotBlank()) {
+                    req = req.newBuilder().url(url.newBuilder().addQueryParameter("apikey", key).build()).build()
+                }
+                val resp = chain.proceed(req)
+                if (req.url.host.endsWith("vietmap.vn")) {
+                    if (resp.isSuccessful || resp.code == 204 || resp.code == 304) {
+                        okCount++
+                    } else {
+                        failCount++
+                        lastFailCode = resp.code
+                        lastFailUrl = req.url.encodedPath
+                    }
+                }
+                resp
+            })
+            .build()
+        HttpRequestUtil.setOkHttpClient(client)
+    }
+
+    fun reset() {
+        okCount = 0
+        failCount = 0
+        lastFailCode = 0
+        lastFailUrl = null
+    }
+
+    /** Câu báo lỗi cho người dùng, null nếu bản đồ tải bình thường. */
+    fun problem(): String? {
+        if (failCount == 0) return null
+        if (okCount > failCount * 3) return null
+        return when (lastFailCode) {
+            401, 403 -> "Bản đồ không tải được (lỗi $lastFailCode): mã Tilemap sai hoặc đang dán mã API vào ô Tilemap. Vào Cài đặt kiểm tra lại."
+            429 -> "Bản đồ: đã hết lượt tải trong ngày của mã Tilemap."
+            else -> "Bản đồ không tải được (lỗi $lastFailCode ${lastFailUrl ?: ""})."
+        }
+    }
+}

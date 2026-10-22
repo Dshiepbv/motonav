@@ -90,11 +90,14 @@ class NavActivity : Activity() {
     private lateinit var recenterBtn: Button
 
     private val listener: () -> Unit = { render() }
+    private var styleError: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         MapLibre.getInstance(this)
+        MapHttp.key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
+        MapHttp.install()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.statusBarColor = bg
         window.navigationBarColor = bg
@@ -118,6 +121,10 @@ class NavActivity : Activity() {
                 true
             }
             loadStyle()
+        }
+        mapView.addOnDidFailLoadingMapListener { msg ->
+            styleError = "Không tải được kiểu bản đồ VietMap: $msg. Kiểm tra mã Tilemap trong Cài đặt."
+            render()
         }
 
         ensureReady()
@@ -232,7 +239,7 @@ class NavActivity : Activity() {
         root.addView(
             speedBox,
             FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
-                leftMargin = dp(10f); bottomMargin = dp(96f)
+                leftMargin = dp(10f); bottomMargin = dp(150f)
             },
         )
 
@@ -462,6 +469,9 @@ class NavActivity : Activity() {
         val m = map ?: return
         val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
         if (key.isBlank()) return
+        MapHttp.key = key
+        MapHttp.reset()
+        styleError = null
         m.setStyle(Style.Builder().fromUri(VietMap.styleUrl(key, isNight()))) { s ->
             style = s
             shownRouteVersion = -1
@@ -667,8 +677,9 @@ class NavActivity : Activity() {
         } else {
             etaText.text = Live.street ?: "Chọn điểm đến"
         }
-        statusText.text = Live.routeError ?: Live.routeStatus ?: (Live.destName?.takeIf { nav }?.let { "Đến: $it" } ?: "")
-        statusText.setTextColor(if (Live.routeError != null) danger else muted)
+        val mapErr = MapHttp.problem() ?: styleError
+        statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus ?: (Live.destName?.takeIf { nav }?.let { "Đến: $it" } ?: "")
+        statusText.setTextColor(if (Live.routeError != null || mapErr != null) danger else muted)
 
         updateMap()
     }
