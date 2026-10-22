@@ -62,6 +62,22 @@ object Text3D {
      * Tạo GeoJSON các khối chữ.
      * @param viewBearing hướng nhìn của bản đồ (để chữ đọc từ trái sang phải).
      */
+    private val fwdCache = HashMap<String, Boolean>()
+
+    /**
+     * Chữ đọc theo chiều đường (true) hay ngược lại, để luôn đọc trái → phải.
+     * Có vùng trễ ±25° để chữ không lật qua lật lại khi bản đồ xoay nhẹ.
+     */
+    fun forward(l: JLabel, viewBearing: Double): Boolean {
+        val k = l.name + "@" + String.format(java.util.Locale.US, "%.4f,%.4f", l.jLat, l.jLon)
+        val a = Geo.angleDiff(l.outBearing, Geo.norm(viewBearing + 90))
+        val prev = fwdCache[k]
+        val f = if (prev != null && a in 65.0..115.0) prev else a <= 90
+        if (fwdCache.size > 200) fwdCache.clear()
+        fwdCache[k] = f
+        return f
+    }
+
     fun build(labels: List<JLabel>, viewBearing: Double): String {
         val sb = StringBuilder("""{"type":"FeatureCollection","features":[""")
         var first = true
@@ -70,13 +86,12 @@ object Text3D {
             if (d < 0) continue
             val g = raster(l.name)
             // Đường sắp rẽ: cỡ chữ đầy đủ; các đường khác ở ngã rẽ: nhỏ hơn
-            val sc = if (l.isTurn) 1.0 else SMALL
+            val sc = 1.0
             val cell = min(MAX_HEIGHT * sc / g.h, MAX_LEN * sc / g.w).coerceAtLeast(MIN_CELL)
             val thick = THICK * sc
             val len = g.w * cell
             // Chiều chạy của chữ: hướng có thành phần sang phải màn hình
-            val right = Geo.norm(viewBearing + 90)
-            val forward = Geo.angleDiff(d, right) <= 90
+            val forward = forward(l, viewBearing)
             val u = if (forward) d else Geo.norm(d + 180)
             val startAlong = if (forward) START else START + len // tính từ ngã rẽ theo hướng d
             val ur = Math.toRadians(u)
