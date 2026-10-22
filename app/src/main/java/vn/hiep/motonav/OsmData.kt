@@ -41,12 +41,26 @@ object CamKind {
     const val RED_LIGHT = 1
     const val TRAFFIC = 2
     const val FINE = 3
+    const val HAZARD = 4
+    const val POLICE = 5
 
     fun label(kind: Int): String = when (kind) {
         SPEED -> "camera bắn tốc độ"
         RED_LIGHT -> "camera đèn đỏ"
         FINE -> "camera phạt nguội"
+        HAZARD -> "ổ gà, đường xấu"
+        POLICE -> "trạm cảnh sát giao thông"
         else -> "camera giám sát"
+    }
+
+    /** Chữ ngắn in hoa cho ô nổi. */
+    fun short(kind: Int): String = when (kind) {
+        SPEED -> "BẮN TỐC ĐỘ"
+        FINE -> "PHẠT NGUỘI"
+        RED_LIGHT -> "ĐÈN ĐỎ"
+        HAZARD -> "Ổ GÀ"
+        POLICE -> "CSGT"
+        else -> "CAMERA"
     }
 
     fun title(kind: Int): String = label(kind).replaceFirstChar { it.uppercase() }
@@ -55,6 +69,8 @@ object CamKind {
     fun fromText(t: String?): Int {
         val s = (t ?: "").lowercase()
         return when {
+            s.contains("ổ gà") || s.contains("o ga") || s.contains("pothole") || s.contains("nguy hiểm") || s.contains("đường xấu") -> HAZARD
+            s.contains("csgt") || s.contains("công an") || s.contains("cảnh sát") || s.contains("police") -> POLICE
             s.contains("tốc") || s.contains("toc do") || s.contains("speed") || s.contains("bắn") -> SPEED
             s.contains("đèn") || s.contains("den do") || s.contains("red") -> RED_LIGHT
             s.contains("giám sát") || s.contains("giam sat") || s.contains("surveillance") -> TRAFFIC
@@ -106,6 +122,7 @@ object Overpass {
             append("node(around:$camRadius,$p)[\"enforcement\"];\n")
             append("node(around:$camRadius,$p)[\"man_made\"=\"surveillance\"][\"surveillance:zone\"=\"traffic\"];\n")
             append("node(around:$camRadius,$p)[\"man_made\"=\"surveillance\"][\"surveillance:type\"=\"ALPR\"];\n")
+            append("node(around:$camRadius,$p)[\"hazard\"];\n")
             append(");\n")
             append("out;\n")
             append("is_in($p)->.a;\n")
@@ -182,6 +199,7 @@ object Overpass {
                 }
                 "node" -> {
                     val kind = when {
+                        tags["hazard"] != null -> CamKind.HAZARD
                         tags["highway"] == "speed_camera" -> CamKind.SPEED
                         tags["enforcement"] == "maxspeed" -> CamKind.SPEED
                         tags["enforcement"] == "traffic_signals" -> CamKind.RED_LIGHT

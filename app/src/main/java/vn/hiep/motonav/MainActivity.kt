@@ -107,7 +107,10 @@ class MainActivity : Activity() {
             background = rounded(warn, 12f)
             setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
             visibility = View.GONE
-            setOnClickListener { askOverlayPermission() }
+            setOnClickListener {
+                if (prefs.overlay && !Settings.canDrawOverlays(this@MainActivity)) askOverlayPermission()
+                else showPermissionHelp()
+            }
         }
         root.addView(permBar, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8f) })
 
@@ -228,7 +231,7 @@ class MainActivity : Activity() {
         }
         val lp = { LinearLayout.LayoutParams(0, dp(52f), 1f).apply { setMargins(dp(4f), dp(6f), dp(4f), 0) } }
         bar.addView(btn("Google Maps") { openMaps() }, lp())
-        bar.addView(btn("+ Camera") { addCamera() }, lp())
+        bar.addView(btn("+ Cảnh báo") { addCamera() }, lp())
         bar.addView(btn("Cài đặt") { showSettings() }, lp())
         toggleBtn = btn("Dừng") { toggleService() }
         bar.addView(toggleBtn, lp())
@@ -293,6 +296,9 @@ class MainActivity : Activity() {
         if (prefs.overlay && !Settings.canDrawOverlays(this)) {
             permBar.visibility = View.VISIBLE
             permBar.text = "Chưa cho phép hiện ô tốc độ nổi trên Google Maps. Chạm để cấp."
+        } else if (!hasNotificationAccess()) {
+            permBar.visibility = View.VISIBLE
+            permBar.text = "Cấp quyền đọc chỉ dẫn Google Maps để hiện tên đường rẽ trên ô nổi. Chạm để cấp."
         } else {
             permBar.visibility = View.GONE
         }
@@ -406,10 +412,10 @@ class MainActivity : Activity() {
         val lat = Live.lat
         val lon = Live.lon
         val hdg = Live.heading
-        val kinds = arrayOf("Camera phạt nguội", "Camera tốc độ", "Camera đèn đỏ")
-        val codes = intArrayOf(CamKind.FINE, CamKind.SPEED, CamKind.RED_LIGHT)
+        val kinds = arrayOf("Camera phạt nguội", "Camera bắn tốc độ", "Camera đèn đỏ", "Ổ gà / đường xấu", "Trạm CSGT cố định")
+        val codes = intArrayOf(CamKind.FINE, CamKind.SPEED, CamKind.RED_LIGHT, CamKind.HAZARD, CamKind.POLICE)
         AlertDialog.Builder(this)
-            .setTitle("Đánh dấu camera tại vị trí này")
+            .setTitle("Đánh dấu cảnh báo tại vị trí này")
             .setItems(kinds) { _, which ->
                 CameraStore.add(this, lat, lon, codes[which], hdg)
                 val note = if (hdg >= 0) "chỉ cảnh báo theo hướng anh đang đi" else "cảnh báo cả hai chiều"

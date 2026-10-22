@@ -30,6 +30,12 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
     private var root: LinearLayout? = null
     private var params: WindowManager.LayoutParams? = null
 
+    private lateinit var turnBox: LinearLayout
+    private lateinit var turnArrow: android.widget.ImageView
+    private lateinit var turnDist: TextView
+    private lateinit var turnName: TextView
+    private lateinit var overBanner: TextView
+    private var blink = false
     private lateinit var sign: SpeedSignView
     private lateinit var speed: TextView
     private lateinit var unit: TextView
@@ -74,6 +80,40 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
             background = rounded(Color.argb(215, 11, 13, 16), 16f * scale)
             setPadding(d(8f), d(8f), d(8f), d(8f))
         }
+        // Thẻ rẽ: hiện khi còn ≤ 300 m tới chỗ rẽ, ghi rõ tên đường sẽ vào
+        turnBox = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = rounded(Color.parseColor("#0B6E4F"), 12f * scale)
+            setPadding(d(8f), d(6f), d(8f), d(6f))
+            visibility = View.GONE
+        }
+        val turnRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        turnArrow = android.widget.ImageView(ctx).apply {
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+        }
+        turnRow.addView(turnArrow, LinearLayout.LayoutParams(d(44f), d(44f)))
+        turnDist = TextView(ctx).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 26f * scale)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            setPadding(d(6f), 0, 0, 0)
+        }
+        turnRow.addView(turnDist, LinearLayout.LayoutParams(-2, -2))
+        turnBox.addView(turnRow, LinearLayout.LayoutParams(-2, -2))
+        turnName = TextView(ctx).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 17f * scale)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            maxLines = 3
+        }
+        turnBox.addView(turnName, LinearLayout.LayoutParams(d(170f), -2))
+        box.addView(turnBox, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = d(6f) })
+
         sign = SpeedSignView(ctx)
         box.addView(sign, LinearLayout.LayoutParams(d(78f), d(78f)))
         speed = TextView(ctx).apply {
@@ -90,6 +130,18 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
             text = "km/h"
         }
         box.addView(unit, LinearLayout.LayoutParams(-2, -2))
+
+        overBanner = TextView(ctx).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 13f * scale)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            text = "QUÁ TỐC ĐỘ"
+            background = rounded(danger, 8f * scale)
+            setPadding(d(6f), d(4f), d(6f), d(4f))
+            visibility = View.GONE
+        }
+        box.addView(overBanner, LinearLayout.LayoutParams(d(96f), -2).apply { topMargin = d(6f) })
 
         camBox = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
@@ -190,6 +242,30 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
 
     private fun render() {
         if (root == null) return
+        // Thẻ rẽ
+        val m = Live.navMeters
+        if (Live.navActive && m in 0..300 && !Live.navInstruction.isNullOrBlank()) {
+            turnBox.visibility = View.VISIBLE
+            turnArrow.setImageBitmap(Live.navArrow)
+            turnArrow.visibility = if (Live.navArrow != null) View.VISIBLE else View.GONE
+            turnDist.text = Live.navDistance ?: ""
+            turnName.text = Live.navInstruction
+            turnBox.background = rounded(
+                if (m <= 80) Color.parseColor("#1565C0") else Color.parseColor("#0B6E4F"), 12f * builtScale,
+            )
+        } else {
+            turnBox.visibility = View.GONE
+        }
+
+        // Nhấp nháy khi vượt tốc
+        blink = !blink
+        if (Live.overspeed) {
+            overBanner.visibility = View.VISIBLE
+            overBanner.alpha = if (blink) 1f else 0.35f
+        } else {
+            overBanner.visibility = View.GONE
+        }
+
         sign.limit = Live.limit
         sign.estimated = Live.limitEstimated
         speed.text = if (Live.gpsOk && Live.speedKmh >= 0) Live.speedKmh.toString() else "--"
@@ -198,12 +274,7 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
         if (cam != null) {
             camBox.visibility = View.VISIBLE
             camBox.background = rounded(if (Live.camKind == CamKind.SPEED) danger else orange, 10f * builtScale)
-            camTitle.text = when (Live.camKind) {
-                CamKind.SPEED -> "BẮN TỐC ĐỘ"
-                CamKind.FINE -> "PHẠT NGUỘI"
-                CamKind.RED_LIGHT -> "ĐÈN ĐỎ"
-                else -> "CAMERA"
-            }
+            camTitle.text = CamKind.short(Live.camKind)
             camDist.text = "${Live.camDistance} m"
         } else {
             camBox.visibility = View.GONE

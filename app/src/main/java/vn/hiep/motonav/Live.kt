@@ -16,6 +16,8 @@ object Live {
     @Volatile var navDistance: String? = null
     @Volatile var navInstruction: String? = null
     @Volatile var navExtra: String? = null
+    /** Khoảng cách tới chỗ rẽ (mét), -1 nếu không đọc được. */
+    @Volatile var navMeters = -1
 
     // Vị trí và tốc độ
     @Volatile var serviceRunning = false
@@ -40,6 +42,19 @@ object Live {
 
     @Volatile var status: String = ""
 
+    private val meterRe = Regex("""(\d+(?:[.,]\d+)?)\s?(km|m|ft|mi)""", RegexOption.IGNORE_CASE)
+
+    fun parseMeters(d: String?): Int {
+        val m = meterRe.find(d ?: return -1) ?: return -1
+        val v = m.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return -1
+        return when (m.groupValues[2].lowercase()) {
+            "km" -> (v * 1000).toInt()
+            "mi" -> (v * 1609).toInt()
+            "ft" -> (v * 0.3048).toInt()
+            else -> v.toInt()
+        }
+    }
+
     fun addListener(l: () -> Unit) = listeners.add(l)
     fun removeListener(l: () -> Unit) = listeners.remove(l)
 
@@ -53,6 +68,7 @@ object Live {
         navDistance = distance
         navInstruction = instruction
         navExtra = extra
+        navMeters = parseMeters(distance)
         changed()
     }
 
@@ -62,6 +78,7 @@ object Live {
         navDistance = null
         navInstruction = null
         navExtra = null
+        navMeters = -1
         changed()
     }
 }
