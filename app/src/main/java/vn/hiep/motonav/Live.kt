@@ -63,6 +63,10 @@ object Live {
     @Volatile var maneuverLabel: String? = null
     @Volatile var maneuverSign = 0
     @Volatile var thenText: String? = null
+    /** Các tuyến để chọn (tuyến đang đi là phần tử [choiceSelected]). */
+    @Volatile var routeChoices: List<Route> = emptyList()
+    @Volatile var choiceSelected = 0
+    @Volatile var choicesVersion = 0
     @Volatile var maneuverStreet: String? = null
     @Volatile var routeSeg = 0
     @Volatile var routeProgress = 0.0

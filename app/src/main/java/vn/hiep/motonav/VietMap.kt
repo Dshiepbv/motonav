@@ -40,15 +40,22 @@ object VietMap {
         }
     }
 
-    fun route(key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double, traffic: Boolean = true): Route {
+    fun route(key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double, traffic: Boolean = true): Route =
+        routes(key, fromLat, fromLon, heading, toLat, toLon, traffic, false).first()
+
+    /** Tìm đường; alternative = true trả về thêm các tuyến thay thế (tối đa 3). */
+    fun routes(
+        key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double,
+        traffic: Boolean = true, alternative: Boolean = false,
+    ): List<Route> {
         if (traffic) {
             try {
-                return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, true)
+                return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, true, alternative)
             } catch (e: Exception) {
                 // Thử lại không kèm dữ liệu kẹt xe
             }
         }
-        return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, false)
+        return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, false, alternative)
     }
 
     /** Đọc mảng mức kẹt xe, chấp nhận nhiều dạng trả về. */
@@ -84,12 +91,16 @@ object VietMap {
         return out
     }
 
-    private fun routeOnce(key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double, traffic: Boolean): Route {
+    private fun routeOnce(
+        key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double,
+        traffic: Boolean, alternative: Boolean,
+    ): List<Route> {
         val sb = StringBuilder("$BASE/route/v4?apikey=").append(enc(key))
             .append("&point=").append(ll(fromLat, fromLon))
             .append("&point=").append(ll(toLat, toLon))
             .append("&vehicle=motorcycle&points_encoded=true&avoid=ferry")
         if (traffic) sb.append("&annotations=congestion")
+        if (alternative) sb.append("&alternative=true")
         if (heading != null && heading >= 0) sb.append("&heading=").append(heading.toInt())
         val root = JSONObject(get(sb.toString()))
         val code = root.optString("code", "OK")
@@ -102,7 +113,18 @@ object VietMap {
             throw RuntimeException(msg)
         }
         val paths = root.optJSONArray("paths") ?: throw RuntimeException("VietMap không trả về tuyến")
-        val p = paths.getJSONObject(0)
+        val out = ArrayList<Route>()
+        for (pi in 0 until minOf(paths.length(), 3)) {
+            try {
+                out.add(parsePath(paths.getJSONObject(pi)))
+            } catch (_: Exception) {
+            }
+        }
+        if (out.isEmpty()) throw RuntimeException("Tuyến đường rỗng")
+        return out
+    }
+
+    private fun parsePath(p: JSONObject): Route {
         val (la, lo) = if (p.optBoolean("points_encoded", true)) {
             Route.decodePolyline(p.getString("points"))
         } else {

@@ -32,7 +32,7 @@ class NavEngine(
         Live.routeError = null
         seg = 0
         spoken.clear()
-        if (Live.gpsOk) requestRoute(Live.lat, Live.lon, null)
+        if (Live.gpsOk) requestRoute(Live.lat, Live.lon, null, offerChoice = true)
         else Live.routeStatus = "Đang chờ GPS để tìm đường…"
         Live.changed()
     }
@@ -55,27 +55,65 @@ class NavEngine(
         Live.clearNav()
     }
 
-    private fun requestRoute(lat: Double, lon: Double, heading: Double?) {
+    /** Tìm tuyến khác từ vị trí hiện tại để người dùng chọn. */
+    fun requestAlternatives() {
+        if (!Live.ownNav || !Live.gpsOk) return
+        requestRoute(Live.lat, Live.lon, if (Live.heading >= 0) Live.heading else null, offerChoice = true, force = true)
+    }
+
+    fun choose(i: Int) {
+        val list = Live.routeChoices
+        if (i !in list.indices) return
+        Live.choiceSelected = i
+        Live.route = list[i]
+        Live.routeVersion++
+        Live.choicesVersion++
+        seg = 0
+        offCount = 0
+        spoken.clear()
+        Live.changed()
+    }
+
+    fun closeChoices() {
+        Live.routeChoices = emptyList()
+        Live.choicesVersion++
+        Live.changed()
+    }
+
+    private fun requestRoute(lat: Double, lon: Double, heading: Double?, offerChoice: Boolean = false, force: Boolean = false) {
         val key = prefs.vietmapKey
         if (key.isBlank()) {
             Live.routeError = "Chưa nhập mã API VietMap (Cài đặt)"
             Live.changed()
             return
         }
-        if (routing) return
+        if (routing && !force) return
         routing = true
         lastReroute = SystemClock.elapsedRealtime()
-        Live.routeStatus = if (Live.route == null) "Đang tìm đường xe máy…" else "Đang tìm lại tuyến…"
+        Live.routeStatus = when {
+            offerChoice && Live.route != null -> "Đang tìm tuyến khác…"
+            Live.route == null -> "Đang tìm đường xe máy…"
+            else -> "Đang tìm lại tuyến…"
+        }
         Live.changed()
         val dLat = Live.destLat
         val dLon = Live.destLon
         executor.execute {
             try {
-                val r = VietMap.route(key, lat, lon, heading, dLat, dLon, prefs.traffic)
+                val list = VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, offerChoice)
+                val r = list.first()
                 if (Live.ownNav) {
+                    if (offerChoice && list.size > 1) {
+                        Live.routeChoices = list
+                        Live.choiceSelected = 0
+                    } else {
+                        if (offerChoice && Live.route != null) Live.routeError = "VietMap không có tuyến khác cho đoạn này"
+                        Live.routeChoices = emptyList()
+                    }
+                    Live.choicesVersion++
                     Live.route = r
                     Live.routeVersion++
-                    Live.routeError = null
+                    if (!(offerChoice && list.size == 1 && Live.routeError != null)) Live.routeError = null
                     seg = 0
                     offCount = 0
                     spoken.clear()

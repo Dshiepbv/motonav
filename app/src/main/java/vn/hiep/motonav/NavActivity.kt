@@ -287,6 +287,12 @@ class NavActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12f), dp(8f), dp(12f), dp(10f))
         }
+        choicesPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, 0, 0, dp(8f))
+        }
+        bottomBar.addView(choicesPanel, LinearLayout.LayoutParams(-1, -2))
         etaText = tv(20f, Color.WHITE, true)
         bottomBar.addView(etaText)
         statusText = tv(13f, muted).apply { maxLines = 3 }
@@ -313,6 +319,10 @@ class NavActivity : Activity() {
             follow = true
         }
         btns.addView(endBtn, lp())
+        altBtn = btn("↺ Tuyến khác", Color.parseColor("#2C343E")) {
+            DriveService.send(this, DriveService.ACTION_NAV_ALTS)
+        }
+        btns.addView(altBtn, 1, lp())
         bottomBar.addView(btns)
         btnRow = btns
 
@@ -343,6 +353,43 @@ class NavActivity : Activity() {
     }
 
     private lateinit var menuBtn: TextView
+    private lateinit var choicesPanel: LinearLayout
+    private lateinit var altBtn: Button
+    private var shownChoices = -1
+
+    /** Bảng chọn tuyến: mỗi dòng một tuyến (thời gian, quãng đường), chạm để đổi. */
+    private fun renderChoices() {
+        if (shownChoices == Live.choicesVersion) return
+        shownChoices = Live.choicesVersion
+        val list = Live.routeChoices
+        choicesPanel.removeAllViews()
+        if (list.size < 2 || !Live.ownNav) {
+            choicesPanel.visibility = View.GONE
+            return
+        }
+        choicesPanel.visibility = View.VISIBLE
+        choicesPanel.addView(tv(14f, muted).apply { text = "Chọn tuyến (chạm để đổi):" })
+        val fastest = list.minOf { it.timeMs }
+        list.forEachIndexed { i, r ->
+            val sel = i == Live.choiceSelected
+            val mins = (r.timeMs / 60000).coerceAtLeast(1)
+            val extra = if (r.timeMs == fastest) " · nhanh nhất" else " · +${((r.timeMs - fastest) / 60000).coerceAtLeast(1)} phút"
+            val row = tv(17f, Color.WHITE, sel).apply {
+                text = (if (sel) "● " else "○ ") + "Tuyến ${i + 1}: $mins phút · ${NavEngine.fmtDist(r.distance)}$extra"
+                background = rounded(if (sel) green else Color.parseColor("#2C343E"), 10f)
+                setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+                setOnClickListener { DriveService.send(this@NavActivity, DriveService.ACTION_NAV_CHOOSE, i) }
+            }
+            choicesPanel.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
+        }
+        choicesPanel.addView(tv(16f, Color.WHITE, true).apply {
+            text = "✓ Đi tuyến đã chọn"
+            gravity = Gravity.CENTER
+            background = rounded(Color.parseColor("#1565C0"), 10f)
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+            setOnClickListener { DriveService.send(this@NavActivity, DriveService.ACTION_NAV_CHOICES_DONE) }
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) })
+    }
     private lateinit var nextBox: LinearLayout
     private lateinit var signsBox: LinearLayout
     private var shownSigns: List<Triple<Int, Int, Int>>? = null
@@ -852,6 +899,27 @@ class NavActivity : Activity() {
     /** Lấy font chữ có sẵn trong kiểu bản đồ VietMap để nhãn tên đường hiển thị được. */
     /** Nền tối: làm sáng đường và chữ tên đường để dễ nhìn ban đêm. */
     private fun brightenDark(s: Style) {
+        // Nhà khối 3D cho nền tối (giống nền sáng)
+        try {
+            if (s.getSource("openmaptiles") != null && s.getLayer("mn-building-3d") == null) {
+                val ext = org.maplibre.android.style.layers.FillExtrusionLayer("mn-building-3d", "openmaptiles").apply {
+                    sourceLayer = "building"
+                    minZoom = 14f
+                    setProperties(
+                        PropertyFactory.fillExtrusionColor("#4C5A6B"),
+                        PropertyFactory.fillExtrusionHeight(
+                            Expression.coalesce(Expression.toNumber(Expression.get("render_height")), Expression.literal(8f)),
+                        ),
+                        PropertyFactory.fillExtrusionBase(
+                            Expression.coalesce(Expression.toNumber(Expression.get("render_min_height")), Expression.literal(0f)),
+                        ),
+                        PropertyFactory.fillExtrusionOpacity(0.85f),
+                    )
+                }
+                s.addLayer(ext)
+            }
+        } catch (_: Exception) {
+        }
         for (l in s.layers) {
             val id = l.id.lowercase()
             when (l) {
@@ -914,6 +982,18 @@ class NavActivity : Activity() {
         s.addSource(GeoJsonSource("mn-next", emptyFc))
         s.addSource(GeoJsonSource("mn-junction", emptyFc))
 
+        // Các tuyến thay thế (xám, nằm dưới tuyến chính)
+        s.addSource(GeoJsonSource("mn-choices", emptyFc))
+        s.addLayer(
+            LineLayer("mn-choices-line", "mn-choices").withProperties(
+                PropertyFactory.lineColor("#8A96A3"),
+                PropertyFactory.lineWidth(7f),
+                PropertyFactory.lineOpacity(0.85f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            ),
+        )
+        shownChoicesMap = -1
         s.addLayer(
             LineLayer("mn-route-casing", "mn-route").withProperties(
                 PropertyFactory.lineColor("#0D47A1"),
@@ -1072,6 +1152,7 @@ class NavActivity : Activity() {
     }
 
     private var shownAlerts = -1
+    private var shownChoicesMap = -1
 
     /** Biểu tượng cảnh báo: vòng tròn trắng viền màu, có hình bên trong, chân nhọn. */
     private fun alertIcon(kind: Int): android.graphics.Bitmap {
@@ -1189,6 +1270,16 @@ class NavActivity : Activity() {
             shownJunction = -1
         }
 
+        if (shownChoicesMap != Live.choicesVersion) {
+            shownChoicesMap = Live.choicesVersion
+            val list = Live.routeChoices
+            if (list.size > 1) {
+                val feats = list.filterIndexed { i, _ -> i != Live.choiceSelected }.joinToString(",") { it.toGeoJsonLine() }
+                src("mn-choices")?.setGeoJson("""{"type":"FeatureCollection","features":[$feats]}""")
+            } else {
+                src("mn-choices")?.setGeoJson(emptyFc)
+            }
+        }
         if (shownAlerts != Live.alertsVersion) {
             shownAlerts = Live.alertsVersion
             src("mn-alerts")?.setGeoJson(Live.alertsJson ?: emptyFc)
@@ -1275,7 +1366,9 @@ class NavActivity : Activity() {
         }
         searchBox.visibility = if (nav) View.GONE else View.VISIBLE
         endBtn.visibility = if (nav) View.VISIBLE else View.GONE
+        altBtn.visibility = if (nav && Live.route != null && Live.routeChoices.isEmpty()) View.VISIBLE else View.GONE
         btnRow.visibility = if (endBtn.visibility == View.VISIBLE || recenterBtn.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+        renderChoices()
 
         // Cảnh báo chữ
         val a = Live.activeAlert()
