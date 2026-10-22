@@ -57,6 +57,8 @@ class DriveService : Service(), LocationListener {
     private lateinit var handler: Handler
     private lateinit var prefs: Prefs
     private lateinit var voice: Voice
+    private lateinit var overlay: Overlay
+    private val overlayListener: () -> Unit = { overlay.update() }
     private val executor = Executors.newSingleThreadExecutor()
 
     @Volatile private var snapshot: OsmSnapshot? = null
@@ -85,6 +87,8 @@ class DriveService : Service(), LocationListener {
         super.onCreate()
         prefs = Prefs(this)
         voice = Voice(this)
+        overlay = Overlay(this, prefs)
+        Live.addListener(overlayListener)
         lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         thread = HandlerThread("drive").also { it.start() }
         handler = Handler(thread.looper)
@@ -133,6 +137,8 @@ class DriveService : Service(), LocationListener {
         thread.quitSafely()
         executor.shutdownNow()
         voice.shutdown()
+        Live.removeListener(overlayListener)
+        overlay.hide()
         Live.serviceRunning = false
         Live.gpsOk = false
         Live.speedKmh = -1

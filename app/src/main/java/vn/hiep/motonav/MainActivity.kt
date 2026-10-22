@@ -65,12 +65,15 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        Live.appVisible = true
         Live.addListener(listener)
         ensurePermissionsAndStart()
         render()
     }
 
     override fun onPause() {
+        Live.appVisible = false
+        Live.changed()
         Live.removeListener(listener)
         super.onPause()
     }
@@ -104,7 +107,7 @@ class MainActivity : Activity() {
             background = rounded(warn, 12f)
             setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
             visibility = View.GONE
-            setOnClickListener { showPermissionHelp() }
+            setOnClickListener { askOverlayPermission() }
         }
         root.addView(permBar, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8f) })
 
@@ -141,7 +144,7 @@ class MainActivity : Activity() {
         navCard.addView(navExtra, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4f) })
         navHint = label(17f, muted).apply {
             gravity = Gravity.CENTER
-            text = "Mở Google Maps, bắt đầu dẫn đường rồi quay lại đây.\nMũi tên rẽ sẽ hiện ở đây."
+            text = "Bấm \"Google Maps\" để dẫn đường.\nBiển giới hạn, tốc độ và đếm ngược camera sẽ nổi ngay trên bản đồ."
         }
         navCard.addView(navHint, LinearLayout.LayoutParams(-1, -2))
 
@@ -286,10 +289,10 @@ class MainActivity : Activity() {
         }
         toggleBtn.text = if (Live.serviceRunning) "Dừng" else "Chạy"
 
-        // Quyền đọc thông báo
-        if (!hasNotificationAccess()) {
+        // Quyền hiện ô nổi trên Google Maps
+        if (prefs.overlay && !Settings.canDrawOverlays(this)) {
             permBar.visibility = View.VISIBLE
-            permBar.text = "Chưa cấp quyền đọc chỉ dẫn Google Maps. Chạm để cấp."
+            permBar.text = "Chưa cho phép hiện ô tốc độ nổi trên Google Maps. Chạm để cấp."
         } else {
             permBar.visibility = View.GONE
         }
@@ -325,10 +328,24 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (hasLocation()) {
             DriveService.start(this)
-            if (!hasNotificationAccess()) showPermissionHelp()
+            if (prefs.overlay && !Settings.canDrawOverlays(this)) askOverlayPermission()
         } else {
             Toast.makeText(this, "MotoNav cần quyền vị trí để đo tốc độ.", Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun askOverlayPermission() {
+        AlertDialog.Builder(this)
+            .setTitle("Hiện tốc độ nổi trên Google Maps")
+            .setMessage(
+                "MotoNav sẽ hiện một ô nhỏ (biển giới hạn, tốc độ, đếm ngược camera) đè lên bản đồ Google Maps.\n\n" +
+                    "Bấm \"Cho phép\", tìm MotoNav và bật \"Cho phép hiển thị trên ứng dụng khác\".",
+            )
+            .setPositiveButton("Cho phép") { _, _ ->
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            }
+            .setNegativeButton("Để sau", null)
+            .show()
     }
 
     private fun showPermissionHelp() {
@@ -369,6 +386,14 @@ class MainActivity : Activity() {
     }
 
     private fun openMaps() {
+        if (prefs.overlay && !Settings.canDrawOverlays(this)) {
+            askOverlayPermission()
+            return
+        }
+        if (!Live.serviceRunning) {
+            Live.userStopped = false
+            if (hasLocation()) DriveService.start(this)
+        }
         val i = packageManager.getLaunchIntentForPackage("com.google.android.apps.maps")
         if (i != null) startActivity(i) else Toast.makeText(this, "Chưa cài Google Maps", Toast.LENGTH_SHORT).show()
     }
@@ -409,6 +434,12 @@ class MainActivity : Activity() {
             "Hướng dẫn cấp quyền đọc Google Maps",
             "Nhập danh sách camera từ file (KML, CSV, JSON)",
             "Xuất danh sách camera ra file CSV",
+            "Ô nổi trên Google Maps: " + if (prefs.overlay) "Bật" else "Tắt",
+            "Cỡ ô nổi: " + when (prefs.overlayScale) {
+                0.8f -> "Nhỏ"
+                1.3f -> "Lớn"
+                else -> "Vừa"
+            },
         )
         AlertDialog.Builder(this)
             .setTitle("Cài đặt")
@@ -461,7 +492,16 @@ class MainActivity : Activity() {
                         return@setItems
                     }
                 }
-                if (which <= 5) showSettings()
+                when (which) {
+                    11 -> prefs.overlay = !prefs.overlay
+                    12 -> prefs.overlayScale = when (prefs.overlayScale) {
+                        0.8f -> 1f
+                        1f -> 1.3f
+                        else -> 0.8f
+                    }
+                }
+                Live.changed()
+                if (which <= 5 || which >= 11) showSettings()
             }
             .setNegativeButton("Đóng", null)
             .show()

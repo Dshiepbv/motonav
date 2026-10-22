@@ -20,6 +20,7 @@ object Live {
     // Vị trí và tốc độ
     @Volatile var serviceRunning = false
     @Volatile var userStopped = false
+    @Volatile var appVisible = false
     @Volatile var gpsOk = false
     @Volatile var lat = 0.0
     @Volatile var lon = 0.0

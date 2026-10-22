@@ -31,6 +31,22 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("announceLimit", true)
         set(v) = sp.edit().putBoolean("announceLimit", v).apply()
 
+    var overlay: Boolean
+        get() = sp.getBoolean("overlay", true)
+        set(v) = sp.edit().putBoolean("overlay", v).apply()
+
+    var overlayScale: Float
+        get() = sp.getFloat("overlayScale", 1f)
+        set(v) = sp.edit().putFloat("overlayScale", v).apply()
+
+    var overlayX: Int
+        get() = sp.getInt("overlayX", -1)
+        set(v) = sp.edit().putInt("overlayX", v).apply()
+
+    var overlayY: Int
+        get() = sp.getInt("overlayY", -1)
+        set(v) = sp.edit().putInt("overlayY", v).apply()
+
     companion object {
         const val AREA_AUTO = 0
         const val AREA_URBAN = 1
