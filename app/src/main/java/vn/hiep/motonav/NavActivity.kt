@@ -512,7 +512,10 @@ class NavActivity : Activity() {
     // ---------- Bản đồ ----------
 
     private fun isNight(): Boolean {
-        if (!prefs.nightMap) return false
+        when (prefs.mapTheme) {
+            1 -> return false
+            2 -> return true
+        }
         val h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
         return h >= 18 || h < 6
     }
@@ -602,7 +605,16 @@ class NavActivity : Activity() {
         )
         s.addLayer(
             LineLayer("mn-route-line", "mn-route").withProperties(
-                PropertyFactory.lineColor("#38A3FF"),
+                // Màu theo kẹt xe: xanh = thông thoáng/không rõ, cam = chậm, đỏ = kẹt, đỏ sẫm = kẹt nặng
+                PropertyFactory.lineColor(
+                    Expression.match(
+                        Expression.coalesce(Expression.get("c"), Expression.literal("unknown")),
+                        Expression.color(Color.parseColor("#38A3FF")),
+                        Expression.stop("moderate", Expression.color(Color.parseColor("#FF9F0A"))),
+                        Expression.stop("heavy", Expression.color(Color.parseColor("#FF3B30"))),
+                        Expression.stop("severe", Expression.color(Color.parseColor("#8E0000"))),
+                    ),
+                ),
                 PropertyFactory.lineWidth(8f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
@@ -745,7 +757,7 @@ class NavActivity : Activity() {
         if (nav && r != null) {
             if (shownRouteVersion != Live.routeVersion) {
                 shownRouteVersion = Live.routeVersion
-                src("mn-route")?.setGeoJson(r.toGeoJsonLine())
+                src("mn-route")?.setGeoJson(if (prefs.traffic) r.toCongestionGeoJson() else r.toGeoJsonLine())
             }
             src("mn-dest")?.setGeoJson(point(Live.destLat, Live.destLon))
             if (shownJunction != Live.junctionVersion) {

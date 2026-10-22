@@ -18,7 +18,42 @@ class Route(
     val steps: List<Step>,
     val distance: Double,
     val timeMs: Long,
+    /** Mức kẹt xe cho từng đoạn (low/moderate/heavy/severe/unknown), có thể rỗng. */
+    val congestion: List<String> = emptyList(),
 ) {
+    /** Mức kẹt xe của đoạn i (giữa điểm i và i+1). */
+    fun congestionAt(i: Int): String {
+        if (congestion.isEmpty()) return "unknown"
+        val segs = lats.size - 1
+        if (congestion.size == segs) return congestion[i]
+        val k = ((i.toDouble() / segs) * congestion.size).toInt().coerceIn(0, congestion.size - 1)
+        return congestion[k]
+    }
+
+    /** Tuyến chia thành nhiều đoạn theo mức kẹt xe, để tô màu. */
+    fun toCongestionGeoJson(): String {
+        val sb = StringBuilder("""{"type":"FeatureCollection","features":[""")
+        var i = 0
+        var firstF = true
+        val n = lats.size
+        while (i < n - 1) {
+            val c = congestionAt(i)
+            var j = i
+            while (j < n - 1 && congestionAt(j) == c) j++
+            if (!firstF) sb.append(',')
+            firstF = false
+            sb.append("""{"type":"Feature","properties":{"c":"""").append(c)
+                .append(""""},"geometry":{"type":"LineString","coordinates":[""")
+            for (k in i..j) {
+                if (k > i) sb.append(',')
+                sb.append('[').append(lons[k]).append(',').append(lats[k]).append(']')
+            }
+            sb.append("]}}")
+            i = j
+        }
+        sb.append("]}")
+        return sb.toString()
+    }
     /** Quãng đường cộng dồn (m) tới từng điểm. */
     val cum: DoubleArray = DoubleArray(lats.size).also {
         for (i in 1 until lats.size) {

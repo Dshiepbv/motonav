@@ -64,9 +64,14 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("autoZoom", true)
         set(v) = sp.edit().putBoolean("autoZoom", v).apply()
 
-    var nightMap: Boolean
-        get() = sp.getBoolean("nightMap", true)
-        set(v) = sp.edit().putBoolean("nightMap", v).apply()
+    /** Nền bản đồ: 0 = Tự động (tối từ 18h–6h), 1 = Sáng, 2 = Tối */
+    var mapTheme: Int
+        get() = sp.getInt("mapTheme", if (sp.getBoolean("nightMap", true)) 0 else 1)
+        set(v) = sp.edit().putInt("mapTheme", v).apply()
+
+    var traffic: Boolean
+        get() = sp.getBoolean("traffic", true)
+        set(v) = sp.edit().putBoolean("traffic", v).apply()
 
     /** 0 = OpenFreeMap (miễn phí, không cần mã), 1 = VietMap */
     var mapSource: Int

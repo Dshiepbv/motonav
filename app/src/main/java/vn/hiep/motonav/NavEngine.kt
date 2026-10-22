@@ -64,7 +64,7 @@ class NavEngine(
         val dLon = Live.destLon
         executor.execute {
             try {
-                val r = VietMap.route(key, lat, lon, heading, dLat, dLon)
+                val r = VietMap.route(key, lat, lon, heading, dLat, dLon, prefs.traffic)
                 if (Live.ownNav) {
                     Live.route = r
                     Live.routeVersion++

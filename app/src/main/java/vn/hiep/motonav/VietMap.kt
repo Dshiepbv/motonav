@@ -40,11 +40,56 @@ object VietMap {
         }
     }
 
-    fun route(key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double): Route {
+    fun route(key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double, traffic: Boolean = true): Route {
+        if (traffic) {
+            try {
+                return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, true)
+            } catch (e: Exception) {
+                // Thử lại không kèm dữ liệu kẹt xe
+            }
+        }
+        return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, false)
+    }
+
+    /** Đọc mảng mức kẹt xe, chấp nhận nhiều dạng trả về. */
+    private fun parseCongestion(p: JSONObject): List<String> {
+        val out = ArrayList<String>()
+        fun addArr(a: JSONArray?) {
+            if (a == null) return
+            for (i in 0 until a.length()) {
+                val v = a.opt(i)
+                when (v) {
+                    is String -> out.add(v.lowercase())
+                    is JSONObject -> out.add(v.optString("congestion", v.optString("level", "unknown")).lowercase())
+                    else -> out.add("unknown")
+                }
+            }
+        }
+        when (val a = p.opt("annotations")) {
+            is JSONObject -> addArr(a.optJSONArray("congestion"))
+            is JSONArray -> {
+                if (a.length() > 0 && a.opt(0) is JSONObject && (a.getJSONObject(0).has("congestion"))) {
+                    val first = a.getJSONObject(0).opt("congestion")
+                    if (first is JSONArray) {
+                        for (i in 0 until a.length()) addArr(a.getJSONObject(i).optJSONArray("congestion"))
+                    } else {
+                        addArr(a)
+                    }
+                } else {
+                    addArr(a)
+                }
+            }
+        }
+        if (out.isEmpty()) addArr(p.optJSONArray("congestion"))
+        return out
+    }
+
+    private fun routeOnce(key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double, traffic: Boolean): Route {
         val sb = StringBuilder("$BASE/route/v4?apikey=").append(enc(key))
             .append("&point=").append(ll(fromLat, fromLon))
             .append("&point=").append(ll(toLat, toLon))
             .append("&vehicle=motorcycle&points_encoded=true&avoid=ferry")
+        if (traffic) sb.append("&annotations=congestion")
         if (heading != null && heading >= 0) sb.append("&heading=").append(heading.toInt())
         val root = JSONObject(get(sb.toString()))
         val code = root.optString("code", "OK")
@@ -81,7 +126,8 @@ object VietMap {
             )
         }
         if (la.size < 2) throw RuntimeException("Tuyến đường rỗng")
-        return Route(la, lo, steps, p.optDouble("distance", 0.0), p.optLong("time", 0L))
+        val cong = try { parseCongestion(p) } catch (_: Exception) { emptyList() }
+        return Route(la, lo, steps, p.optDouble("distance", 0.0), p.optLong("time", 0L), cong)
     }
 
     /** Dự phòng khi points không mã hoá: [[lon,lat],...] hoặc {"coordinates":[...]} */

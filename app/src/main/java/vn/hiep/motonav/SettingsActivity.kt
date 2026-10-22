@@ -178,7 +178,12 @@ class SettingsActivity : Activity() {
         choice("Nguồn bản đồ nền", "OpenFreeMap: miễn phí, không cần mã · VietMap: cần mã Tilemap", listOf("OpenFreeMap", "VietMap"), prefs.mapSource) {
             prefs.mapSource = it
         }
-        toggle("Bản đồ tối ban đêm", "Tự đổi sang nền tối từ 18h đến 6h", prefs.nightMap) { prefs.nightMap = it }
+        choice("Nền bản đồ", "Tự động: nền tối từ 18h đến 6h sáng", listOf("Tự động", "Sáng", "Tối"), prefs.mapTheme) {
+            prefs.mapTheme = it
+        }
+        toggle("Tô màu kẹt xe trên tuyến", "Dữ liệu kẹt xe của VietMap: cam = chậm, đỏ = kẹt, đỏ sẫm = kẹt nặng", prefs.traffic) {
+            prefs.traffic = it
+        }
         val keysOk = prefs.vietmapKey.isNotBlank() && prefs.vietmapTileKey.isNotBlank()
         action("Mã VietMap", if (keysOk) "✅ Đã nhập mã API và mã Tilemap" else "⚠️ Chưa nhập đủ 2 mã") {
             KeyDialog.show(this, prefs) { build() }
