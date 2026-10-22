@@ -310,6 +310,12 @@ class SettingsActivity : Activity() {
         }
 
         header("Hệ thống")
+        val packOk = try { OfflinePack.open(this) } catch (_: Exception) { false }
+        action(
+            "Dữ liệu ngoại tuyến TP.HCM",
+            if (packOk) "✅ Đã có (dữ liệu ngày ${OfflinePack.date}, ${OfflinePack.file(this).length() / 1_000_000} MB) · chạm để cập nhật"
+            else "Tải một lần đường, tốc độ, camera, biển báo của TP.HCM mở rộng → nhanh hơn, mất mạng vẫn chạy. Tự cập nhật hằng tuần trên GitHub",
+        ) { Updater.downloadPack(this, prefs) { build() } }
         action(
             "Gửi nhật ký chuyến đi",
             "Gửi các chuyến gần nhất (đã nén) qua Zalo / Drive / Gmail để kiểm tra lỗi. Nhật ký chỉ lưu trong app, tự xoá sau 7 ngày",

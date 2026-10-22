@@ -197,6 +197,14 @@ object Overpass {
         throw lastError ?: RuntimeException("Không tải được dữ liệu")
     }
 
+    /** Chỉ hỏi phường/xã tại vị trí (rất nhẹ) – dùng kèm gói ngoại tuyến. Trả về (thành thị?, tên). */
+    fun areaOf(lat: Double, lon: Double): Pair<Boolean?, String?> {
+        val p = String.format(Locale.US, "%.6f,%.6f", lat, lon)
+        val root = raw("[out:json][timeout:10];\nis_in($p)->.a;\narea.a[\"boundary\"=\"administrative\"];\nout tags;\n")
+        val snap = parseElements(listOf(root.optJSONArray("elements") ?: org.json.JSONArray()), lat, lon)
+        return snap.urbanArea to snap.areaName
+    }
+
     /** Gửi một truy vấn Overpass bất kỳ, thử lần lượt các máy chủ. */
     fun raw(query: String): JSONObject {
         var lastError: Exception? = null
@@ -232,6 +240,12 @@ object Overpass {
     private fun parse(body: String, lat: Double, lon: Double): OsmSnapshot {
         val root = JSONObject(body)
         val els = root.optJSONArray("elements") ?: throw RuntimeException("Dữ liệu rỗng")
+        return parseElements(listOf(els), lat, lon)
+    }
+
+    /** Dựng snapshot từ một hay nhiều mảng phần tử (Overpass hoặc gói ngoại tuyến), bỏ trùng theo id. */
+    fun parseElements(arrays: List<org.json.JSONArray>, lat: Double, lon: Double, maxWayDist: Double = Double.MAX_VALUE): OsmSnapshot {
+        val seen = HashSet<String>()
         val ways = ArrayList<Way>()
         val cams = ArrayList<Camera>()
         val signs = ArrayList<RoadSign>()
@@ -239,8 +253,9 @@ object Overpass {
         var urban: Boolean? = null
         var areaName: String? = null
 
-        for (i in 0 until els.length()) {
+        for (els in arrays) for (i in 0 until els.length()) {
             val e = els.getJSONObject(i)
+            if (!seen.add(e.optString("type") + e.optLong("id"))) continue
             val tagsObj = e.optJSONObject("tags")
             val tags = HashMap<String, String>()
             if (tagsObj != null) {
@@ -269,14 +284,32 @@ object Overpass {
                     val svc = tags["service"]
                     if (svc == "parking_aisle" || svc == "driveway" || svc == "drive-through") continue
                     if (tags["access"] == "private" || tags["access"] == "no") continue
-                    val g = e.optJSONArray("geometry") ?: continue
-                    if (g.length() < 2) continue
-                    val la = DoubleArray(g.length())
-                    val lo = DoubleArray(g.length())
-                    for (j in 0 until g.length()) {
-                        val pt = g.getJSONObject(j)
-                        la[j] = pt.optDouble("lat")
-                        lo[j] = pt.optDouble("lon")
+                    val la: DoubleArray
+                    val lo: DoubleArray
+                    val flat = e.optJSONArray("g")
+                    if (flat != null) {
+                        // Gói ngoại tuyến: [lat,lon,lat,lon,...]
+                        val n = flat.length() / 2
+                        if (n < 2) continue
+                        la = DoubleArray(n) { flat.optDouble(it * 2) }
+                        lo = DoubleArray(n) { flat.optDouble(it * 2 + 1) }
+                    } else {
+                        val g = e.optJSONArray("geometry") ?: continue
+                        if (g.length() < 2) continue
+                        la = DoubleArray(g.length())
+                        lo = DoubleArray(g.length())
+                        for (j in 0 until g.length()) {
+                            val pt = g.getJSONObject(j)
+                            la[j] = pt.optDouble("lat")
+                            lo[j] = pt.optDouble("lon")
+                        }
+                    }
+                    if (maxWayDist < Double.MAX_VALUE) {
+                        // Chỉ giữ đường trong bán kính (gói chia ô nên có thể dư)
+                        var near = false
+                        var j = 0
+                        while (j < la.size && !near) { if (Geo.distance(lat, lon, la[j], lo[j]) <= maxWayDist) near = true; j++ }
+                        if (!near) continue
                     }
                     ways.add(Way(e.optLong("id"), tags, la, lo))
                 }

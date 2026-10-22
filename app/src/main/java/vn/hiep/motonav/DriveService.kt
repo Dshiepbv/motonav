@@ -935,7 +935,20 @@ class DriveService : Service(), LocationListener {
         }
         executor.execute {
             try {
-                snapshot = Overpass.fetch(lat, lon, WAY_RADIUS, CAM_RADIUS)
+                // Có gói ngoại tuyến phủ vị trí này → đọc từ gói (nhanh, không cần mạng); không thì Overpass
+                val usePack = try { OfflinePack.open(this) && OfflinePack.covers(lat, lon) } catch (_: Exception) { false }
+                snapshot = if (usePack) {
+                    try {
+                        OfflinePack.snapshot(lat, lon, WAY_RADIUS, CAM_RADIUS).also {
+                            TripLog.ev("osm", "src" to "pack", "ways" to it.ways.size, "date" to OfflinePack.date)
+                        }
+                    } catch (e: Exception) {
+                        TripLog.ev("osm", "src" to "pack-fail", "err" to e.message)
+                        Overpass.fetch(lat, lon, WAY_RADIUS, CAM_RADIUS)
+                    }
+                } else {
+                    Overpass.fetch(lat, lon, WAY_RADIUS, CAM_RADIUS).also { TripLog.ev("osm", "src" to "overpass", "ways" to it.ways.size) }
+                }
                 Live.osm = snapshot
                 lastFetchFail = 0
             } catch (e: Exception) {

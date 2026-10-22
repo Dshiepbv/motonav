@@ -76,6 +76,64 @@ object Updater {
         }
     }
 
+    /** Tải gói dữ liệu OSM ngoại tuyến (release "osm-data") vào bộ nhớ riêng của app. */
+    fun downloadPack(a: Activity, prefs: Prefs, done: () -> Unit) {
+        val token = prefs.githubToken
+        if (token.isBlank()) { askToken(a, prefs); return }
+        val progress = AlertDialog.Builder(a).setTitle("Đang tải dữ liệu ngoại tuyến").setMessage("Đang kiểm tra…").setCancelable(false).show()
+        val ctx = a.applicationContext
+        Thread {
+            try {
+                val (id, size, updated) = http.newCall(req("https://api.github.com/repos/$REPO/releases/tags/osm-data", token, "application/vnd.github+json")).execute().use { r ->
+                    if (r.code == 404) throw RuntimeException("Gói dữ liệu chưa được tạo trên GitHub (đợi bản chạy hằng tuần)")
+                    if (!r.isSuccessful) throw RuntimeException("GitHub trả lỗi ${r.code}")
+                    val assets = JSONObject(r.body!!.string()).getJSONArray("assets")
+                    var res: Triple<Long, Long, String>? = null
+                    for (i in 0 until assets.length()) {
+                        val x = assets.getJSONObject(i)
+                        if (x.getString("name") == "osm-hcm.zip") res = Triple(x.getLong("id"), x.optLong("size"), x.optString("updated_at"))
+                    }
+                    res ?: throw RuntimeException("Chưa có file osm-hcm.zip")
+                }
+                val dst = OfflinePack.file(ctx)
+                val tmp = java.io.File(dst.parentFile, "pack.tmp")
+                http.newCall(req("https://api.github.com/repos/$REPO/releases/assets/$id", token, "application/octet-stream")).execute().use { r ->
+                    if (!r.isSuccessful) throw RuntimeException("Tải lỗi ${r.code}")
+                    val body = r.body!!
+                    val total = body.contentLength().takeIf { it > 0 } ?: size
+                    tmp.outputStream().use { out ->
+                        body.byteStream().use { inp ->
+                            val buf = ByteArray(64 * 1024)
+                            var got = 0L
+                            var last = -1
+                            while (true) {
+                                val n = inp.read(buf)
+                                if (n < 0) break
+                                out.write(buf, 0, n)
+                                got += n
+                                val pct = if (total > 0) (got * 100 / total).toInt() else 0
+                                if (pct != last) { last = pct; main.post { progress.setMessage("$pct%  (${got / 1_000_000}/${total / 1_000_000} MB)") } }
+                            }
+                        }
+                    }
+                }
+                OfflinePack.close()
+                if (!tmp.renameTo(dst)) { dst.delete(); tmp.renameTo(dst) }
+                val ok = OfflinePack.open(ctx)
+                main.post {
+                    progress.dismiss()
+                    Toast.makeText(ctx, if (ok) "Đã có dữ liệu ngoại tuyến (cập nhật ${updated.take(10)})" else "File tải về bị lỗi", Toast.LENGTH_LONG).show()
+                    done()
+                }
+            } catch (e: Exception) {
+                main.post {
+                    progress.dismiss()
+                    Toast.makeText(ctx, "Không tải được: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
     /** Nút "Cập nhật phần mềm" trong Cài đặt. */
     fun check(a: Activity, prefs: Prefs) {
         val token = prefs.githubToken
