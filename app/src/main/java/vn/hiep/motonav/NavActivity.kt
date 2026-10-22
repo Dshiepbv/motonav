@@ -794,7 +794,7 @@ class NavActivity : Activity() {
         }
         val mapErr = MapHttp.problem() ?: styleError ?: if (prefs.mapSource == 1) {
             // Chế độ VietMap: luôn hiện chẩn đoán để tìm lỗi bản đồ trắng
-            listOfNotNull(vmDiag, "Thư viện: tải OK ${MapHttp.okCount}, lỗi ${MapHttp.failCount}", MapHttp.lastLog).joinToString(" · ")
+            listOfNotNull(vmDiag, "Thư viện: tải OK ${MapHttp.okCount}, lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog).joinToString(" · ")
         } else null
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus ?: (Live.destName?.takeIf { nav }?.let { "Đến: $it" } ?: "")
         statusText.setTextColor(if (Live.routeError != null || mapErr != null) danger else muted)

@@ -33,7 +33,33 @@ object MapHttp {
                 if (url.host.endsWith("vietmap.vn") && key.isNotBlank() && url.queryParameter("apikey") != key) {
                     req = req.newBuilder().url(url.newBuilder().setQueryParameter("apikey", key).build()).build()
                 }
-                val resp = chain.proceed(req)
+                var resp = chain.proceed(req)
+                // Mảnh bản đồ VietMap: tự giải nén nếu bị nén gzip mà không báo
+                val path = req.url.encodedPath
+                if (req.url.host.endsWith("vietmap.vn") && resp.isSuccessful && !path.endsWith(".json") &&
+                    !path.contains("sprite") && resp.body != null
+                ) {
+                    val raw = resp.body!!.bytes()
+                    var data = raw
+                    var rounds = 0
+                    while (data.size > 2 && data[0] == 0x1f.toByte() && data[1] == 0x8b.toByte() && rounds < 3) {
+                        data = java.util.zip.GZIPInputStream(data.inputStream()).use { it.readBytes() }
+                        rounds++
+                    }
+                    if (lastTileInfo == null && !path.contains("fonts")) {
+                        val head = raw.take(8).joinToString(" ") { String.format("%02x", it) }
+                        lastTileInfo = "mảnh ${raw.size}B đầu [$head] gzip x$rounds, ${resp.header("Content-Type") ?: "?"}"
+                    }
+                    // Dữ liệu không phải mảnh bản đồ (vd thông báo lỗi dạng chữ) → coi như mảnh trống
+                    val looksText = data.isNotEmpty() && (data[0] == '{'.code.toByte() || data[0] == '<'.code.toByte())
+                    val outBytes = if (looksText) ByteArray(0) else data
+                    resp = resp.newBuilder()
+                        .removeHeader("Content-Encoding")
+                        .removeHeader("Content-Length")
+                        .code(if (outBytes.isEmpty()) 204 else resp.code)
+                        .body(okhttp3.ResponseBody.create(resp.body!!.contentType(), outBytes))
+                        .build()
+                }
                 if (req.url.host.endsWith("vietmap.vn")) {
                     if (resp.isSuccessful || resp.code == 204 || resp.code == 304) {
                         okCount++
@@ -50,6 +76,7 @@ object MapHttp {
     }
 
     @Volatile var lastLog: String? = null
+    @Volatile var lastTileInfo: String? = null
 
     /** Bắt thông báo lỗi của thư viện bản đồ (vd "HTTP status code 401") để hiện lên màn hình. */
     fun captureLogs() {
@@ -74,6 +101,7 @@ object MapHttp {
 
     fun reset() {
         lastLog = null
+        lastTileInfo = null
         okCount = 0
         failCount = 0
         lastFailCode = 0
