@@ -1527,6 +1527,7 @@ class NavActivity : Activity() {
     private var camCourse = -1.0
     private var camAimed = -1.0       // hướng đích sau vùng chết
     private var camMoving = false
+    private var camBearingOk = false
     private var camUsingCompass = false
 
     private fun startCamLoop() {
@@ -1569,12 +1570,24 @@ class NavActivity : Activity() {
             if (!follow) { camCur = null; return }
             val cp = m.cameraPosition
             var c = camCur
-            if (c == null) {
-                val tg = cp.target ?: return
-                c = doubleArrayOf(tg.latitude, tg.longitude, cp.zoom, cp.tilt, t[4])
+            val (b0, _) = pickBearing()
+            // Lần đầu (mới mở app / vừa bám lại) hoặc đích ở xa: nhảy thẳng tới, không trượt qua bản đồ
+            val far = c == null || Geo.distance(c[0], c[1], t[0], t[1]) > 150 || kotlin.math.abs(c[2] - t[2]) > 1.5
+            if (far) {
+                c = t.copyOf()
                 camCur = c
-                camBearing = cp.bearing
+                camBearing = if (b0 >= 0) b0 else cp.bearing
+                camAimed = camBearing
+                camBearingOk = b0 >= 0
+                carLat = c[0]; carLon = c[1]
+                if (b0 >= 0 && camUsingCompass) carHdg = b0
+                val pos0 = CameraPosition.Builder().target(LatLng(c[0], c[1])).zoom(c[2]).tilt(c[3])
+                    .bearing(camBearing).padding(0.0, c[4], 0.0, 0.0).build()
+                try { m.moveCamera(CameraUpdateFactory.newCameraPosition(pos0)) } catch (_: Exception) {}
+                positionCar()
+                return
             }
+            c!!
             var moved = false
             for (i in 0..4) {
                 val a = if (i < 2) 0.10 else 0.08
@@ -1583,7 +1596,12 @@ class NavActivity : Activity() {
             }
             val (b, fromCompass) = pickBearing()
             camUsingCompass = fromCompass
-            if (b >= 0) {
+            if (b >= 0 && !camBearingOk) {
+                // Hướng đầu tiên vừa có (la bàn/GPS): đặt luôn, không quay vòng
+                camBearingOk = true
+                camBearing = b; camAimed = b; carHdg = b
+                moved = true
+            } else if (b >= 0) {
                 // Vùng chết: la bàn 5°, hướng đường 3° (hoặc đổi nguồn thì nhận ngay)
                 val dead = if (fromCompass) 5.0 else 3.0
                 if (camAimed < 0 || Geo.angleDiff(b, camAimed) > dead) camAimed = b

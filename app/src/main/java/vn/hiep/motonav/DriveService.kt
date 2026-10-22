@@ -275,11 +275,19 @@ class DriveService : Service(), LocationListener {
     // ---------- Xử lý mỗi lần có vị trí mới ----------
 
     private var lastGpsFix = 0L
+    private var lastGoodFix = 0L
+    private val startedAt = SystemClock.elapsedRealtime()
 
     override fun onLocationChanged(loc: Location) {
         val now = SystemClock.elapsedRealtime()
         if (loc.provider == LocationManager.GPS_PROVIDER) lastGpsFix = now
         else if (now - lastGpsFix < 2500) return
+        // Bỏ điểm định vị quá kém (mới bật GPS, fused đoán theo wifi/trạm) nếu vừa có điểm tốt
+        val acc = if (loc.hasAccuracy()) loc.accuracy else 0f
+        if (acc > 40f && now - lastGoodFix < 15000) return
+        if (acc <= 40f) lastGoodFix = now
+        // Mới mở: chờ GPS ổn định (≤ 40 m) tối đa 6 giây trước khi nhận điểm thô
+        if (acc > 40f && lastGoodFix == 0L && now - startedAt < 6000) return
         try {
             process(loc)
         } catch (e: Exception) {
