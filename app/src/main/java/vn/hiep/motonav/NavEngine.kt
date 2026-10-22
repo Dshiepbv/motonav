@@ -32,7 +32,7 @@ class NavEngine(
         Live.routeError = null
         seg = 0
         spoken.clear()
-        if (Live.gpsOk) requestRoute(Live.lat, Live.lon, null, offerChoice = true)
+        if (Live.gpsOk) requestRoute(Live.lat, Live.lon, if (Live.heading >= 0) Live.heading else null, offerChoice = true)
         else Live.routeStatus = "Đang chờ GPS để tìm đường…"
         Live.changed()
     }
@@ -100,9 +100,22 @@ class NavEngine(
         Live.changed()
         val dLat = Live.destLat
         val dLon = Live.destLon
+        val reroute = Live.route != null && !offerChoice
         executor.execute {
             try {
-                val list = VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, offerChoice)
+                // Luôn lấy vài tuyến để tự chọn tuyến tốt nhất (tránh kẹt xe / ngắn nhất)
+                var list = VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, true)
+                list = RoutePick.rank(list, heading, forwardFirst = heading != null)
+                // Quẹo nhầm / lệch tuyến: không bắt quay đầu – ép đi tiếp qua một điểm phía trước
+                if (heading != null && (reroute || Live.speedKmh > 8) && RoutePick.isBackward(list.first(), heading)) {
+                    try {
+                        val ap = RoutePick.aheadPoint(Live.osm, lat, lon, heading)
+                        val vr = VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, false, listOf(ap)).first()
+                        if (!RoutePick.isBackward(vr, heading)) list = listOf(vr) + list
+                    } catch (_: Exception) {
+                    }
+                }
+                if (!offerChoice && list.size > 1) list = list.take(1)
                 val r = list.first()
                 if (Live.ownNav) {
                     if (offerChoice && list.size > 1) {
@@ -260,8 +273,8 @@ class NavEngine(
         Live.navInstruction = phrase
         Live.navExtra = null
 
-        // Đọc chỉ dẫn
-        if (next.sign != 0) {
+        // Đọc chỉ dẫn (đang lệch tuyến thì không đọc chỉ dẫn của tuyến cũ, tránh bảo quay lại)
+        if (next.sign != 0 && !off) {
             val key = "$nextIdx@" + next.from
             val spd = speedMps * 3.6
             val far = if (spd > 45) 600 else 300
