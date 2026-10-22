@@ -124,6 +124,19 @@ class NavActivity : Activity() {
             loadStyle()
         }
         mapView.addOnDidFailLoadingMapListener { msg ->
+            if (ofmTried == OFM_DARK) {
+                // Kiểu tối không tải được → quay về kiểu sáng
+                ofmTried = OFM_STYLE
+                map?.setStyle(Style.Builder().fromUri(OFM_STYLE)) { s ->
+                    style = s
+                    shownRouteVersion = -1
+                    shownJunction = -1
+                    labelFont = findFont(s)
+                    addLayers(s)
+                    render()
+                }
+                return@addOnDidFailLoadingMapListener
+            }
             styleError = "Không tải được kiểu bản đồ VietMap: $msg. Kiểm tra mã Tilemap trong Cài đặt."
             render()
         }
@@ -517,13 +530,16 @@ class NavActivity : Activity() {
         val onLoaded = { s: Style ->
             style = s
             shownRouteVersion = -1
+            shownJunction = -1
             labelFont = findFont(s)
             addLayers(s)
             render()
         }
         if (!useVm || key.isBlank()) {
             // OpenFreeMap: bản đồ OpenStreetMap miễn phí, không cần mã
-            m.setStyle(Style.Builder().fromUri(OFM_STYLE)) { s -> onLoaded(s) }
+            val ofm = if (night) OFM_DARK else OFM_STYLE
+            ofmTried = ofm
+            m.setStyle(Style.Builder().fromUri(ofm)) { s -> onLoaded(s) }
             return
         }
         MapHttp.key = key
@@ -548,6 +564,7 @@ class NavActivity : Activity() {
     }
 
     private var vmDiag: String? = null
+    private var ofmTried: String? = null
 
     /** Lấy font chữ có sẵn trong kiểu bản đồ VietMap để nhãn tên đường hiển thị được. */
     private fun findFont(s: Style): Array<String>? {
@@ -562,6 +579,7 @@ class NavActivity : Activity() {
 
     companion object {
         private const val OFM_STYLE = "https://tiles.openfreemap.org/styles/liberty"
+        private const val OFM_DARK = "https://tiles.openfreemap.org/styles/dark"
     }
 
     private val emptyFc = """{"type":"FeatureCollection","features":[]}"""
@@ -571,6 +589,8 @@ class NavActivity : Activity() {
         s.addSource(GeoJsonSource("mn-me", emptyFc))
         s.addSource(GeoJsonSource("mn-turn", emptyFc))
         s.addSource(GeoJsonSource("mn-dest", emptyFc))
+        s.addSource(GeoJsonSource("mn-next", emptyFc))
+        s.addSource(GeoJsonSource("mn-junction", emptyFc))
 
         s.addLayer(
             LineLayer("mn-route-casing", "mn-route").withProperties(
@@ -584,6 +604,23 @@ class NavActivity : Activity() {
             LineLayer("mn-route-line", "mn-route").withProperties(
                 PropertyFactory.lineColor("#38A3FF"),
                 PropertyFactory.lineWidth(8f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            ),
+        )
+        // Đoạn đường sắp rẽ vào: tô vàng nổi bật
+        s.addLayer(
+            LineLayer("mn-next-casing", "mn-next").withProperties(
+                PropertyFactory.lineColor("#5C4500"),
+                PropertyFactory.lineWidth(15f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            ),
+        )
+        s.addLayer(
+            LineLayer("mn-next-line", "mn-next").withProperties(
+                PropertyFactory.lineColor("#FFD60A"),
+                PropertyFactory.lineWidth(9f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             ),
@@ -620,6 +657,40 @@ class NavActivity : Activity() {
         )
         labelFont?.let { label.setProperties(PropertyFactory.textFont(it)) }
         s.addLayer(label)
+
+        // Tên các ngã rẽ phía trước: chữ dựng đứng (luôn thẳng như biển), đường sắp rẽ vào to + vàng
+        val isTurn = Expression.eq(Expression.get("turn"), Expression.literal(true))
+        val jl = SymbolLayer("mn-junction-label", "mn-junction").withProperties(
+            PropertyFactory.textField(Expression.get("name")),
+            PropertyFactory.textSize(Expression.switchCase(isTurn, Expression.literal(23f), Expression.literal(16f))),
+            PropertyFactory.textColor(
+                Expression.switchCase(isTurn, Expression.color(Color.parseColor("#FFD60A")), Expression.color(Color.WHITE)),
+            ),
+            PropertyFactory.textHaloColor(
+                Expression.switchCase(isTurn, Expression.color(Color.parseColor("#0B3D2E")), Expression.color(Color.parseColor("#1B2027"))),
+            ),
+            PropertyFactory.textHaloWidth(4f),
+            PropertyFactory.textHaloBlur(0.5f),
+            PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
+            PropertyFactory.textPitchAlignment(Property.TEXT_PITCH_ALIGNMENT_VIEWPORT),
+            PropertyFactory.textRotationAlignment(Property.TEXT_ROTATION_ALIGNMENT_VIEWPORT),
+            PropertyFactory.textAllowOverlap(true),
+            PropertyFactory.textIgnorePlacement(true),
+            PropertyFactory.textMaxWidth(9f),
+            PropertyFactory.symbolSortKey(Expression.switchCase(isTurn, Expression.literal(1f), Expression.literal(0f))),
+        )
+        labelFont?.let { jl.setProperties(PropertyFactory.textFont(it)) }
+        s.addLayer(jl)
+        s.addLayer(
+            CircleLayer("mn-junction-dot", "mn-junction").withProperties(
+                PropertyFactory.circleRadius(Expression.switchCase(isTurn, Expression.literal(6f), Expression.literal(4f))),
+                PropertyFactory.circleColor(
+                    Expression.switchCase(isTurn, Expression.color(Color.parseColor("#FFD60A")), Expression.color(Color.WHITE)),
+                ),
+                PropertyFactory.circleStrokeColor("#1B2027"),
+                PropertyFactory.circleStrokeWidth(2f),
+            ),
+        )
         s.addImage("mn-car", carIcon())
         s.addLayer(
             SymbolLayer("mn-me-arrow", "mn-me").withProperties(
@@ -677,7 +748,12 @@ class NavActivity : Activity() {
                 src("mn-route")?.setGeoJson(r.toGeoJsonLine())
             }
             src("mn-dest")?.setGeoJson(point(Live.destLat, Live.destLon))
-            val lab = Live.maneuverLabel
+            if (shownJunction != Live.junctionVersion) {
+                shownJunction = Live.junctionVersion
+                src("mn-junction")?.setGeoJson(Live.junctionJson ?: emptyFc)
+            }
+            src("mn-next")?.setGeoJson(Live.nextLeg ?: emptyFc)
+            val lab = if (Live.junctionHasTurn) "" else Live.maneuverLabel
             if (lab != null && Live.navMeters in 0..1500) {
                 src("mn-turn")?.setGeoJson(point(Live.maneuverLat, Live.maneuverLon, lab))
             } else {
@@ -688,6 +764,9 @@ class NavActivity : Activity() {
             src("mn-route")?.setGeoJson(emptyFc)
             src("mn-turn")?.setGeoJson(emptyFc)
             src("mn-dest")?.setGeoJson(emptyFc)
+            src("mn-next")?.setGeoJson(emptyFc)
+            src("mn-junction")?.setGeoJson(emptyFc)
+            shownJunction = -1
         }
 
         if (!Live.gpsOk) return
@@ -731,6 +810,7 @@ class NavActivity : Activity() {
     }
 
     private var lastHeading = 0.0
+    private var shownJunction = -1
 
     // ---------- Vẽ trạng thái ----------
 

@@ -42,6 +42,9 @@ class NavEngine(
         Live.routeStatus = null
         Live.routeError = null
         Live.maneuverLabel = null
+        Live.nextLeg = null
+        Live.junctionJson = null
+        Live.junctionVersion++
         Live.clearNav()
     }
 
@@ -110,6 +113,8 @@ class NavEngine(
         seg = bestI
         val segLen = r.cum[bestI + 1] - r.cum[bestI]
         val progress = r.cum[bestI] + bestT * segLen
+        Live.routeSeg = bestI
+        Live.routeProgress = progress
         val remaining = max(0.0, r.total - progress)
         Live.remainingM = remaining
         Live.etaMs = if (r.total > 0) (r.timeMs * (remaining / r.total)).toLong() else 0L
@@ -152,6 +157,25 @@ class NavEngine(
         Live.maneuverLon = r.lons[mIdx]
         Live.maneuverLabel = if (next.street.isNotBlank()) next.street else Maneuver.verb(next.sign)
         Live.maneuverSign = next.sign
+        Live.maneuverStreet = next.street.ifBlank { null }
+
+        // Đoạn đường sắp rẽ vào: từ chỗ rẽ đi tiếp ~250 m (tô sáng trên bản đồ)
+        if (next.sign != 0 && next.sign != 4 && next.sign != 5) {
+            val sb = StringBuilder("""{"type":"Feature","properties":{},"geometry":{"type":"LineString","coordinates":[""")
+            var j = mIdx
+            var first = true
+            while (j < n && r.cum[j] - r.cum[mIdx] <= 250) {
+                if (!first) sb.append(',')
+                sb.append('[').append(r.lons[j]).append(',').append(r.lats[j]).append(']')
+                first = false
+                j++
+            }
+            if (j < n && !first) sb.append(",[").append(r.lons[j]).append(',').append(r.lats[j]).append(']')
+            sb.append("]}}")
+            Live.nextLeg = if (j - mIdx >= 1) sb.toString() else null
+        } else {
+            Live.nextLeg = null
+        }
 
         // Bước sau nữa (hiện dòng "Sau đó")
         val after = r.steps.getOrNull(nextIdx + 1)

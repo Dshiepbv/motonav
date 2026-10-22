@@ -305,6 +305,7 @@ class DriveService : Service(), LocationListener {
 
         checkOverspeed(speedKmh)
         nav.onLocation(lat, lon, movingHeading, speedMps)
+        updateJunctions(lat, lon)
         if (!Live.ownNav) checkTurn()
         checkCameras(snap, lat, lon, speedMps, movingHeading)
         Live.changed()
@@ -346,6 +347,36 @@ class DriveService : Service(), LocationListener {
             voice.beep()
         }
     }
+
+    private var lastJunctions = 0L
+
+    /** Nhãn tên các đường cắt ngang tuyến phía trước (cập nhật mỗi 2,5 giây). */
+    private fun updateJunctions(lat: Double, lon: Double) {
+        val now = SystemClock.elapsedRealtime()
+        val r = Live.route
+        val snap = snapshot
+        if (!Live.ownNav || r == null || snap == null) return
+        if (now - lastJunctions < 2500) return
+        lastJunctions = now
+        try {
+            val turn = Live.maneuverStreet
+            val list = Junctions.compute(r, Live.routeSeg, Live.routeProgress, snap, lat, lon, Live.street, null)
+            // So khớp tên đường rẽ của VietMap với tên trên OSM (bỏ chữ "Đường", "Đ.", dấu chấm…)
+            val tn = turn?.let { norm(it) }
+            val marked = list.map {
+                val hit = tn != null && tn.isNotEmpty() && (norm(it.name) == tn || norm(it.name).contains(tn) || tn.contains(norm(it.name)))
+                if (hit) JLabel(it.lat, it.lon, it.name, true, it.ahead) else it
+            }
+            Live.junctionHasTurn = marked.any { it.isTurn }
+            Live.junctionJson = Junctions.toGeoJson(marked)
+            Live.junctionVersion++
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun norm(s: String): String = s.lowercase()
+        .replace(Regex("""^(đường|đ\.|duong|phố|pho|hẻm|hem|quốc lộ|ql\.?)\s*"""), "")
+        .replace(Regex("""[.\s]+"""), " ").trim()
 
     private fun applyLimit(res: LimitResult?) {
         shownLimit = res
@@ -484,6 +515,7 @@ class DriveService : Service(), LocationListener {
         executor.execute {
             try {
                 snapshot = Overpass.fetch(lat, lon, WAY_RADIUS, CAM_RADIUS)
+                Live.osm = snapshot
                 lastFetchFail = 0
             } catch (e: Exception) {
                 lastFetchFail = SystemClock.elapsedRealtime()

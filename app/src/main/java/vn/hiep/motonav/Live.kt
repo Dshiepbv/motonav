@@ -61,6 +61,14 @@ object Live {
     @Volatile var maneuverLabel: String? = null
     @Volatile var maneuverSign = 0
     @Volatile var thenText: String? = null
+    @Volatile var maneuverStreet: String? = null
+    @Volatile var routeSeg = 0
+    @Volatile var routeProgress = 0.0
+    @Volatile var nextLeg: String? = null       // GeoJSON đoạn đường sắp rẽ vào (tô sáng)
+    @Volatile var junctionJson: String? = null  // GeoJSON nhãn tên các ngã rẽ phía trước
+    @Volatile var junctionHasTurn = false
+    @Volatile var junctionVersion = 0
+    @Volatile var osm: OsmSnapshot? = null
 
     // Dải chữ cảnh báo (hiện kèm mọi âm thanh)
     @Volatile var alertText: String? = null
