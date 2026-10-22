@@ -358,6 +358,7 @@ class DriveService : Service(), LocationListener {
         updateLimitAhead()
         updateAlertIcons(lat, lon)
         updateSigns(lat, lon, movingHeading)
+        updateWeather()
         if (!Live.ownNav) checkTurn()
         checkCameras(snap, lat, lon, speedMps, movingHeading)
         Live.changed()
@@ -509,6 +510,57 @@ class DriveService : Service(), LocationListener {
         sb.append("]}")
         Live.alertsJson = sb.toString()
         Live.alertsVersion++
+    }
+
+    // ---------- Thời tiết dọc tuyến (tiết kiệm pin: 1 lần gọi/tuyến, làm mới 20 phút) ----------
+
+    @Volatile private var wxBusy = false
+    private var wxRouteVer = -1
+    private var wxDest = ""
+    private var lastWx = 0L
+    private var wxAnnounced: String? = null
+
+    private fun updateWeather() {
+        val r = Live.route
+        if (!prefs.weather || !Live.ownNav || r == null) {
+            if (Live.wxJson != null) {
+                Live.wxJson = null
+                Live.wxSummary = null
+                Live.wxVersion++
+            }
+            wxRouteVer = -1
+            return
+        }
+        if (wxBusy) return
+        val now = SystemClock.elapsedRealtime()
+        val dest = "${Live.destLat},${Live.destLon}"
+        val newTrip = dest != wxDest
+        val routeChanged = Live.routeVersion != wxRouteVer
+        val due = newTrip || (routeChanged && now - lastWx > 120_000) || now - lastWx > 20 * 60_000
+        if (!due) return
+        wxBusy = true
+        wxRouteVer = Live.routeVersion
+        wxDest = dest
+        lastWx = now
+        val progress = Live.routeProgress
+        Thread {
+            try {
+                val (marks, summary) = RouteWeather.fetch(r, progress)
+                Live.wxJson = RouteWeather.toGeoJson(marks)
+                Live.wxSummary = summary
+                Live.wxVersion++
+                // Báo một lần khi phía trước có mưa
+                if (summary != null && summary.startsWith("Phía trước") && summary != wxAnnounced) {
+                    wxAnnounced = summary
+                    handler.post { alert("🌧 $summary", summary.substringBefore(" (").replace("km", "ki lô mét"), beep = false, showMs = 7000) }
+                }
+                Live.changed()
+            } catch (_: Exception) {
+                lastWx = SystemClock.elapsedRealtime() - 18 * 60_000 // lỗi mạng: thử lại sau ~2 phút
+            } finally {
+                wxBusy = false
+            }
+        }.apply { isDaemon = true; start() }
     }
 
     // ---------- Biển báo phía trước ----------

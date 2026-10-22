@@ -100,6 +100,11 @@ object Live {
     @Volatile var signsJson: String? = null
     @Volatile var signsVersion = 0
 
+    // Thời tiết dọc tuyến
+    @Volatile var wxJson: String? = null
+    @Volatile var wxVersion = 0
+    @Volatile var wxSummary: String? = null
+
     // Dải chữ cảnh báo (hiện kèm mọi âm thanh)
     @Volatile var alertText: String? = null
     @Volatile var alertUntil = 0L

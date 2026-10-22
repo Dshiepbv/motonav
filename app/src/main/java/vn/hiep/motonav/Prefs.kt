@@ -69,6 +69,10 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("mapTheme", if (sp.getBoolean("nightMap", true)) 0 else 1)
         set(v) = sp.edit().putInt("mapTheme", v).apply()
 
+    var weather: Boolean
+        get() = sp.getBoolean("weather", true)
+        set(v) = sp.edit().putBoolean("weather", v).apply()
+
     var traffic: Boolean
         get() = sp.getBoolean("traffic", true)
         set(v) = sp.edit().putBoolean("traffic", v).apply()

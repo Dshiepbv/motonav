@@ -1120,6 +1120,21 @@ class NavActivity : Activity() {
                 PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
             ),
         )
+        // Thời tiết dọc tuyến: bong bóng nắng/mưa đặt cạnh tuyến
+        s.addSource(GeoJsonSource("mn-wx", emptyFc))
+        s.addLayer(
+            SymbolLayer("mn-wx-icon", "mn-wx").withProperties(
+                PropertyFactory.iconImage(Expression.get("img")),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM_LEFT),
+                PropertyFactory.iconOffset(arrayOf(10f, -4f)),
+                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
+                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
+            ),
+        )
+        shownWx = -1
+
         // Biển báo phía trước cắm trên tuyến (cấm dừng đỗ, cấm rẽ…) kèm số mét
         s.addSource(GeoJsonSource("mn-signs", emptyFc))
         val sl = SymbolLayer("mn-signs-icon", "mn-signs").withProperties(
@@ -1182,6 +1197,34 @@ class NavActivity : Activity() {
     private var shownAlerts = -1
     private var shownThenSign = -999
     private var shownSignsMap = -1
+    private var shownWx = -1
+
+    /** Bong bóng thời tiết: biểu tượng + nhiệt độ hoặc % mưa. */
+    private fun wxIcon(cat: Int, night: Boolean, label: String): android.graphics.Bitmap {
+        val w = dp(74f)
+        val h = dp(38f)
+        val b = android.graphics.Bitmap.createBitmap(w, h + dp(6f), android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(b)
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        p.color = when {
+            cat >= WxCat.RAIN -> Color.parseColor("#1565C0")
+            cat == WxCat.CHANCE -> Color.parseColor("#4F7FB0")
+            else -> Color.parseColor("#F5F7FA")
+        }
+        c.drawRoundRect(android.graphics.RectF(0f, 0f, w.toFloat(), h.toFloat()), h / 2f, h / 2f, p)
+        // đuôi nhỏ chỉ về tuyến
+        val tail = android.graphics.Path().apply {
+            moveTo(dp(8f).toFloat(), h.toFloat() - 2); lineTo(dp(2f).toFloat(), (h + dp(6f)).toFloat()); lineTo(dp(18f).toFloat(), h.toFloat() - 2); close()
+        }
+        c.drawPath(tail, p)
+        val t = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = h * 0.55f }
+        c.drawText(WxCat.emoji(cat, night), dp(6f).toFloat(), h * 0.7f, t)
+        t.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        t.textSize = h * 0.42f
+        t.color = if (cat >= WxCat.CHANCE) Color.WHITE else Color.parseColor("#1B2027")
+        c.drawText(label, dp(36f).toFloat(), h * 0.66f, t)
+        return b
+    }
     private var shownChoicesMap = -1
 
     /** Biểu tượng cảnh báo: vòng tròn trắng viền màu, có hình bên trong, chân nhọn. */
@@ -1309,6 +1352,25 @@ class NavActivity : Activity() {
             } else {
                 src("mn-choices")?.setGeoJson(emptyFc)
             }
+        }
+        if (shownWx != Live.wxVersion) {
+            shownWx = Live.wxVersion
+            val js = Live.wxJson
+            if (js != null) {
+                try {
+                    val st = style
+                    if (st != null && st.isFullyLoaded) {
+                        Regex(""""img":"(wx-(\d+)-(\d)-([^"]*))"""").findAll(js).forEach { m ->
+                            val id = m.groupValues[1]
+                            if (st.getImage(id) == null) {
+                                st.addImage(id, wxIcon(m.groupValues[2].toInt(), m.groupValues[3] == "1", m.groupValues[4]))
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+            src("mn-wx")?.setGeoJson(js ?: emptyFc)
         }
         if (shownSignsMap != Live.signsVersion) {
             shownSignsMap = Live.signsVersion
@@ -1494,7 +1556,9 @@ class NavActivity : Activity() {
             // Chế độ VietMap: luôn hiện chẩn đoán để tìm lỗi bản đồ trắng
             listOfNotNull(vmDiag, "Thư viện: tải OK ${MapHttp.okCount}, lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog).joinToString(" · ")
         } else null
-        statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus ?: (Live.destName?.takeIf { nav }?.let { "Đến: $it" } ?: "")
+        statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
+            ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
+                .joinToString("\n")
         statusText.setTextColor(if (Live.routeError != null || mapErr != null) danger else muted)
 
         updateMap()

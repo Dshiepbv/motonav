@@ -178,6 +178,9 @@ class SettingsActivity : Activity() {
         choice("Nền bản đồ", "Tự động: nền tối từ 18h đến 6h sáng", listOf("Tự động", "Sáng", "Tối"), prefs.mapTheme) {
             prefs.mapTheme = it
         }
+        toggle("Thời tiết dọc tuyến", "Biểu tượng nắng/mưa tại chỗ đổi thời tiết, theo giờ anh tới. Dữ liệu Open-Meteo.com (CC BY 4.0)", prefs.weather) {
+            prefs.weather = it
+        }
         toggle("Tô màu kẹt xe trên tuyến", "Dữ liệu kẹt xe của VietMap: cam = chậm, đỏ = kẹt, đỏ sẫm = kẹt nặng", prefs.traffic) {
             prefs.traffic = it
         }
