@@ -1129,7 +1129,7 @@ class NavActivity : Activity() {
         s.addLayer(
             org.maplibre.android.style.layers.FillExtrusionLayer("mn-text3d-layer", "mn-text3d").withProperties(
                 PropertyFactory.fillExtrusionColor(
-                    Expression.switchCase(isTurn3d, Expression.color(Color.parseColor("#FFE58A")), Expression.color(Color.parseColor("#F4F4F0"))),
+                    Expression.switchCase(isTurn3d, Expression.color(Color.parseColor("#FFF4B8")), Expression.color(Color.parseColor("#8C939C"))),
                 ),
                 PropertyFactory.fillExtrusionBase(Expression.toNumber(Expression.get("b"))),
                 PropertyFactory.fillExtrusionHeight(Expression.toNumber(Expression.get("h"))),

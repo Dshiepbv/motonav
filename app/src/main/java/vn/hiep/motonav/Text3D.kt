@@ -22,6 +22,7 @@ object Text3D {
     private const val MAX_LEN = 55.0    // chiều dài tối đa cả tên (m)
     private const val START = 10.0      // bắt đầu cách ngã rẽ 10 m
     private const val THICK = 1.4       // độ dày chữ (m)
+    private const val SMALL = 0.72      // tỉ lệ cỡ chữ các đường khác (không phải đường rẽ)
 
     private class Grid(val w: Int, val h: Int, val on: BooleanArray)
 
@@ -68,7 +69,10 @@ object Text3D {
             val d = l.outBearing
             if (d < 0) continue
             val g = raster(l.name)
-            val cell = min(MAX_HEIGHT / g.h, MAX_LEN / g.w).coerceAtLeast(MIN_CELL)
+            // Đường sắp rẽ: cỡ chữ đầy đủ; các đường khác ở ngã rẽ: nhỏ hơn
+            val sc = if (l.isTurn) 1.0 else SMALL
+            val cell = min(MAX_HEIGHT * sc / g.h, MAX_LEN * sc / g.w).coerceAtLeast(MIN_CELL)
+            val thick = THICK * sc
             val len = g.w * cell
             // Chiều chạy của chữ: hướng có thành phần sang phải màn hình
             val right = Geo.norm(viewBearing + 90)
@@ -126,9 +130,9 @@ object Text3D {
                     .append(""","h":""").append(String.format(java.util.Locale.US, "%.2f", top))
                     .append(""","k":""").append(turn)
                     .append("""},"geometry":{"type":"Polygon","coordinates":[[""")
-                    .append(pt(s, -THICK / 2)).append(',').append(pt(e, -THICK / 2)).append(',')
-                    .append(pt(e, THICK / 2)).append(',').append(pt(s, THICK / 2)).append(',')
-                    .append(pt(s, -THICK / 2)).append("]]}}")
+                    .append(pt(s, -thick / 2)).append(',').append(pt(e, -thick / 2)).append(',')
+                    .append(pt(e, thick / 2)).append(',').append(pt(s, thick / 2)).append(',')
+                    .append(pt(s, -thick / 2)).append("]]}}")
             }
         }
         sb.append("]}")

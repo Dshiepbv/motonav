@@ -678,7 +678,18 @@ class DriveService : Service(), LocationListener {
             Live.junctionHasTurn = marked.any { it.isTurn }
             // Chữ khối 3D cho các ngã rẽ gần (tối đa 8, trong 450 m); các nhãn còn lại giữ dạng chữ thường
             val view = if (Live.roadBearing >= 0) Live.roadBearing else if (Live.heading >= 0) Live.heading else 0.0
-            val solid = if (prefs.text3d) marked.filter { it.outBearing >= 0 && it.ahead <= 450 }.sortedBy { it.ahead }.take(8) else emptyList()
+            // Chữ 3D chỉ hiện khi còn ≤ 250 m tới điểm rẽ: đường rẽ vào (to, sáng) +
+            // các đường khác có ngã rẽ trong vòng 50 m quanh điểm rẽ (nhỏ hơn, tối hơn)
+            val toTurn = Live.navMeters
+            val sgn = Live.maneuverSign
+            val isTurnStep = sgn != 0 && sgn != 4 && sgn != 5
+            val mLat = Live.maneuverLat
+            val mLon = Live.maneuverLon
+            val solid = if (prefs.text3d && isTurnStep && toTurn in 0..250) {
+                marked.filter {
+                    it.outBearing >= 0 && (it.isTurn || Geo.distance(it.jLat, it.jLon, mLat, mLon) <= 50)
+                }.sortedWith(compareByDescending<JLabel> { it.isTurn }.thenBy { it.ahead }).take(8)
+            } else emptyList()
             val key = solid.joinToString("|") {
                 val fwd = Geo.angleDiff(it.outBearing, Geo.norm(view + 90)) <= 90
                 "${it.name}@${"%.4f".format(it.jLat)},${"%.4f".format(it.jLon)}/${it.isTurn}/$fwd"
