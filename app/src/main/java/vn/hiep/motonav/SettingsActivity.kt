@@ -175,17 +175,14 @@ class SettingsActivity : Activity() {
         header("Dẫn đường & bản đồ")
         toggle("Xoay bản đồ theo hướng đi", "Tắt thì bản đồ luôn hướng Bắc lên trên", prefs.rotateMap) { prefs.rotateMap = it }
         toggle("Tự thu phóng theo tốc độ", "Thu nhỏ dần khi chạy trên 30, 50, 65 km/h", prefs.autoZoom) { prefs.autoZoom = it }
-        choice("Nguồn bản đồ nền", "OpenFreeMap: miễn phí, không cần mã · VietMap: cần mã Tilemap", listOf("OpenFreeMap", "VietMap"), prefs.mapSource) {
-            prefs.mapSource = it
-        }
         choice("Nền bản đồ", "Tự động: nền tối từ 18h đến 6h sáng", listOf("Tự động", "Sáng", "Tối"), prefs.mapTheme) {
             prefs.mapTheme = it
         }
         toggle("Tô màu kẹt xe trên tuyến", "Dữ liệu kẹt xe của VietMap: cam = chậm, đỏ = kẹt, đỏ sẫm = kẹt nặng", prefs.traffic) {
             prefs.traffic = it
         }
-        val keysOk = prefs.vietmapKey.isNotBlank() && prefs.vietmapTileKey.isNotBlank()
-        action("Mã VietMap", if (keysOk) "✅ Đã nhập mã API và mã Tilemap" else "⚠️ Chưa nhập đủ 2 mã") {
+        val keysOk = prefs.vietmapKey.isNotBlank()
+        action("Mã API VietMap", if (keysOk) "✅ Đã nhập · dùng cho tìm đường, tìm địa điểm, kẹt xe" else "⚠️ Chưa nhập – cần để tìm đường") {
             KeyDialog.show(this, prefs) { build() }
         }
 

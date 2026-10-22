@@ -525,7 +525,7 @@ class NavActivity : Activity() {
     private fun loadStyle() {
         val m = map ?: return
         val night = isNight()
-        val useVm = prefs.mapSource == 1
+        val useVm = false // Bản đồ nền luôn dùng OpenFreeMap (VietMap chỉ dùng cho tìm đường)
         val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
         loadedStyleId = "${prefs.mapSource}/$key/$night/${prefs.vietmapStyleUrl}"
         styleError = null
@@ -884,7 +884,7 @@ class NavActivity : Activity() {
         } else {
             etaText.text = Live.street ?: "Chọn điểm đến"
         }
-        val mapErr = MapHttp.problem() ?: styleError ?: if (prefs.mapSource == 1) {
+        val mapErr = MapHttp.problem() ?: styleError ?: if (false) {
             // Chế độ VietMap: luôn hiện chẩn đoán để tìm lỗi bản đồ trắng
             listOfNotNull(vmDiag, "Thư viện: tải OK ${MapHttp.okCount}, lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog).joinToString(" · ")
         } else null

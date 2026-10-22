@@ -6,9 +6,8 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.TextView
 
-/** Hộp nhập 2 mã VietMap: mã API (tìm đường, tìm kiếm) và mã Tilemap (hiện bản đồ). */
+/** Hộp nhập mã API VietMap (dùng cho tìm đường, tìm địa điểm, kẹt xe). */
 object KeyDialog {
     fun show(a: Activity, prefs: Prefs, after: (() -> Unit)? = null) {
         val pad = (16 * a.resources.displayMetrics.density).toInt()
@@ -16,35 +15,18 @@ object KeyDialog {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, 0)
         }
-        box.addView(TextView(a).apply { text = "Mã API (tìm đường, tìm địa điểm):" })
         val api = EditText(a).apply {
             setText(prefs.vietmapKey)
-            hint = "Dán mã API"
+            hint = "Dán mã API VietMap"
             setSingleLine()
         }
         box.addView(api)
-        box.addView(TextView(a).apply { text = "\nMã Tilemap (hiện bản đồ) – trong mục \"Tilemap consumer\":" })
-        val tile = EditText(a).apply {
-            setText(prefs.vietmapTileKey)
-            hint = "Dán mã Tilemap"
-            setSingleLine()
-        }
-        box.addView(tile)
-        box.addView(TextView(a).apply { text = "\nLink kiểu bản đồ (tuỳ chọn) – link style.json mở được trong trình duyệt:" })
-        val styleUrl = EditText(a).apply {
-            setText(prefs.vietmapStyleUrl)
-            hint = "https://maps.vietmap.vn/…/style.json?apikey=…"
-            setSingleLine()
-        }
-        box.addView(styleUrl)
         AlertDialog.Builder(a)
-            .setTitle("Mã VietMap")
-            .setMessage("Đăng ký miễn phí tại maps.vietmap.vn → Console. VietMap tách 2 mã: mã API và mã Tilemap.")
+            .setTitle("Mã API VietMap")
+            .setMessage("Dùng để tìm đường xe máy, tìm địa điểm và xem kẹt xe. Đăng ký miễn phí tại maps.vietmap.vn → Console → API Keys.")
             .setView(box)
             .setPositiveButton("Lưu") { _, _ ->
                 prefs.vietmapKey = api.text.toString()
-                prefs.vietmapTileKey = tile.text.toString()
-                prefs.vietmapStyleUrl = styleUrl.text.toString()
                 after?.invoke()
             }
             .setNeutralButton("Mở VietMap Console") { _, _ ->

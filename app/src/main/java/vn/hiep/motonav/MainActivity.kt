@@ -476,7 +476,7 @@ class MainActivity : Activity() {
                 else -> "Vừa"
             },
             "Theo dõi tốc độ & camera: " + if (Live.serviceRunning) "Đang chạy (chạm để dừng)" else "Đã dừng (chạm để chạy)",
-            "Mã VietMap (dẫn đường riêng): " + if (prefs.vietmapKey.isBlank() || prefs.vietmapTileKey.isBlank()) "chưa nhập đủ 2 mã" else "đã nhập",
+            "Mã API VietMap (dẫn đường riêng): " + if (prefs.vietmapKey.isBlank()) "chưa nhập" else "đã nhập",
         )
         AlertDialog.Builder(this)
             .setTitle("Cài đặt")
