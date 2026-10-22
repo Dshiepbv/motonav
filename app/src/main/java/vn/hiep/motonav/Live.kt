@@ -23,6 +23,8 @@ object Live {
     @Volatile var serviceRunning = false
     @Volatile var userStopped = false
     @Volatile var appVisible = false
+    /** null = không biết (chưa có quyền), true/false = Google Maps đang/không ở màn hình */
+    @Volatile var mapsForeground: Boolean? = null
     @Volatile var gpsOk = false
     @Volatile var lat = 0.0
     @Volatile var lon = 0.0

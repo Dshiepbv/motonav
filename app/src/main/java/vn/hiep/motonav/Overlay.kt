@@ -60,7 +60,9 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
 
     /** Gọi mỗi khi trạng thái đổi. */
     fun update() {
-        val want = prefs.overlay && Live.serviceRunning && !Live.appVisible && canShow()
+        // Có quyền "Truy cập dữ liệu sử dụng": chỉ hiện khi Google Maps đang mở trên màn hình
+        val mapsOk = Live.mapsForeground ?: true
+        val want = prefs.overlay && Live.serviceRunning && !Live.appVisible && canShow() && mapsOk
         if (!want) {
             hide()
             return

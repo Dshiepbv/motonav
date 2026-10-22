@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.content.Context
 import android.widget.Toast
 
 /** Các thao tác dùng chung cho màn hình bản đồ và màn hình tốc độ. */
@@ -46,6 +47,23 @@ object AppActions {
                 }
                 .setNeutralButton("Mở luôn") { _, _ -> launchMaps(a) }
                 .setNegativeButton("Huỷ", null)
+                .show()
+            return
+        }
+        val sp = a.getSharedPreferences("motonav", android.content.Context.MODE_PRIVATE)
+        if (prefs.overlay && !ForegroundApp.hasPermission(a) && !sp.getBoolean("askedUsage", false)) {
+            sp.edit().putBoolean("askedUsage", true).apply()
+            AlertDialog.Builder(a)
+                .setTitle("Tự bật/tắt ô nổi")
+                .setMessage(
+                    "Để ô tốc độ chỉ hiện khi đang mở Google Maps và tự tắt khi thoát, MotoNav cần quyền " +
+                        "\"Truy cập dữ liệu sử dụng\" (chỉ để biết app nào đang mở, không đọc nội dung).\n\n" +
+                        "Bấm \"Cấp quyền\", tìm MotoNav và bật lên.",
+                )
+                .setPositiveButton("Cấp quyền") { _, _ ->
+                    a.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                }
+                .setNegativeButton("Bỏ qua") { _, _ -> openGoogleMaps(a, prefs) }
                 .show()
             return
         }

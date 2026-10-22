@@ -204,7 +204,7 @@ class NavActivity : Activity() {
             setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
         }
         searchInput = EditText(this).apply {
-            hint = "🔍  Đi đâu?"
+            hint = "🔍  Bạn muốn đi đâu?"
             setHintTextColor(muted)
             setTextColor(Color.WHITE)
             setSingleLine()
@@ -212,9 +212,26 @@ class NavActivity : Activity() {
             imeOptions = EditorInfo.IME_ACTION_SEARCH
         }
         searchBox.addView(searchInput, LinearLayout.LayoutParams(-1, -2))
-        searchBox.addView(tv(13f, muted).apply {
-            text = "Hoặc: Google Maps → chọn địa điểm → Chia sẻ → MotoNav. Giữ lâu trên bản đồ để chọn điểm đến."
-        })
+        // Nhà · Công ty · Yêu thích
+        val chips = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(6f), 0, 0)
+        }
+        fun chip(label: String, onClick: () -> Unit, onLong: () -> Unit) = TextView(this).apply {
+            text = label
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            background = rounded(Color.parseColor("#2C343E"), 20f)
+            setPadding(dp(8f), dp(9f), dp(8f), dp(9f))
+            setOnClickListener { onClick() }
+            setOnLongClickListener { onLong(); true }
+        }
+        val clp = { LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(3f), 0, dp(3f), 0) } }
+        chips.addView(chip("🏠 Nhà", { goSaved("home") }, { setPlaceDialog("home") }), clp())
+        chips.addView(chip("💼 Công ty", { goSaved("work") }, { setPlaceDialog("work") }), clp())
+        chips.addView(chip("⭐ Yêu thích", { favoritesDialog() }, { favoritesDialog() }), clp())
+        searchBox.addView(chips, LinearLayout.LayoutParams(-1, -2))
         results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val sc = ScrollView(this).apply { addView(results) }
         searchBox.addView(sc, LinearLayout.LayoutParams(-1, -2))
@@ -289,33 +306,141 @@ class NavActivity : Activity() {
             setOnClickListener { showMenu() }
         }
 
-        // Nút "!" báo cảnh báo góc dưới phải (kiểu Waze)
-        reportBtn = TextView(this).apply {
-            text = "!"
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#FF8C00"))
-                setStroke(dp(3f), Color.WHITE)
-            }
+        // Nút tam giác vàng nhạt báo cảnh báo, góc dưới phải (kiểu Waze)
+        reportBtn = WarnButton(this).apply {
             elevation = dp(6f).toFloat()
             setOnClickListener { AppActions.markAlert(this@NavActivity) }
         }
     }
 
     private lateinit var menuBtn: TextView
-    private lateinit var reportBtn: TextView
+    private lateinit var reportBtn: WarnButton
     private lateinit var btnRow: LinearLayout
+
+    // ---------- Nhà / Công ty / Yêu thích ----------
+
+    /** Khi khác null: chọn kết quả tìm kiếm sẽ lưu thành "home" / "work" / "fav" thay vì dẫn đường. */
+    private var saveTarget: String? = null
+
+    private fun label(kind: String) = when (kind) {
+        "home" -> "Nhà"
+        "work" -> "Công ty"
+        else -> "Yêu thích"
+    }
+
+    private fun goSaved(kind: String) {
+        val p = if (kind == "home") Places.home(this) else Places.work(this)
+        if (p == null) setPlaceDialog(kind) else startNavTo(p.lat, p.lon, label(kind))
+    }
+
+    private fun setPlaceDialog(kind: String) {
+        val cur = when (kind) {
+            "home" -> Places.home(this)
+            "work" -> Places.work(this)
+            else -> null
+        }
+        val items = ArrayList<String>()
+        items.add("📍  Dùng vị trí hiện tại")
+        items.add("🔍  Tìm địa chỉ…")
+        if (cur != null) items.add("🗑  Xoá ${label(kind)}")
+        AlertDialog.Builder(this)
+            .setTitle(if (cur == null) "Lưu ${label(kind)}" else "${label(kind)}: ${cur.name}")
+            .setItems(items.toTypedArray()) { _, which ->
+                when (which) {
+                    0 -> {
+                        if (!Live.gpsOk) {
+                            toast("Chưa có GPS")
+                        } else if (kind == "fav") {
+                            askName { n -> savePlace(kind, SavedPlace(n, Live.lat, Live.lon)) }
+                        } else {
+                            savePlace(kind, SavedPlace(label(kind), Live.lat, Live.lon))
+                        }
+                    }
+                    1 -> {
+                        saveTarget = kind
+                        searchInput.hint = "🔍  Tìm địa chỉ để lưu làm ${label(kind)}…"
+                        searchInput.requestFocus()
+                        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+                        imm.showSoftInput(searchInput, 0)
+                    }
+                    2 -> {
+                        if (kind == "home") Places.setHome(this, null) else Places.setWork(this, null)
+                        toast("Đã xoá ${label(kind)}")
+                    }
+                }
+            }
+            .setNegativeButton("Đóng", null)
+            .show()
+    }
+
+    private fun askName(done: (String) -> Unit) {
+        val input = EditText(this).apply { hint = "Tên địa điểm (vd: Quán cà phê quen)" }
+        AlertDialog.Builder(this)
+            .setTitle("Đặt tên")
+            .setView(input)
+            .setPositiveButton("Lưu") { _, _ -> done(input.text.toString().ifBlank { "Địa điểm yêu thích" }) }
+            .setNegativeButton("Huỷ", null)
+            .show()
+    }
+
+    private fun savePlace(kind: String, p: SavedPlace) {
+        when (kind) {
+            "home" -> Places.setHome(this, p)
+            "work" -> Places.setWork(this, p)
+            else -> Places.addFavorite(this, p)
+        }
+        saveTarget = null
+        searchInput.hint = "🔍  Bạn muốn đi đâu?"
+        searchInput.setText("")
+        results.removeAllViews()
+        hideKeyboard()
+        toast("Đã lưu ${label(kind)}: ${p.name}")
+    }
+
+    private fun favoritesDialog() {
+        val favs = Places.favorites(this)
+        val items = ArrayList<String>()
+        favs.forEach { items.add("⭐  ${it.name}") }
+        items.add("➕  Thêm vị trí hiện tại")
+        items.add("➕  Thêm bằng tìm kiếm")
+        if (favs.isNotEmpty()) items.add("🗑  Xoá một mục…")
+        AlertDialog.Builder(this)
+            .setTitle("Yêu thích")
+            .setItems(items.toTypedArray()) { _, which ->
+                when {
+                    which < favs.size -> startNavTo(favs[which].lat, favs[which].lon, favs[which].name)
+                    which == favs.size -> {
+                        if (!Live.gpsOk) toast("Chưa có GPS")
+                        else askName { n -> savePlace("fav", SavedPlace(n, Live.lat, Live.lon)) }
+                    }
+                    which == favs.size + 1 -> {
+                        saveTarget = "fav"
+                        searchInput.hint = "🔍  Tìm địa chỉ để thêm vào Yêu thích…"
+                        searchInput.requestFocus()
+                        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+                        imm.showSoftInput(searchInput, 0)
+                    }
+                    else -> {
+                        AlertDialog.Builder(this)
+                            .setTitle("Chọn mục cần xoá")
+                            .setItems(favs.map { it.name }.toTypedArray()) { _, i ->
+                                Places.removeFavorite(this, i)
+                                toast("Đã xoá ${favs[i].name}")
+                            }
+                            .setNegativeButton("Huỷ", null)
+                            .show()
+                    }
+                }
+            }
+            .setNegativeButton("Đóng", null)
+            .show()
+    }
 
     private fun showMenu() {
         val items = arrayOf(
             "⚙   Cài đặt",
             "🗺   Mở Google Maps (ô nổi tốc độ)",
             "⏱   Màn hình tốc độ lớn",
-            "⚠️   Báo cảnh báo tại đây",
             if (Live.serviceRunning) "⏸   Tạm dừng theo dõi tốc độ" else "▶   Bật theo dõi tốc độ",
         )
         AlertDialog.Builder(this)
@@ -325,8 +450,7 @@ class NavActivity : Activity() {
                     0 -> startActivity(Intent(this, SettingsActivity::class.java))
                     1 -> AppActions.openGoogleMaps(this, prefs)
                     2 -> startActivity(Intent(this, MainActivity::class.java))
-                    3 -> AppActions.markAlert(this)
-                    4 -> if (Live.serviceRunning) {
+                    3 -> if (Live.serviceRunning) {
                         Live.userStopped = true
                         DriveService.stop(this)
                     } else {
@@ -352,12 +476,12 @@ class NavActivity : Activity() {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(dp(10f), dp(10f), dp(10f), 0)
             }
-            topRow.addView(menuBtn, LinearLayout.LayoutParams(dp(50f), dp(50f)).apply { rightMargin = dp(8f) })
             val top = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             top.addView(turnCard, LinearLayout.LayoutParams(-1, -2))
             top.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             top.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             topRow.addView(top, LinearLayout.LayoutParams(0, -2, 1f))
+            topRow.addView(menuBtn, LinearLayout.LayoutParams(dp(50f), dp(50f)).apply { leftMargin = dp(8f) })
             root.addView(topRow, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
 
             bottomBar.background = rounded(Color.argb(242, 22, 26, 32), 0f)
@@ -374,7 +498,7 @@ class NavActivity : Activity() {
             }
 
             // Nút "!" góc dưới phải, nằm trên thanh dưới
-            root.addView(reportBtn, FrameLayout.LayoutParams(dp(64f), dp(64f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(14f) })
+            root.addView(reportBtn, FrameLayout.LayoutParams(dp(68f), dp(62f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(14f) })
             bottomBar.addOnLayoutChangeListener { _, _, top2, _, bottom2, _, _, _, _ ->
                 val lp = reportBtn.layoutParams as FrameLayout.LayoutParams
                 val m = (bottom2 - top2) + dp(14f)
@@ -393,7 +517,6 @@ class NavActivity : Activity() {
             }
             val scroll = ScrollView(this).apply { isFillViewport = true }
             val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            inner.addView(menuBtn, LinearLayout.LayoutParams(dp(50f), dp(50f)).apply { bottomMargin = dp(8f) })
             inner.addView(turnCard, LinearLayout.LayoutParams(-1, -2))
             inner.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             inner.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
@@ -411,8 +534,14 @@ class NavActivity : Activity() {
                 },
             )
             mapBox.addView(
+                menuBtn,
+                FrameLayout.LayoutParams(dp(50f), dp(50f), Gravity.TOP or Gravity.END).apply {
+                    rightMargin = dp(12f); topMargin = dp(12f)
+                },
+            )
+            mapBox.addView(
                 reportBtn,
-                FrameLayout.LayoutParams(dp(60f), dp(60f), Gravity.BOTTOM or Gravity.END).apply {
+                FrameLayout.LayoutParams(dp(64f), dp(58f), Gravity.BOTTOM or Gravity.END).apply {
                     rightMargin = dp(14f); bottomMargin = dp(14f)
                 },
             )
@@ -489,7 +618,14 @@ class NavActivity : Activity() {
         io.execute {
             try {
                 val p = VietMap.place(key, s.refId)
-                ui.post { startNavTo(p.lat, p.lon, s.name) }
+                ui.post {
+                    val target = saveTarget
+                    if (target != null) {
+                        savePlace(target, SavedPlace(s.name, p.lat, p.lon))
+                    } else {
+                        startNavTo(p.lat, p.lon, s.name)
+                    }
+                }
             } catch (e: Exception) {
                 ui.post { toast(e.message ?: "Lỗi lấy toạ độ") }
             }

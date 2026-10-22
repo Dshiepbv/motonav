@@ -135,6 +135,7 @@ class DriveService : Service(), LocationListener {
             Live.changed()
         }
         handler.postDelayed(watchdog, 3000)
+        handler.postDelayed(fgWatch, 1500)
         // App bị tắt giữa chuyến → dẫn tiếp tới điểm cũ
         prefs.pendingTrip()?.let { (la, lo, nm) ->
             if (!Live.ownNav) handler.post { nav.start(la, lo, nm) }
@@ -203,6 +204,21 @@ class DriveService : Service(), LocationListener {
                 ).build(),
             )
             .build()
+    }
+
+    /** Theo dõi Google Maps có đang ở màn hình không để tự bật/tắt ô nổi. */
+    private val fgWatch = object : Runnable {
+        override fun run() {
+            val v: Boolean? = if (prefs.overlay && ForegroundApp.hasPermission(this@DriveService)) {
+                val pkg = ForegroundApp.current(this@DriveService)
+                if (pkg == null) null else pkg == ForegroundApp.MAPS
+            } else null
+            if (v != Live.mapsForeground) {
+                Live.mapsForeground = v
+                Live.changed()
+            }
+            handler.postDelayed(this, 1200)
+        }
     }
 
     private val watchdog = object : Runnable {

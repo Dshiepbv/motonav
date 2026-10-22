@@ -247,6 +247,12 @@ class SettingsActivity : Activity() {
                 DriveService.stop(this)
             }
         }
+        action(
+            "Quyền tự bật/tắt ô nổi theo Google Maps",
+            status(ForegroundApp.hasPermission(this)) + "\nTìm MotoNav → bật \"Cho phép truy cập dữ liệu sử dụng\"",
+        ) {
+            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
         action("Quyền hiện ô nổi", status(Settings.canDrawOverlays(this))) {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
         }
