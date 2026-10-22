@@ -175,6 +175,9 @@ class SettingsActivity : Activity() {
         header("Dẫn đường & bản đồ")
         toggle("Xoay bản đồ theo hướng đi", "Tắt thì bản đồ luôn hướng Bắc lên trên", prefs.rotateMap) { prefs.rotateMap = it }
         toggle("Tự thu phóng theo tốc độ", "Thu nhỏ dần khi chạy trên 30, 50, 65 km/h", prefs.autoZoom) { prefs.autoZoom = it }
+        choice("Nguồn bản đồ nền", "OpenFreeMap: miễn phí, không cần mã · VietMap: cần mã Tilemap", listOf("OpenFreeMap", "VietMap"), prefs.mapSource) {
+            prefs.mapSource = it
+        }
         toggle("Bản đồ tối ban đêm", "Tự đổi sang nền tối từ 18h đến 6h", prefs.nightMap) { prefs.nightMap = it }
         val keysOk = prefs.vietmapKey.isNotBlank() && prefs.vietmapTileKey.isNotBlank()
         action("Mã VietMap", if (keysOk) "✅ Đã nhập mã API và mã Tilemap" else "⚠️ Chưa nhập đủ 2 mã") {

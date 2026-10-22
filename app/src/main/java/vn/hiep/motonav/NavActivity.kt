@@ -98,6 +98,7 @@ class NavActivity : Activity() {
         MapLibre.getInstance(this)
         MapHttp.key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
         MapHttp.install()
+        try { MapHttp.captureLogs() } catch (_: Exception) {}
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.statusBarColor = bg
         window.navigationBarColor = bg
@@ -470,7 +471,7 @@ class NavActivity : Activity() {
     // ---------- Mã API ----------
 
     private fun ensureReady() {
-        if (prefs.vietmapKey.isBlank() || prefs.vietmapTileKey.isBlank()) askKey()
+        if (prefs.vietmapKey.isBlank()) askKey()
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             if (!Live.serviceRunning) {
                 Live.userStopped = false
@@ -507,51 +508,53 @@ class NavActivity : Activity() {
 
     private fun loadStyle() {
         val m = map ?: return
-        val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
-        if (key.isBlank()) return
-        loadedStyleId = key + "/" + isNight()
-        MapHttp.key = key
-        MapHttp.reset()
-        styleError = null
         val night = isNight()
+        val useVm = prefs.mapSource == 1
+        val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
+        loadedStyleId = "${prefs.mapSource}/$key/$night"
+        styleError = null
+        MapHttp.reset()
+        val onLoaded = { s: Style ->
+            style = s
+            shownRouteVersion = -1
+            labelFont = findFont(s)
+            addLayers(s)
+            render()
+        }
+        if (!useVm || key.isBlank()) {
+            // OpenFreeMap: bản đồ OpenStreetMap miễn phí, không cần mã
+            m.setStyle(Style.Builder().fromUri(OFM_STYLE)) { s -> onLoaded(s) }
+            return
+        }
+        MapHttp.key = key
         io.execute {
             val json = try {
                 VietMap.patchedStyle(key, night)
             } catch (e: Exception) {
                 ui.post {
-                    styleError = e.message ?: "Không tải được kiểu bản đồ"
-                    render()
+                    styleError = (e.message ?: "Không tải được kiểu bản đồ VietMap") + " → đang dùng OpenFreeMap"
+                    m.setStyle(Style.Builder().fromUri(OFM_STYLE)) { s -> onLoaded(s) }
                 }
                 return@execute
             }
-            ui.post {
-                m.setStyle(Style.Builder().fromJson(json)) { s ->
-                    style = s
-                    shownRouteVersion = -1
-                    labelFont = findFont(s)
-                    addLayers(s)
-                    render()
-                }
+            ui.post { m.setStyle(Style.Builder().fromJson(json)) { s -> onLoaded(s) } }
+            // Tự kiểm tra: tải thử 1 mảnh bản đồ
+            val lat = if (Live.gpsOk) Live.lat else 10.7769
+            val lon = if (Live.gpsOk) Live.lon else 106.7009
+            val diag = try {
+                val (code, url) = VietMap.testTile(json, lat, lon)
+                "Kiểm tra VietMap: mảnh bản đồ HTTP $code ($url)"
+            } catch (e: Exception) {
+                "Kiểm tra VietMap: lỗi ${e.message}"
             }
-            // Tự kiểm tra: tải thử 1 mảnh bản đồ tại vị trí hiện tại
-            if (Live.gpsOk) {
-                try {
-                    val (code, url) = VietMap.testTile(json, Live.lat, Live.lon)
-                    if (code !in 200..299 && code != 204) {
-                        ui.post {
-                            styleError = "Mảnh bản đồ lỗi HTTP $code ($url). Mã Tilemap có thể chưa được VietMap kích hoạt."
-                            render()
-                        }
-                    }
-                } catch (e: Exception) {
-                    ui.post {
-                        styleError = "Không tải thử được mảnh bản đồ: ${e.message}"
-                        render()
-                    }
-                }
+            ui.post {
+                vmDiag = diag
+                render()
             }
         }
     }
+
+    private var vmDiag: String? = null
 
     /** Lấy font chữ có sẵn trong kiểu bản đồ VietMap để nhãn tên đường hiển thị được. */
     private fun findFont(s: Style): Array<String>? {
@@ -562,6 +565,10 @@ class NavActivity : Activity() {
             }
         }
         return null
+    }
+
+    companion object {
+        private const val OFM_STYLE = "https://tiles.openfreemap.org/styles/liberty"
     }
 
     private val emptyFc = """{"type":"FeatureCollection","features":[]}"""
@@ -792,7 +799,10 @@ class NavActivity : Activity() {
         } else {
             etaText.text = Live.street ?: "Chọn điểm đến"
         }
-        val mapErr = MapHttp.problem() ?: styleError
+        val mapErr = MapHttp.problem() ?: styleError ?: if (prefs.mapSource == 1) {
+            // Chế độ VietMap: luôn hiện chẩn đoán để tìm lỗi bản đồ trắng
+            listOfNotNull(vmDiag, "Thư viện: tải OK ${MapHttp.okCount}, lỗi ${MapHttp.failCount}", MapHttp.lastLog).joinToString(" · ")
+        } else null
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus ?: (Live.destName?.takeIf { nav }?.let { "Đến: $it" } ?: "")
         statusText.setTextColor(if (Live.routeError != null || mapErr != null) danger else muted)
 
@@ -815,7 +825,7 @@ class NavActivity : Activity() {
         Live.addListener(listener)
         // Quay lại từ Cài đặt: đổi mã hoặc chế độ đêm thì tải lại bản đồ
         val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
-        if (map != null && loadedStyleId != null && loadedStyleId != key + "/" + isNight()) loadStyle()
+        if (map != null && loadedStyleId != null && loadedStyleId != "${prefs.mapSource}/$key/${isNight()}") loadStyle()
         render()
     }
 

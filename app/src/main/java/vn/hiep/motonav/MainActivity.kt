@@ -416,7 +416,16 @@ class MainActivity : Activity() {
             if (hasLocation()) DriveService.start(this)
         }
         val i = packageManager.getLaunchIntentForPackage("com.google.android.apps.maps")
-        if (i != null) startActivity(i) else Toast.makeText(this, "Chưa cài Google Maps", Toast.LENGTH_SHORT).show()
+            ?: Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=")).setPackage("com.google.android.apps.maps")
+        try {
+            startActivity(i)
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com")))
+            } catch (_: Exception) {
+                Toast.makeText(this, "Không mở được Google Maps", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun addCamera() {

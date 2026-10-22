@@ -68,6 +68,11 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("nightMap", true)
         set(v) = sp.edit().putBoolean("nightMap", v).apply()
 
+    /** 0 = OpenFreeMap (miễn phí, không cần mã), 1 = VietMap */
+    var mapSource: Int
+        get() = sp.getInt("mapSource", 0)
+        set(v) = sp.edit().putInt("mapSource", v).apply()
+
     companion object {
         const val AREA_AUTO = 0
         const val AREA_URBAN = 1

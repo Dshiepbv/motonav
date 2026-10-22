@@ -49,7 +49,31 @@ object MapHttp {
         HttpRequestUtil.setOkHttpClient(client)
     }
 
+    @Volatile var lastLog: String? = null
+
+    /** Bắt thông báo lỗi của thư viện bản đồ (vd "HTTP status code 401") để hiện lên màn hình. */
+    fun captureLogs() {
+        org.maplibre.android.log.Logger.setLoggerDefinition(object : org.maplibre.android.log.LoggerDefinition {
+            private fun keep(msg: String?) {
+                if (msg == null) return
+                val m = msg.lowercase()
+                if (m.contains("http") || m.contains("tile") || m.contains("failed") || m.contains("error")) lastLog = msg.take(160)
+            }
+            override fun v(tag: String, msg: String) {}
+            override fun v(tag: String, msg: String, tr: Throwable) {}
+            override fun d(tag: String, msg: String) {}
+            override fun d(tag: String, msg: String, tr: Throwable) {}
+            override fun i(tag: String, msg: String) {}
+            override fun i(tag: String, msg: String, tr: Throwable) {}
+            override fun w(tag: String, msg: String) = keep(msg)
+            override fun w(tag: String, msg: String, tr: Throwable) = keep(msg)
+            override fun e(tag: String, msg: String) = keep(msg)
+            override fun e(tag: String, msg: String, tr: Throwable) = keep(msg)
+        })
+    }
+
     fun reset() {
+        lastLog = null
         okCount = 0
         failCount = 0
         lastFailCode = 0
