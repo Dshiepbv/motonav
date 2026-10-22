@@ -61,6 +61,11 @@ class Prefs(ctx: Context) {
         get() = sp.getString("ghtoken", "") ?: ""
         set(v) = sp.edit().putString("ghtoken", v.trim()).apply()
 
+    /** Tiết kiệm pin: giảm khung hình, tắt 3D, la bàn, thời tiết… chỉ giữ dẫn đường. */
+    var batterySaver: Boolean
+        get() = sp.getBoolean("batterySaver", false)
+        set(v) = sp.edit().putBoolean("batterySaver", v).apply()
+
     var rotateMap: Boolean
         get() = sp.getBoolean("rotateMap", true)
         set(v) = sp.edit().putBoolean("rotateMap", v).apply()

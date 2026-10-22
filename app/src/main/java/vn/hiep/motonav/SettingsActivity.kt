@@ -172,6 +172,33 @@ class SettingsActivity : Activity() {
         list.removeAllViews()
         list.addView(tv(26f, Color.WHITE, true).apply { text = "Cài đặt" })
 
+        header("Pin")
+        toggle(
+            "Tiết kiệm pin",
+            "Chỉ giữ dẫn đường, tốc độ, camera: bản đồ 15 khung hình/giây, tắt nhà 3D, chữ 3D, la bàn, thời tiết, kiểm tra nền thưa hơn",
+            prefs.batterySaver,
+        ) { on ->
+            prefs.batterySaver = on
+            if (on) {
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Hạn chế các app khác")
+                    .setMessage(
+                        "Android không cho một app tắt hoạt động của app khác. Để máy chỉ tập trung dẫn đường, " +
+                            "anh bật thêm \"Trình tiết kiệm pin\" của máy: nó chặn app nền, đồng bộ, hiệu ứng… " +
+                            "MotoNav vẫn chạy bình thường vì đang dẫn đường ở chế độ ưu tiên.",
+                    )
+                    .setPositiveButton("Mở Trình tiết kiệm pin") { _, _ ->
+                        try {
+                            startActivity(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))
+                        } catch (_: Exception) {
+                            startActivity(Intent(Settings.ACTION_SETTINGS))
+                        }
+                    }
+                    .setNegativeButton("Để sau", null)
+                    .show()
+            }
+        }
+
         header("Dẫn đường & bản đồ")
         toggle("Xoay bản đồ theo hướng đi", "Như Google Maps: đang chạy theo hướng đường, dừng/chậm theo la bàn. Tắt thì luôn hướng Bắc lên trên", prefs.rotateMap) { prefs.rotateMap = it }
         toggle("Tự thu phóng theo tốc độ", "Thu nhỏ dần khi chạy trên 20, 40, 60 km/h", prefs.autoZoom) { prefs.autoZoom = it }

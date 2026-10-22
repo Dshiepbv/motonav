@@ -197,6 +197,17 @@ class DriveService : Service(), LocationListener {
         return START_STICKY
     }
 
+    /** Vuốt tắt app khỏi danh sách đa nhiệm → dừng luôn dịch vụ và thông báo. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Live.userStopped = true
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) stopForeground(STOP_FOREGROUND_REMOVE)
+            else @Suppress("DEPRECATION") stopForeground(true)
+        } catch (_: Exception) {}
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         try {
             lm.removeUpdates(this)
@@ -253,7 +264,7 @@ class DriveService : Service(), LocationListener {
                 Live.mapsForeground = v
                 Live.changed()
             }
-            handler.postDelayed(this, 1200)
+            handler.postDelayed(this, if (prefs.batterySaver) 3000 else 1200)
         }
     }
 
@@ -549,7 +560,7 @@ class DriveService : Service(), LocationListener {
 
     private fun updateWeather() {
         val r = Live.route
-        if (!prefs.weather || !Live.ownNav || r == null) {
+        if (!prefs.weather || prefs.batterySaver || !Live.ownNav || r == null) {
             if (Live.wxJson != null) {
                 Live.wxJson = null
                 Live.wxSummary = null
@@ -724,7 +735,7 @@ class DriveService : Service(), LocationListener {
         val r = Live.route
         val snap = snapshot
         if (!Live.ownNav || r == null || snap == null) return
-        if (now - lastJunctions < 2500) return
+        if (now - lastJunctions < (if (prefs.batterySaver) 5000 else 2500)) return
         lastJunctions = now
         try {
             val turn = Live.maneuverStreet
@@ -739,7 +750,7 @@ class DriveService : Service(), LocationListener {
             // Chữ khối 3D cho các ngã rẽ gần (tối đa 8, trong 450 m); các nhãn còn lại giữ dạng chữ thường
             val view = if (Live.roadBearing >= 0) Live.roadBearing else if (Live.heading >= 0) Live.heading else 0.0
             // Chữ khối 3D cho các ngã rẽ gần (tối đa 8, trong 450 m); các nhãn còn lại giữ dạng chữ thường
-            val solid = if (prefs.text3d) marked.filter { it.outBearing >= 0 && it.ahead <= 450 }.sortedBy { it.ahead }.take(8) else emptyList()
+            val solid = if (prefs.text3d && !prefs.batterySaver) marked.filter { it.outBearing >= 0 && it.ahead <= 450 }.sortedBy { it.ahead }.take(8) else emptyList()
             val key = solid.joinToString("|") {
                 val fwd = Text3D.forward(it, view)
                 "${it.name}@${"%.4f".format(it.jLat)},${"%.4f".format(it.jLon)}/${it.isTurn}/$fwd"

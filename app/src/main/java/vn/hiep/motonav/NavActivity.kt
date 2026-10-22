@@ -1020,6 +1020,23 @@ class NavActivity : Activity() {
 
     private val emptyFc = """{"type":"FeatureCollection","features":[]}"""
 
+    /** Tiết kiệm pin: giới hạn 15 khung hình/giây, ẩn nhà khối 3D. */
+    private fun applySaver() {
+        val saver = prefs.batterySaver
+        try { mapView.setMaximumFps(if (saver) 15 else 60) } catch (_: Throwable) {}
+        try {
+            val st = style
+            if (st != null && st.isFullyLoaded) {
+                for (l in st.layers) {
+                    if (l is org.maplibre.android.style.layers.FillExtrusionLayer && l.id != "mn-text3d-layer") {
+                        l.setProperties(PropertyFactory.visibility(if (saver) Property.NONE else Property.VISIBLE))
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        if (saver) compass.stop()
+    }
+
     private fun addLayers(s: Style) {
         lastJson.clear()
         s.addSource(GeoJsonSource("mn-route", emptyFc))
@@ -1239,6 +1256,7 @@ class NavActivity : Activity() {
         shownAlerts = Live.alertsVersion
 
         // Mũi tên xe: vẽ bằng CarMarkerView (không nháy)
+        ui.post { applySaver() }
     }
 
     private var shownAlerts = -1
@@ -1552,7 +1570,7 @@ class NavActivity : Activity() {
     private var camUsingCompass = false
 
     private fun startCamLoop() {
-        compass.start()
+        if (prefs.batterySaver) compass.stop() else compass.start()
         if (camLoop) return
         camLoop = true
         camCur = null
@@ -1578,14 +1596,17 @@ class NavActivity : Activity() {
     private fun pickBearing(): Pair<Double, Boolean> {
         val spd = Live.speedKmh
         if (spd >= 10) camMoving = true else if (spd in 0..4 || !Live.gpsOk) camMoving = false
-        val cmp = compass.bearing
+        val cmp = if (prefs.batterySaver) -1.0 else compass.bearing
         return if ((camMoving && camCourse >= 0) || cmp < 0) camCourse to false else cmp to true
     }
 
     private val camTick = object : Runnable {
         override fun run() {
             if (!camLoop) return
-            ui.postDelayed(this, 40)
+            val saver = prefs.batterySaver
+            ui.postDelayed(this, if (saver) 120L else 40L)
+            // Tiết kiệm pin: 8 khung hình/giây thay vì 25, bước di chuyển lớn hơn để tốc độ trượt như cũ
+            val k = if (saver) 3 else 1
             val m = map ?: return
             val t = camTarget ?: return
             if (!follow) { camCur = null; return }
@@ -1611,7 +1632,8 @@ class NavActivity : Activity() {
             c!!
             var moved = false
             for (i in 0..4) {
-                val a = if (i < 2) 0.10 else 0.08
+                val a0 = if (i < 2) 0.10 else 0.08
+                val a = 1 - Math.pow(1 - a0, k.toDouble())
                 val d = t[i] - c[i]
                 if (kotlin.math.abs(d) > (if (i < 2) 1e-7 else 0.002)) { c[i] += d * a; moved = true }
             }
@@ -1635,7 +1657,7 @@ class NavActivity : Activity() {
                 if (d < -180) d += 360.0
                 if (kotlin.math.abs(d) > 0.2) {
                     // Xoay êm: ~12%/khung hình, tối đa 3,5° mỗi 40 ms (~90°/s)
-                    val step = (d * 0.12).coerceIn(-3.5, 3.5)
+                    val step = (d * (1 - Math.pow(0.88, k.toDouble()))).coerceIn(-3.5 * k, 3.5 * k)
                     camBearing = Geo.norm(camBearing + step)
                     moved = true
                 }
@@ -1791,6 +1813,7 @@ class NavActivity : Activity() {
         // Quay lại từ Cài đặt: đổi mã hoặc chế độ đêm thì tải lại bản đồ
         val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
         if (map != null && loadedStyleId != null && loadedStyleId != "${prefs.mapSource}/$key/${isNight()}/${prefs.vietmapStyleUrl}") loadStyle()
+        applySaver()
         render()
     }
 
