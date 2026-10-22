@@ -656,6 +656,7 @@ class DriveService : Service(), LocationListener {
     }
 
     private var lastJunctions = 0L
+    private var text3dKey = ""
 
     /** Nhãn tên các đường cắt ngang tuyến phía trước (cập nhật mỗi 2,5 giây). */
     private fun updateJunctions(lat: Double, lon: Double) {
@@ -672,10 +673,22 @@ class DriveService : Service(), LocationListener {
             val tn = turn?.let { norm(it) }
             val marked = list.map {
                 val hit = tn != null && tn.isNotEmpty() && (norm(it.name) == tn || norm(it.name).contains(tn) || tn.contains(norm(it.name)))
-                if (hit) JLabel(it.lat, it.lon, it.name, true, it.ahead) else it
+                if (hit) it.withTurn(true) else it
             }
             Live.junctionHasTurn = marked.any { it.isTurn }
-            Live.junctionJson = Junctions.toGeoJson(marked)
+            // Chữ khối 3D cho các ngã rẽ gần (tối đa 8, trong 450 m); các nhãn còn lại giữ dạng chữ thường
+            val view = if (Live.roadBearing >= 0) Live.roadBearing else if (Live.heading >= 0) Live.heading else 0.0
+            val solid = if (prefs.text3d) marked.filter { it.outBearing >= 0 && it.ahead <= 450 }.sortedBy { it.ahead }.take(8) else emptyList()
+            val key = solid.joinToString("|") {
+                val fwd = Geo.angleDiff(it.outBearing, Geo.norm(view + 90)) <= 90
+                "${it.name}@${"%.4f".format(it.jLat)},${"%.4f".format(it.jLon)}/${it.isTurn}/$fwd"
+            }
+            if (key != text3dKey) {
+                text3dKey = key
+                Live.text3dJson = if (solid.isEmpty()) null else Text3D.build(solid, view)
+                Live.text3dVersion++
+            }
+            Live.junctionJson = Junctions.toGeoJson(marked.filter { it !in solid })
             Live.junctionVersion++
         } catch (_: Exception) {
         }

@@ -5,7 +5,22 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /** Nhãn tên đường tại một ngã rẽ phía trước. */
-class JLabel(val lat: Double, val lon: Double, val name: String, val isTurn: Boolean, val ahead: Double)
+class JLabel(
+    val lat: Double,
+    val lon: Double,
+    val name: String,
+    val isTurn: Boolean,
+    val ahead: Double,
+    /** Điểm ngã rẽ (nơi đường nhánh gặp tuyến). */
+    val jLat: Double = lat,
+    val jLon: Double = lon,
+) {
+    /** Hướng đường nhánh tính từ ngã rẽ ra ngoài (độ), -1 nếu không xác định. */
+    val outBearing: Double
+        get() = if (Geo.distance(jLat, jLon, lat, lon) < 8) -1.0 else Geo.bearing(jLat, jLon, lat, lon)
+
+    fun withTurn(t: Boolean) = JLabel(lat, lon, name, t, ahead, jLat, jLon)
+}
 
 /**
  * Tìm tất cả các đường cắt ngang tuyến đang đi trong khoảng [AHEAD] mét phía trước
@@ -97,37 +112,51 @@ object Junctions {
             }
             val a = walk(1)
             val b = walk(-1)
-            val pick = when {
-                a == touchIdx -> b
-                b == touchIdx -> a
-                isTurn -> if (r.cum.isNotEmpty()) (if (dist[a] >= dist[b]) a else b) else a
-                else -> if (dist[a] >= dist[b]) a else b
+            val jla = w.lats[touchIdx]
+            val jlo = w.lons[touchIdx]
+            fun labelAt(pick: Int): JLabel {
+                var la = w.lats[pick]; var lo = w.lons[pick]
+                if (pick != touchIdx) {
+                    // Nếu điểm cuối quá xa (đoạn dài) thì lùi về đúng 45 m
+                    val dTot = Geo.distance(jla, jlo, la, lo)
+                    if (dTot > LABEL_OUT * 1.5) {
+                        val f = LABEL_OUT / dTot
+                        la = jla + (la - jla) * f
+                        lo = jlo + (lo - jlo) * f
+                    }
+                }
+                return JLabel(la, lo, name, isTurn, touchAlong, jla, jlo)
             }
-            var la = w.lats[pick]; var lo = w.lons[pick]
-            if (pick != touchIdx) {
-                // Nếu điểm cuối quá xa (đoạn dài) thì lùi về đúng 45 m
-                val dTot = Geo.distance(w.lats[touchIdx], w.lons[touchIdx], la, lo)
-                if (dTot > LABEL_OUT * 1.5) {
-                    val f = LABEL_OUT / dTot
-                    la = w.lats[touchIdx] + (la - w.lats[touchIdx]) * f
-                    lo = w.lons[touchIdx] + (lo - w.lons[touchIdx]) * f
+            when {
+                a == touchIdx && b == touchIdx -> {}
+                a == touchIdx -> out.add(labelAt(b))
+                b == touchIdx -> out.add(labelAt(a))
+                // Đường sắp rẽ vào: nhãn đặt trên nhánh tuyến đi vào (gần tuyến hơn)
+                isTurn -> out.add(labelAt(if (dist[a] <= dist[b]) a else b))
+                // Ngã tư: cả hai nhánh đều có nhãn
+                else -> {
+                    out.add(labelAt(a))
+                    out.add(labelAt(b))
                 }
             }
-            out.add(JLabel(la, lo, name, isTurn, touchAlong))
         }
 
         // Bỏ nhãn trùng tên đặt gần nhau (một con đường bị chia nhiều đoạn)
         out.sortBy { it.ahead }
         val kept = ArrayList<JLabel>()
         for (l in out) {
-            val dup = kept.indexOfFirst { it.name == l.name && Geo.distance(it.lat, it.lon, l.lat, l.lon) < 120 }
+            // Trùng: cùng tên, cùng ngã rẽ và cùng hướng nhánh (một con đường bị chia nhiều đoạn)
+            val dup = kept.indexOfFirst {
+                it.name == l.name && Geo.distance(it.jLat, it.jLon, l.jLat, l.jLon) < 40 &&
+                    (it.outBearing < 0 || l.outBearing < 0 || Geo.angleDiff(it.outBearing, l.outBearing) < 60)
+            }
             if (dup >= 0) {
                 if (l.isTurn && !kept[dup].isTurn) kept[dup] = l
                 continue
             }
             kept.add(l)
         }
-        return kept.take(14)
+        return kept.take(16)
     }
 
     fun toGeoJson(list: List<JLabel>): String {

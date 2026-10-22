@@ -52,6 +52,8 @@ class NavEngine(
         Live.nextLeg = null
         Live.junctionJson = null
         Live.junctionVersion++
+        Live.text3dJson = null
+        Live.text3dVersion++
         Live.clearNav()
     }
 

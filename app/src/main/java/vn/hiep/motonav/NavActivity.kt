@@ -1123,6 +1123,21 @@ class NavActivity : Activity() {
                 PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
             ),
         )
+        // Tên đường chữ khối 3D đứng tại ngã rẽ
+        s.addSource(GeoJsonSource("mn-text3d", emptyFc))
+        val isTurn3d = Expression.eq(Expression.get("k"), Expression.literal(1))
+        s.addLayer(
+            org.maplibre.android.style.layers.FillExtrusionLayer("mn-text3d-layer", "mn-text3d").withProperties(
+                PropertyFactory.fillExtrusionColor(
+                    Expression.switchCase(isTurn3d, Expression.color(Color.parseColor("#FFE58A")), Expression.color(Color.parseColor("#F4F4F0"))),
+                ),
+                PropertyFactory.fillExtrusionBase(Expression.toNumber(Expression.get("b"))),
+                PropertyFactory.fillExtrusionHeight(Expression.toNumber(Expression.get("h"))),
+                PropertyFactory.fillExtrusionOpacity(0.95f),
+            ),
+        )
+        shownText3d = -1
+
         // Thời tiết dọc tuyến: bong bóng nắng/mưa đặt cạnh tuyến
         s.addSource(GeoJsonSource("mn-wx", emptyFc))
         s.addLayer(
@@ -1201,6 +1216,7 @@ class NavActivity : Activity() {
     private var shownThenSign = -999
     private var shownSignsMap = -1
     private var shownWx = -1
+    private var shownText3d = -1
 
     /** Bong bóng thời tiết: biểu tượng + nhiệt độ hoặc % mưa. */
     private fun wxIcon(cat: Int, night: Boolean, label: String): android.graphics.Bitmap {
@@ -1355,6 +1371,10 @@ class NavActivity : Activity() {
             } else {
                 src("mn-choices")?.setGeoJson(emptyFc)
             }
+        }
+        if (shownText3d != Live.text3dVersion) {
+            shownText3d = Live.text3dVersion
+            src("mn-text3d")?.setGeoJson(Live.text3dJson ?: emptyFc)
         }
         if (shownWx != Live.wxVersion) {
             shownWx = Live.wxVersion

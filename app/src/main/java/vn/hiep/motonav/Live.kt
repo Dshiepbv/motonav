@@ -76,6 +76,8 @@ object Live {
     @Volatile var nextLeg: String? = null       // GeoJSON đoạn đường sắp rẽ vào (tô sáng)
     @Volatile var junctionJson: String? = null  // GeoJSON nhãn tên các ngã rẽ phía trước
     @Volatile var junctionHasTurn = false
+    @Volatile var text3dJson: String? = null
+    @Volatile var text3dVersion = 0
     @Volatile var junctionVersion = 0
     @Volatile var osm: OsmSnapshot? = null
 

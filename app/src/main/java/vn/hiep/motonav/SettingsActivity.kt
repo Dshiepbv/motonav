@@ -178,6 +178,9 @@ class SettingsActivity : Activity() {
         choice("Nền bản đồ", "Tự động: nền tối từ 18h đến 6h sáng", listOf("Tự động", "Sáng", "Tối"), prefs.mapTheme) {
             prefs.mapTheme = it
         }
+        toggle("Tên đường chữ nổi 3D tại ngã rẽ", "Tên các đường ở ngã rẽ phía trước dựng thành chữ khối đứng dọc theo đường", prefs.text3d) {
+            prefs.text3d = it
+        }
         toggle("Thời tiết dọc tuyến", "Biểu tượng nắng/mưa tại chỗ đổi thời tiết, theo giờ anh tới. Dữ liệu Open-Meteo.com (CC BY 4.0)", prefs.weather) {
             prefs.weather = it
         }
