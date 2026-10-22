@@ -472,11 +472,85 @@ class NavActivity : Activity() {
             .show()
     }
 
+    /** Điểm chia sẻ từ Google Maps: dẫn đường hoặc lưu làm camera. */
+    private fun sharedPointDialog(lat: Double, lon: Double, name: String?) {
+        val items = arrayOf(
+            "🧭  Dẫn đường tới đây",
+            "📷  Lưu làm camera phạt nguội",
+            "🚨  Lưu làm camera bắn tốc độ",
+            "🚦  Lưu làm camera đèn đỏ",
+            "⭐  Lưu vào Yêu thích",
+        )
+        AlertDialog.Builder(this)
+            .setTitle(name ?: String.format(java.util.Locale.US, "%.5f, %.5f", lat, lon))
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> startNavTo(lat, lon, name)
+                    1, 2, 3 -> {
+                        val kind = when (which) { 1 -> CamKind.FINE; 2 -> CamKind.SPEED; else -> CamKind.RED_LIGHT }
+                        val n = CameraStore.addAll(this, listOf(CameraIO.Item(lat, lon, kind, -1.0)))
+                        toast(if (n > 0) "Đã lưu ${CamKind.label(kind)} (báo cả hai chiều)" else "Điểm này đã có trong danh sách")
+                        Live.changed()
+                    }
+                    4 -> savePlace("fav", SavedPlace(name ?: "Địa điểm chia sẻ", lat, lon))
+                }
+            }
+            .setNegativeButton("Huỷ", null)
+            .show()
+    }
+
+    /** Dán toạ độ (vd "10.8012, 106.7140") hoặc link Google Maps để lưu camera. */
+    private fun addByCoordsDialog() {
+        val input = EditText(this).apply {
+            hint = "10.80123, 106.71404  hoặc link Google Maps"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Thêm camera bằng toạ độ")
+            .setMessage("Dán toạ độ hoặc link Google Maps của vị trí camera. Có thể dán nhiều dòng, mỗi dòng một điểm.")
+            .setView(input)
+            .setPositiveButton("Tiếp") { _, _ ->
+                val text = input.text.toString()
+                io.execute {
+                    val pts = ArrayList<Pair<Double, Double>>()
+                    for (line in text.lines().map { it.trim() }.filter { it.isNotEmpty() }) {
+                        val direct = GoogleLink.parseCoords(line)
+                            ?: CameraIO.parse(line).firstOrNull()?.let { Pair(it.lat, it.lon) }
+                        if (direct != null) { pts.add(direct); continue }
+                        try {
+                            GoogleLink.resolve(line).first?.let { pts.add(Pair(it.lat, it.lon)) }
+                        } catch (_: Exception) {
+                        }
+                    }
+                    ui.post {
+                        if (pts.isEmpty()) {
+                            toast("Không đọc được toạ độ nào")
+                            return@post
+                        }
+                        val kinds = arrayOf("📷  Camera phạt nguội", "🚨  Camera bắn tốc độ", "🚦  Camera đèn đỏ")
+                        val codes = intArrayOf(CamKind.FINE, CamKind.SPEED, CamKind.RED_LIGHT)
+                        AlertDialog.Builder(this)
+                            .setTitle("Lưu ${pts.size} điểm là:")
+                            .setItems(kinds) { _, w ->
+                                val n = CameraStore.addAll(this, pts.map { CameraIO.Item(it.first, it.second, codes[w], -1.0) })
+                                toast("Đã lưu $n điểm mới")
+                                Live.changed()
+                            }
+                            .setNegativeButton("Huỷ", null)
+                            .show()
+                    }
+                }
+            }
+            .setNegativeButton("Huỷ", null)
+            .show()
+    }
+
     private fun showMenu() {
         val items = arrayOf(
             "⚙   Cài đặt",
             "🗺   Mở Google Maps",
             "⏱   Màn hình tốc độ lớn",
+            "📷   Bản đồ camera phạt nguội (web)",
+            "📍   Thêm camera bằng toạ độ",
             if (Live.serviceRunning) "⏸   Tạm dừng theo dõi tốc độ" else "▶   Bật theo dõi tốc độ",
         )
         AlertDialog.Builder(this)
@@ -486,7 +560,13 @@ class NavActivity : Activity() {
                     0 -> startActivity(Intent(this, SettingsActivity::class.java))
                     1 -> AppActions.openGoogleMaps(this, prefs)
                     2 -> startActivity(Intent(this, MainActivity::class.java))
-                    3 -> if (Live.serviceRunning) {
+                    3 -> try {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://bandophatnguoi.com/")))
+                    } catch (_: Exception) {
+                        toast("Không mở được trình duyệt")
+                    }
+                    4 -> addByCoordsDialog()
+                    5 -> if (Live.serviceRunning) {
                         Live.userStopped = true
                         DriveService.stop(this)
                     } else {
@@ -714,7 +794,7 @@ class NavActivity : Activity() {
             }
             ui.post {
                 if (res != null) {
-                    startNavTo(res.lat, res.lon, res.name)
+                    sharedPointDialog(res.lat, res.lon, res.name)
                 } else if (!query.isNullOrBlank()) {
                     searchInput.setText(query)
                     doSearch(query)
