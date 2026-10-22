@@ -18,6 +18,9 @@ class NavEngine(
 ) {
     private var seg = 0
     private var offCount = 0
+    private var rrLat = 0.0
+    private var rrLon = 0.0
+    private val rerouteTimes = ArrayList<Long>()
     @Volatile private var routing = false
     private var lastReroute = 0L
     private val spoken = HashSet<String>()
@@ -92,6 +95,7 @@ class NavEngine(
         if (routing && !force) return
         routing = true
         lastReroute = SystemClock.elapsedRealtime()
+        rrLat = lat; rrLon = lon
         Live.routeStatus = when {
             offerChoice && Live.route != null -> "Đang tìm tuyến khác…"
             Live.route == null -> "Đang tìm đường xe máy…"
@@ -148,7 +152,7 @@ class NavEngine(
         val r = Live.route
         if (r == null) {
             if (!routing && Live.routeError == null) requestRoute(lat, lon, heading)
-            else if (!routing && SystemClock.elapsedRealtime() - lastReroute > 20000) requestRoute(lat, lon, heading)
+            else if (!routing && SystemClock.elapsedRealtime() - lastReroute > 60000) requestRoute(lat, lon, heading)
             return
         }
 
@@ -206,10 +210,18 @@ class NavEngine(
             return
         }
 
-        // Đi lệch tuyến (~10 m) → tìm tuyến mới ngay (2 lần định vị liên tiếp ≈ 2 giây)
-        if (off && speedMps > 1.5) offCount++ else offCount = 0
+        // Đi lệch tuyến (~10 m) → tìm tuyến mới (2 lần định vị liên tiếp ≈ 2 giây).
+        // Chỉ khi xe THẬT SỰ đang chạy: tốc độ > 7 km/h và đã đi được ≥ 25 m kể từ lần tìm trước
+        // (GPS trong nhà/đứng yên trôi vài chục mét không được tính là lệch tuyến).
+        val moving = speedMps > 2.0 && Geo.distance(lat, lon, rrLat, rrLon) >= 25
+        if (off && moving) offCount++ else offCount = 0
         val now = SystemClock.elapsedRealtime()
-        if ((offCount >= 2 || bestD > 40) && !routing && now - lastReroute > 5000) {
+        // Tìm lại liên tục nhiều lần (≥ 3 lần trong 2 phút) → giãn ra 60 giây cho đỡ tốn lượt VietMap
+        rerouteTimes.removeAll { now - it > 120_000 }
+        val gap = if (rerouteTimes.size >= 3) 60_000 else 8_000
+        if (moving && (offCount >= 2 || bestD > 40) && !routing && now - lastReroute > gap) {
+            rerouteTimes.add(now)
+            rrLat = lat; rrLon = lon
             alert("Đi lệch tuyến, đang tìm đường mới", "Đang tìm đường mới", false)
             requestRoute(lat, lon, heading)
         }
