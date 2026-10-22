@@ -1562,6 +1562,11 @@ class NavActivity : Activity() {
                 "cmp" to compass.bearing, "course" to course, "rb" to Live.roadBearing, "hd" to Live.heading)
             if (prefs.rotateMap) {
                 // Vòng lặp camTick xoay + trượt bản đồ mượt (kiểu Google Maps), ở đây chỉ đặt đích
+                val old = camTarget
+                if (old == null || old[0] != lat || old[1] != lon) {
+                    camFixAt = android.os.SystemClock.uptimeMillis()
+                    camFixProg = if (useSnap) Live.routeProgress else -1.0
+                }
                 camTarget = doubleArrayOf(lat, lon, zoom, if (nav) 55.0 else 40.0, topPad)
                 startCamLoop()
             } else {
@@ -1637,6 +1642,39 @@ class NavActivity : Activity() {
         return if ((camMoving && camCourse >= 0) || cmp < 0) camCourse to false else cmp to true
     }
 
+    private var camFixAt = 0L
+    private var camFixProg = -1.0
+
+    /**
+     * Dự đoán vị trí xe giữa 2 lần GPS (tối đa 1,2 giây): đang bám tuyến thì trượt dọc tuyến,
+     * còn lại đi thẳng theo hướng chạy. Nhờ vậy mũi tên chạy liên tục như Google Maps.
+     */
+    private fun predicted(t: DoubleArray): DoubleArray {
+        if (!prefs.predict) return t
+        val v = Live.speedKmh / 3.6
+        if (v < 1.5 || camFixAt == 0L) return t
+        val dt = ((android.os.SystemClock.uptimeMillis() - camFixAt) / 1000.0).coerceIn(0.0, 1.2)
+        val ds = v * dt
+        if (ds < 0.3) return t
+        val r = Live.route
+        val out = t.copyOf()
+        if (r != null && camFixProg >= 0 && !Live.offRoute) {
+            val target = camFixProg + ds
+            var i = Live.routeSeg.coerceIn(0, r.lats.size - 2)
+            while (i < r.lats.size - 2 && r.cum[i + 1] < target) i++
+            val segLen = r.cum[i + 1] - r.cum[i]
+            val f = if (segLen < 0.01) 0.0 else ((target - r.cum[i]) / segLen).coerceIn(0.0, 1.0)
+            out[0] = r.lats[i] + f * (r.lats[i + 1] - r.lats[i])
+            out[1] = r.lons[i] + f * (r.lons[i + 1] - r.lons[i])
+        } else {
+            val hd = if (camCourse >= 0) camCourse else return t
+            val rad = Math.toRadians(hd)
+            out[0] = t[0] + Math.cos(rad) * ds / 110540.0
+            out[1] = t[1] + Math.sin(rad) * ds / (111320.0 * Math.cos(Math.toRadians(t[0])))
+        }
+        return out
+    }
+
     private val camTick = object : Runnable {
         override fun run() {
             if (!camLoop) return
@@ -1668,10 +1706,11 @@ class NavActivity : Activity() {
             }
             c!!
             var moved = false
+            val tg = predicted(t)
             for (i in 0..4) {
-                val a0 = if (i < 2) 0.10 else 0.08
+                val a0 = if (i < 2) (if (tg !== t) 0.30 else 0.10) else 0.08
                 val a = 1 - Math.pow(1 - a0, k.toDouble())
-                val d = t[i] - c[i]
+                val d = tg[i] - c[i]
                 if (kotlin.math.abs(d) > (if (i < 2) 1e-7 else 0.002)) { c[i] += d * a; moved = true }
             }
             val (b, fromCompass) = pickBearing()

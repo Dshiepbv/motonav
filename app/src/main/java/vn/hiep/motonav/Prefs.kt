@@ -66,6 +66,16 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("batterySaver", false)
         set(v) = sp.edit().putBoolean("batterySaver", v).apply()
 
+    /** Khớp đường kiểu mới theo chuỗi vị trí (HMM). Tắt = cách cũ (HMM vẫn chạy ngầm để so sánh). */
+    var hmmMatch: Boolean
+        get() = sp.getBoolean("hmmMatch", false)
+        set(v) = sp.edit().putBoolean("hmmMatch", v).apply()
+
+    /** Dự đoán vị trí giữa 2 lần GPS để mũi tên chạy liên tục. */
+    var predict: Boolean
+        get() = sp.getBoolean("predict", true)
+        set(v) = sp.edit().putBoolean("predict", v).apply()
+
     var rotateMap: Boolean
         get() = sp.getBoolean("rotateMap", true)
         set(v) = sp.edit().putBoolean("rotateMap", v).apply()

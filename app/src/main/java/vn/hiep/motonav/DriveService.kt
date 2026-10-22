@@ -94,6 +94,7 @@ class DriveService : Service(), LocationListener {
     private var currentWayId: Long? = null
     private var currentWay: Way? = null
     private var warnedMotorway: Long? = null
+    private val matcher = MapMatcher()
     private var noMatchCount = 0
     private var logMatchKey = ""
     private var matchMax = MATCH_MAX
@@ -357,7 +358,17 @@ class DriveService : Service(), LocationListener {
         // Tốc độ giới hạn
         if (snap != null) {
             matchMax = if (loc.hasAccuracy()) (loc.accuracy * 1.4).coerceIn(MATCH_MAX, 70.0) else MATCH_MAX
-            val m = match(snap, lat, lon, movingHeading)
+            val old = match(snap, lat, lon, movingHeading)
+            // Khớp đường kiểu mới (HMM): luôn chạy song song để ghi nhật ký so sánh;
+            // bật trong Cài đặt thì dùng kết quả HMM thay cho cách cũ.
+            val hm = try {
+                matcher.update(snap, lat, lon, movingHeading, if (loc.hasAccuracy()) loc.accuracy.toDouble() else 15.0)
+            } catch (_: Exception) { null }
+            if (hm?.way?.id != old?.way?.id) {
+                TripLog.ev("hmm", "way" to hm?.way?.id, "name" to hm?.way?.name, "old" to old?.way?.id, "oldName" to old?.way?.name,
+                    "dist" to hm?.dist, "used" to prefs.hmmMatch)
+            }
+            val m = if (prefs.hmmMatch && hm != null) Match(hm.way, hm.forward, hm.dist, hm.bearing) else if (prefs.hmmMatch) null else old
             if (m != null) {
                 noMatchCount = 0
                 currentWayId = m.way.id

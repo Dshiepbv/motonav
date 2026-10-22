@@ -172,6 +172,18 @@ class SettingsActivity : Activity() {
         list.removeAllViews()
         list.addView(tv(26f, Color.WHITE, true).apply { text = "Cài đặt" })
 
+        header("Thử nghiệm (đang đối chiếu nhật ký)")
+        toggle(
+            "Khớp đường kiểu mới (HMM)",
+            "Xét cả chuỗi vị trí vừa đi để biết xe đang ở đường nào – ít nhầm đường song song, cầu vượt, đường gom. Tắt: dùng cách cũ (cách mới vẫn chạy ngầm để ghi nhật ký so sánh)",
+            prefs.hmmMatch,
+        ) { prefs.hmmMatch = it }
+        toggle(
+            "Dự đoán vị trí giữa 2 lần GPS",
+            "Mũi tên và bản đồ chạy liên tục theo tốc độ thay vì nhích từng giây",
+            prefs.predict,
+        ) { prefs.predict = it }
+
         header("Pin")
         toggle(
             "Tiết kiệm pin",

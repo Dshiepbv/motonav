@@ -292,13 +292,16 @@ class NavEngine(
         // Đọc chỉ dẫn (đang lệch tuyến thì không đọc chỉ dẫn của tuyến cũ, tránh bảo quay lại)
         if (next.sign != 0 && !off) {
             val key = "$nextIdx@" + next.from
-            val spd = speedMps * 3.6
-            val far = if (spd > 45) 600 else 300
-            if (toTurn <= far && toTurn > 120 && spoken.add("$key/far")) {
+            // Báo theo THỜI GIAN tới chỗ rẽ (như Google Maps): ~15 giây trước và ~5 giây trước,
+            // nên chạy nhanh thì báo sớm hơn, chạy chậm trong phố thì không báo quá xa.
+            val v = maxOf(speedMps, 4.0)
+            val far = (v * 15).coerceIn(200.0, 800.0)
+            val near = (v * 5).coerceIn(40.0, 130.0)
+            if (toTurn <= far && toTurn > near + 60 && spoken.add("$key/far")) {
                 val dd = (toTurn / 50).roundToInt() * 50
                 alert("$dd m nữa: $phrase", "$dd mét nữa, $phrase", false)
             }
-            if (toTurn <= 70 && spoken.add("$key/now")) {
+            if (toTurn <= near && spoken.add("$key/now")) {
                 alert(phrase.uppercase(), phrase, true)
             }
         }
