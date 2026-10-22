@@ -11,6 +11,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,17 +29,36 @@ jobs:
         run: gradle assembleRelease --no-daemon --stacktrace
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk MotoNav-${{ github.run_number }}.apk
+        run: |
+          VER=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          echo "VER=$VER" >> $GITHUB_ENV
+          cp app/build/outputs/apk/release/app-release.apk MotoNav-$VER.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: MotoNav-apk
-          path: MotoNav-${{ github.run_number }}.apk
+          path: MotoNav-${{ env.VER }}.apk
 
-      - name: Publish release (tải APK thẳng từ điện thoại)
+      # Repo code (riêng tư) vẫn giữ bản phát hành nội bộ
+      - name: Release (repo code)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: MotoNav bản ${{ github.run_number }}
-          files: MotoNav-${{ github.run_number }}.apk
+          name: MotoNav ${{ env.VER }} (bản ${{ github.run_number }})
+          files: MotoNav-${{ env.VER }}.apk
           make_latest: true
+
+      # Repo công khai chỉ chứa APK (giống NConnect) – chạy khi đã cài RELEASES_TOKEN
+      - name: Publish APK to public releases repo
+        if: env.RELEASES_TOKEN != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ github.repository_owner }}/motonav-releases
+          token: ${{ secrets.RELEASES_TOKEN }}
+          tag_name: v${{ env.VER }}
+          name: MotoNav ${{ env.VER }}
+          files: MotoNav-${{ env.VER }}.apk
+          make_latest: true
+          body: |
+            ⚠️ **MotoNav – phần mềm cá nhân / personal software.** Bản quyền © 2026 Dshiepbv. Mã nguồn không công khai.
+            Tải file `MotoNav-${{ env.VER }}.apk` bên dưới và cài lên Android (cài đè lên bản cũ được).
