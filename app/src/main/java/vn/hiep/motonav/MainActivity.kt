@@ -285,7 +285,18 @@ class MainActivity : Activity() {
         }
 
         streetText.text = Live.street ?: ""
-        statusText.text = when {
+        val al = Live.activeAlert()
+        if (al != null) {
+            statusText.text = al
+            statusText.setTextColor(if (Live.alertUrgent) danger else warn)
+            statusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            statusText.maxLines = 2
+        } else {
+            statusText.setTextColor(muted)
+            statusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            statusText.maxLines = 1
+        }
+        if (al == null) statusText.text = when {
             !Live.serviceRunning -> "Đã dừng theo dõi"
             !Live.gpsOk -> Live.status.ifBlank { "Đang chờ GPS…" }
             else -> Live.status
@@ -433,7 +444,7 @@ class MainActivity : Activity() {
             "Khu vực: " + areaNames[prefs.areaMode],
             "Ước tính khi thiếu biển: " + if (prefs.estimate) "Bật" else "Tắt",
             "Báo vượt tốc khi quá: +${prefs.tolerance} km/h",
-            "Giọng nói: " + if (prefs.voice) "Bật" else "Tắt",
+            "Giọng đọc (tiếng bíp và chữ luôn bật): " + if (prefs.voice) "Bật" else "Tắt",
             "Đọc giới hạn khi đổi đoạn đường: " + if (prefs.announceLimit) "Bật" else "Tắt",
             "Xoá camera tự thêm gần nhất (đang có $camCount)",
             "Xoá tất cả camera tự thêm",

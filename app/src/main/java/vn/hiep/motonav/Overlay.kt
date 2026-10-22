@@ -35,6 +35,7 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
     private lateinit var turnDist: TextView
     private lateinit var turnName: TextView
     private lateinit var overBanner: TextView
+    private lateinit var alertBanner: TextView
     private var blink = false
     private lateinit var sign: SpeedSignView
     private lateinit var speed: TextView
@@ -80,6 +81,18 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
             background = rounded(Color.argb(215, 11, 13, 16), 16f * scale)
             setPadding(d(8f), d(8f), d(8f), d(8f))
         }
+        // Dải chữ cảnh báo: luôn hiện kèm âm thanh
+        alertBanner = TextView(ctx).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16f * scale)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            setTextColor(Color.BLACK)
+            gravity = Gravity.CENTER
+            maxLines = 4
+            setPadding(d(8f), d(6f), d(8f), d(6f))
+            visibility = View.GONE
+        }
+        box.addView(alertBanner, LinearLayout.LayoutParams(d(170f), -2).apply { bottomMargin = d(6f) })
+
         // Thẻ rẽ: hiện khi còn ≤ 300 m tới chỗ rẽ, ghi rõ tên đường sẽ vào
         turnBox = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
@@ -242,6 +255,22 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
 
     private fun render() {
         if (root == null) return
+        // Dải chữ cảnh báo
+        val a = Live.activeAlert()
+        if (a != null) {
+            alertBanner.visibility = View.VISIBLE
+            alertBanner.text = a
+            if (Live.alertUrgent) {
+                alertBanner.background = rounded(danger, 10f * builtScale)
+                alertBanner.setTextColor(Color.WHITE)
+            } else {
+                alertBanner.background = rounded(Color.parseColor("#FFD60A"), 10f * builtScale)
+                alertBanner.setTextColor(Color.BLACK)
+            }
+        } else {
+            alertBanner.visibility = View.GONE
+        }
+
         // Thẻ rẽ
         val m = Live.navMeters
         if (Live.navActive && m in 0..300 && !Live.navInstruction.isNullOrBlank()) {

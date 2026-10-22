@@ -270,8 +270,46 @@ class DriveService : Service(), LocationListener {
         }
 
         checkOverspeed(speedKmh)
+        checkTurn()
         checkCameras(snap, lat, lon, speedMps, movingHeading)
         Live.changed()
+    }
+
+    /**
+     * Mọi cảnh báo đi qua đây: luôn hiện chữ trên màn hình (ô nổi + màn hình chính),
+     * luôn có tiếng bíp, và đọc thành tiếng nếu bật Giọng nói.
+     */
+    private fun alert(text: String, speech: String = text, beep: Boolean = true, urgent: Boolean = false, showMs: Long = 6000) {
+        Live.alertText = text
+        Live.alertUntil = SystemClock.elapsedRealtime() + showMs
+        Live.alertUrgent = urgent
+        if (beep) voice.beep()
+        if (prefs.voice) voice.say(speech, urgent)
+        Live.changed()
+    }
+
+    private var lastTurnKey: String? = null
+    private var lastTurnNear: String? = null
+
+    /** Tiếng báo + chữ khi tới gần chỗ rẽ (Google Maps vẫn đọc chỉ dẫn của nó). */
+    private fun checkTurn() {
+        val m = Live.navMeters
+        val instr = Live.navInstruction
+        if (!Live.navActive || instr.isNullOrBlank() || m < 0) return
+        if (m <= 300 && lastTurnKey != instr) {
+            lastTurnKey = instr
+            Live.alertText = "Sắp rẽ: $instr"
+            Live.alertUntil = SystemClock.elapsedRealtime() + 5000
+            Live.alertUrgent = false
+            voice.beep()
+        }
+        if (m <= 60 && lastTurnNear != instr) {
+            lastTurnNear = instr
+            Live.alertText = "RẼ NGAY: $instr"
+            Live.alertUntil = SystemClock.elapsedRealtime() + 5000
+            Live.alertUrgent = true
+            voice.beep()
+        }
     }
 
     private fun applyLimit(res: LimitResult?) {
@@ -280,8 +318,9 @@ class DriveService : Service(), LocationListener {
         Live.limitEstimated = res?.estimated ?: false
         if (res != null && res.kmh != announcedLimit) {
             announcedLimit = res.kmh
-            if (prefs.voice && prefs.announceLimit) {
-                voice.say("Giới hạn ${res.kmh}")
+            if (prefs.announceLimit) {
+                val note = if (res.estimated) " (ước tính)" else ""
+                alert("Giới hạn ${res.kmh} km/h$note", "Giới hạn ${res.kmh}", showMs = 4000)
             }
         }
         if (res == null) announcedLimit = null
@@ -295,10 +334,7 @@ class DriveService : Service(), LocationListener {
             Live.overspeed = true
             if (now - overSince > 1500 && now - lastOverAlert > 12000) {
                 lastOverAlert = now
-                if (prefs.voice) {
-                    voice.beep()
-                    voice.say("Quá tốc độ, giới hạn $lim", urgent = true)
-                }
+                alert("QUÁ TỐC ĐỘ! Giới hạn $lim km/h", "Quá tốc độ, giới hạn $lim", urgent = true)
             }
         } else {
             overSince = 0L
@@ -373,18 +409,18 @@ class DriveService : Service(), LocationListener {
         val st = camAlerts[nearest.id]
         if (st == null) {
             camAlerts[nearest.id] = CamAlert(dInt)
-            if (prefs.voice) {
-                val r = max(50, (dInt / 50.0).roundToInt() * 50)
-                var msg = "Phía trước $r mét có ${CamKind.label(nearest.kind)}"
-                val lim = shownLimit?.kmh
-                if (nearest.kind == CamKind.SPEED && lim != null) msg += ", giới hạn $lim"
-                voice.beep()
-                voice.say(msg)
-            }
-        } else if (prefs.voice) {
+            val r = max(50, (dInt / 50.0).roundToInt() * 50)
+            val lim = shownLimit?.kmh
+            val limTxt = if (nearest.kind == CamKind.SPEED && lim != null) ", giới hạn $lim" else ""
+            alert(
+                "Phía trước $r m: ${CamKind.label(nearest.kind)}$limTxt",
+                "Phía trước $r mét có ${CamKind.label(nearest.kind)}$limTxt",
+                showMs = 8000,
+            )
+        } else {
             for (t in CAM_COUNTDOWN) {
                 if (dInt <= t && st.firstDist > t + 40 && st.spoken.add(t)) {
-                    voice.say("Còn $t mét")
+                    alert("Còn $t m: ${CamKind.label(nearest.kind)}", "Còn $t mét", beep = false, showMs = 8000)
                     break
                 }
             }
@@ -394,10 +430,7 @@ class DriveService : Service(), LocationListener {
         val now = SystemClock.elapsedRealtime()
         if (nearest.kind == CamKind.SPEED && Live.overspeed && dInt < 350 && now - lastCamOverAlert > 8000) {
             lastCamOverAlert = now
-            if (prefs.voice) {
-                voice.beep()
-                voice.say("Giảm tốc độ", urgent = true)
-            }
+            alert("GIẢM TỐC ĐỘ! Sắp tới camera bắn tốc độ", "Giảm tốc độ", urgent = true)
         }
     }
 

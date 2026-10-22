@@ -42,6 +42,14 @@ object Live {
 
     @Volatile var status: String = ""
 
+    // Dải chữ cảnh báo (hiện kèm mọi âm thanh)
+    @Volatile var alertText: String? = null
+    @Volatile var alertUntil = 0L
+    @Volatile var alertUrgent = false
+
+    fun activeAlert(): String? =
+        if (android.os.SystemClock.elapsedRealtime() < alertUntil) alertText else null
+
     private val meterRe = Regex("""(\d+(?:[.,]\d+)?)\s?(km|m|ft|mi)""", RegexOption.IGNORE_CASE)
 
     fun parseMeters(d: String?): Int {
