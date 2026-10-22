@@ -106,6 +106,7 @@ class NavActivity : Activity() {
         mapView = MapView(this)
         mapView.onCreate(savedInstanceState)
         setContentView(buildUi())
+        applyImmersive()
 
         mapView.getMapAsync { m ->
             map = m
@@ -181,18 +182,19 @@ class NavActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         turnArrow = ImageView(this)
-        row.addView(turnArrow, LinearLayout.LayoutParams(dp(66f), dp(66f)))
+        val ls = landscape
+        row.addView(turnArrow, LinearLayout.LayoutParams(dp(if (ls) 52f else 66f), dp(if (ls) 52f else 66f)))
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12f), 0, 0, 0)
         }
-        turnDist = tv(32f, Color.WHITE, true)
+        turnDist = tv(if (ls) 26f else 32f, Color.WHITE, true)
         col.addView(turnDist)
-        turnText = tv(21f, Color.WHITE, true).apply { maxLines = 2 }
+        turnText = tv(if (ls) 18f else 21f, Color.WHITE, true).apply { maxLines = 2 }
         col.addView(turnText)
         row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
         turnCard.addView(row)
-        thenText = tv(17f, Color.parseColor("#E3F6EE"), true).apply {
+        thenText = tv(if (ls) 15f else 17f, Color.parseColor("#E3F6EE"), true).apply {
             visibility = View.GONE
             maxLines = 2
             gravity = Gravity.CENTER_VERTICAL
@@ -227,18 +229,19 @@ class NavActivity : Activity() {
         }
         fun chip(label: String, onClick: () -> Unit, onLong: () -> Unit) = TextView(this).apply {
             text = label
+            contentDescription = when (label) { "🏠" -> "Nhà"; "💼" -> "Công ty"; else -> "Yêu thích" }
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
             background = rounded(Color.parseColor("#2C343E"), 20f)
-            setPadding(dp(8f), dp(9f), dp(8f), dp(9f))
+            setPadding(dp(4f), dp(6f), dp(4f), dp(6f))
             setOnClickListener { onClick() }
             setOnLongClickListener { onLong(); true }
         }
-        val clp = { LinearLayout.LayoutParams(0, -2, 1f).apply { setMargins(dp(3f), 0, dp(3f), 0) } }
-        chips.addView(chip("🏠 Nhà", { goSaved("home") }, { setPlaceDialog("home") }), clp())
-        chips.addView(chip("💼 Công ty", { goSaved("work") }, { setPlaceDialog("work") }), clp())
-        chips.addView(chip("⭐ Yêu thích", { favoritesDialog() }, { favoritesDialog() }), clp())
+        val clp = { LinearLayout.LayoutParams(dp(60f), -2).apply { setMargins(0, 0, dp(8f), 0) } }
+        chips.addView(chip("🏠", { goSaved("home") }, { setPlaceDialog("home") }), clp())
+        chips.addView(chip("💼", { goSaved("work") }, { setPlaceDialog("work") }), clp())
+        chips.addView(chip("⭐", { favoritesDialog() }, { favoritesDialog() }), clp())
         searchBox.addView(chips, LinearLayout.LayoutParams(-1, -2))
         results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val sc = ScrollView(this).apply { addView(results) }
@@ -252,8 +255,8 @@ class NavActivity : Activity() {
             setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
         }
         sign = SpeedSignView(this)
-        speedBox.addView(sign, LinearLayout.LayoutParams(dp(70f), dp(70f)))
-        speedText = tv(30f, Color.WHITE, true).apply {
+        speedBox.addView(sign, LinearLayout.LayoutParams(dp(if (ls) 58f else 70f), dp(if (ls) 58f else 70f)))
+        speedText = tv(if (ls) 26f else 30f, Color.WHITE, true).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
         }
@@ -619,14 +622,14 @@ class NavActivity : Activity() {
             scroll.addView(inner, FrameLayout.LayoutParams(-1, -2))
             panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
             panel.addView(bottomBar, LinearLayout.LayoutParams(-1, -2))
-            row.addView(panel, LinearLayout.LayoutParams(0, -1, 0.42f))
+            row.addView(panel, LinearLayout.LayoutParams(0, -1, 0.36f))
 
             val mapBox = FrameLayout(this)
             mapBox.addView(mapView, FrameLayout.LayoutParams(-1, -1))
             mapBox.addView(
                 speedBox,
                 FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply {
-                    leftMargin = dp(10f); topMargin = dp(16f)
+                    leftMargin = dp(8f); topMargin = dp(8f)
                 },
             )
             mapBox.addView(
@@ -647,7 +650,7 @@ class NavActivity : Activity() {
                     rightMargin = dp(17f); bottomMargin = dp(14f + 58f + 10f)
                 },
             )
-            row.addView(mapBox, LinearLayout.LayoutParams(0, -1, 0.58f))
+            row.addView(mapBox, LinearLayout.LayoutParams(0, -1, 0.64f))
             root.addView(row, FrameLayout.LayoutParams(-1, -1))
         }
         return root
@@ -1452,7 +1455,9 @@ class NavActivity : Activity() {
             val h = mapView.height.toDouble()
             // Đặt xe ở giữa, sát phía dưới vùng bản đồ còn nhìn thấy
             val covered = if (landscape) 0.0 else bottomBar.height.toDouble()
-            val carY = h - covered - dp(70f)
+            // Màn ngang thấp: đặt xe sát dưới hơn, thu nhỏ chút để thấy xa phía trước
+            val carY = h - covered - dp(if (landscape) 42f else 70f)
+            if (landscape) zoom -= 0.3
             val topPad = (2 * carY - h).coerceIn(0.0, h * 0.8)
             val course = when {
                 // Đang bám tuyến: theo hướng tuyến phía trước (đường luôn dọc màn hình)
@@ -1513,7 +1518,7 @@ class NavActivity : Activity() {
     private var arrowShown = -999.0
 
     private fun startCamLoop() {
-        if (prefs.mapHeading != 2 && compass.available) compass.start() else compass.stop()
+        compass.start()
         if (camLoop) return
         camLoop = true
         camCur = null
@@ -1540,11 +1545,7 @@ class NavActivity : Activity() {
         val spd = Live.speedKmh
         if (spd >= 10) camMoving = true else if (spd in 0..4 || !Live.gpsOk) camMoving = false
         val cmp = compass.bearing
-        return when (prefs.mapHeading) {
-            1 -> if (cmp >= 0) cmp to true else camCourse to false
-            2 -> camCourse to false
-            else -> if ((camMoving && camCourse >= 0) || cmp < 0) camCourse to false else cmp to true
-        }
+        return if ((camMoving && camCourse >= 0) || cmp < 0) camCourse to false else cmp to true
     }
 
     private val camTick = object : Runnable {
@@ -1755,6 +1756,32 @@ class NavActivity : Activity() {
     override fun onLowMemory() {
         super.onLowMemory()
         mapView.onLowMemory()
+    }
+
+    /** Xoay màn hình: dựng lại giao diện nhưng giữ nguyên bản đồ (không tải lại, không mất tuyến). */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val q = if (::searchInput.isInitialized) searchInput.text.toString() else ""
+        (mapView.parent as? android.view.ViewGroup)?.removeView(mapView)
+        setContentView(buildUi())
+        applyImmersive()
+        if (q.isNotEmpty()) searchInput.setText(q)
+        shownChoices = -1
+        shownSigns = null
+        shownThenSign = -999
+        recenterBtn.visibility = if (follow) View.GONE else View.VISIBLE
+        camCur = null
+        render()
+    }
+
+    /** Màn ngang: ẩn thanh trạng thái + thanh điều hướng để bản đồ rộng hơn. */
+    @Suppress("DEPRECATION")
+    private fun applyImmersive() {
+        val v = window.decorView
+        v.systemUiVisibility = if (landscape) {
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        } else 0
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

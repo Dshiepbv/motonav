@@ -12,15 +12,20 @@ import kotlin.math.atan2
 import kotlin.math.sqrt
 
 /**
- * Hướng của điện thoại (la bàn + con quay hồi chuyển, cảm biến ROTATION_VECTOR).
+ * Hướng của điện thoại theo la bàn (từ trường + gia tốc, giống Google Maps).
  * Trả về hướng mà mặt trước màn hình "nhìn tới" – dùng được cả khi điện thoại
  * nằm ngang trên bàn lẫn khi gắn đứng trên giá xe, dọc hay ngang.
  */
 class PhoneCompass(private val ctx: Context) : SensorEventListener {
     private val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-    private val sensor: Sensor? = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-        ?: sm.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR)
+    // La bàn kiểu Google Maps: cảm biến từ trường + gia tốc (không dùng con quay)
+    private val accel: Sensor? = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    private val magnet: Sensor? = sm.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
     private val r = FloatArray(9)
+    private val grav = FloatArray(3)
+    private val mag = FloatArray(3)
+    private var hasG = false
+    private var hasM = false
     private var sx = 0.0
     private var sy = 0.0
     private var has = false
@@ -31,14 +36,15 @@ class PhoneCompass(private val ctx: Context) : SensorEventListener {
     @Volatile var bearing = -1.0
         private set
 
-    val available: Boolean get() = sensor != null
+    val available: Boolean get() = accel != null && magnet != null
     private var running = false
 
     fun start() {
-        if (running || sensor == null) return
+        if (running || !available) return
         running = true
-        has = false
-        sm.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
+        has = false; hasG = false; hasM = false
+        sm.registerListener(this, accel, SensorManager.SENSOR_DELAY_UI)
+        sm.registerListener(this, magnet, SensorManager.SENSOR_DELAY_UI)
     }
 
     fun stop() {
@@ -56,7 +62,20 @@ class PhoneCompass(private val ctx: Context) : SensorEventListener {
     }
 
     override fun onSensorChanged(e: SensorEvent) {
-        SensorManager.getRotationMatrixFromVector(r, e.values)
+        val a = 0.15f
+        when (e.sensor.type) {
+            Sensor.TYPE_ACCELEROMETER -> {
+                if (!hasG) { e.values.copyInto(grav, 0, 0, 3); hasG = true }
+                else for (i in 0..2) grav[i] += a * (e.values[i] - grav[i])
+            }
+            Sensor.TYPE_MAGNETIC_FIELD -> {
+                if (!hasM) { e.values.copyInto(mag, 0, 0, 3); hasM = true }
+                else for (i in 0..2) mag[i] += a * (e.values[i] - mag[i])
+            }
+            else -> return
+        }
+        if (!hasG || !hasM) return
+        if (!SensorManager.getRotationMatrix(r, null, grav, mag)) return
         // Cột của ma trận = trục máy trong hệ (Đông, Bắc, Lên)
         // Hướng "lên" của màn hình theo chiều xoay hiện tại
         val (ue, un) = when (rotation()) {
@@ -78,8 +97,8 @@ class PhoneCompass(private val ctx: Context) : SensorEventListener {
         if (!has) {
             sx = ex; sy = ey; has = true
         } else {
-            val a = 0.07
-            sx += a * (ex - sx); sy += a * (ey - sy)
+            val k = 0.2
+            sx += k * (ex - sx); sy += k * (ey - sy)
         }
         val now = System.currentTimeMillis()
         if (now - declAt > 600_000 && Live.gpsOk) {
