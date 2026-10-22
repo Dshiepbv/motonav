@@ -95,6 +95,7 @@ class DriveService : Service(), LocationListener {
     private var currentWay: Way? = null
     private var warnedMotorway: Long? = null
     private var noMatchCount = 0
+    private var matchMax = MATCH_MAX
     private var pendingKey: String? = null
     private var pendingCount = 0
     private var shownLimit: LimitResult? = null
@@ -134,6 +135,14 @@ class DriveService : Service(), LocationListener {
 
         try {
             lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, this, thread.looper)
+            // Dự phòng khi GPS chập chờn (Pixel…): vị trí "fused" chỉ dùng khi GPS im lặng > 2,5 giây
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    if (lm.allProviders.contains(LocationManager.FUSED_PROVIDER)) {
+                        lm.requestLocationUpdates(LocationManager.FUSED_PROVIDER, 1000L, 0f, this, thread.looper)
+                    }
+                } catch (_: Exception) {}
+            }
         } catch (e: SecurityException) {
             Live.status = "Chưa có quyền vị trí"
             Live.changed()
@@ -265,7 +274,12 @@ class DriveService : Service(), LocationListener {
 
     // ---------- Xử lý mỗi lần có vị trí mới ----------
 
+    private var lastGpsFix = 0L
+
     override fun onLocationChanged(loc: Location) {
+        val now = SystemClock.elapsedRealtime()
+        if (loc.provider == LocationManager.GPS_PROVIDER) lastGpsFix = now
+        else if (now - lastGpsFix < 2500) return
         try {
             process(loc)
         } catch (e: Exception) {
@@ -319,6 +333,7 @@ class DriveService : Service(), LocationListener {
 
         // Tốc độ giới hạn
         if (snap != null) {
+            matchMax = if (loc.hasAccuracy()) (loc.accuracy * 1.4).coerceIn(MATCH_MAX, 70.0) else MATCH_MAX
             val m = match(snap, lat, lon, movingHeading)
             if (m != null) {
                 noMatchCount = 0
@@ -328,7 +343,6 @@ class DriveService : Service(), LocationListener {
                 // Không dẫn đường: xoay bản đồ theo hướng đoạn đường đang đi
                 if (!Live.ownNav && m.bearing >= 0) Live.roadBearing = m.bearing
                 checkUrban(m.way, snap.urbanArea)
-                checkCameraStreet(m.way, lat, lon)
                 if (m.way.highway == "motorway" && m.way.id != warnedMotorway && speedMps > 3) {
                     warnedMotorway = m.way.id
                     alert("CẢNH BÁO: đây là đường cao tốc, xe máy không được đi!", "Cảnh báo, xe máy không được đi đường cao tốc", urgent = true, showMs = 10000)
@@ -339,10 +353,12 @@ class DriveService : Service(), LocationListener {
                     pendingKey = key
                     pendingCount = 1
                 }
-                if (pendingCount >= 2) applyLimit(res)
+                // Đoạn đường không xác định được tốc độ: giữ biển cũ, chỉ xoá nếu kéo dài ~6 giây
+                if (pendingCount >= (if (res == null) 6 else 2)) applyLimit(res)
             } else {
                 noMatchCount++
-                if (noMatchCount >= 4) {
+                // Mất khớp đường: giữ biển tốc độ cũ ~12 giây (GPS chập chờn) rồi mới xoá
+                if (noMatchCount >= 12) {
                     currentWayId = null
                     currentWay = null
                     Live.street = null
@@ -503,6 +519,7 @@ class DriveService : Service(), LocationListener {
         var first = true
         for (c in all) {
             if (Geo.distance(lat, lon, c.lat, c.lon) > 4000) continue
+            if (CamKind.isPlace(c.kind)) continue // đã bỏ cảnh báo trường học, chợ
             if (!first) sb.append(',')
             first = false
             sb.append("""{"type":"Feature","properties":{"k":""").append(c.kind)
@@ -779,6 +796,7 @@ class DriveService : Service(), LocationListener {
                 continue
             }
             val place = CamKind.isPlace(c.kind)
+            if (place) continue // đã bỏ cảnh báo trường học, chợ
             val startAt = if (place || c.kind == CamKind.RAIL) 250.0 else CAM_ALERT_START
             if (hdg == null || d > startAt) continue
             if (c.heading >= 0 && Geo.angleDiff(c.heading, hdg) >= 60) continue
@@ -891,7 +909,7 @@ class DriveService : Service(), LocationListener {
                 val px = ax + t * dx
                 val py = ay + t * dy
                 val dist = sqrt(px * px + py * py)
-                if (dist > MATCH_MAX) continue
+                if (dist > matchMax) continue
 
                 val segBearing = Geo.norm(Math.toDegrees(atan2(dx, dy)))
                 var forward = true
@@ -900,9 +918,9 @@ class DriveService : Service(), LocationListener {
                     val d = Geo.angleDiff(hdg, segBearing)
                     forward = d <= 90
                     penalty = when (w.oneway) {
-                        1 -> if (d <= 90) d * 0.4 else 60.0
-                        -1 -> if (d > 90) (180 - d) * 0.4 else 60.0
-                        else -> min(d, 180 - d) * 0.4
+                        1 -> if (d <= 90) d * 0.3 else 60.0
+                        -1 -> if (d > 90) (180 - d) * 0.3 else 60.0
+                        else -> min(d, 180 - d) * 0.3
                     }
                 }
                 // Ưu tiên đường lớn một chút khi khoảng cách tương đương
@@ -923,8 +941,8 @@ class DriveService : Service(), LocationListener {
             if (w.id == prevId) keep = wBest
         }
 
-        if (best == null || best.score > MATCH_MAX) return null
-        if (keep != null && keep.score <= best.score + 8 && keep.score < MATCH_MAX) return keep
+        if (best == null || best.score > matchMax) return null
+        if (keep != null && keep.score <= best.score + 8 && keep.score < matchMax) return keep
         return best
     }
 

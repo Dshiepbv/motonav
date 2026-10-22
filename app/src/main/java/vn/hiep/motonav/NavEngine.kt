@@ -165,8 +165,16 @@ class NavEngine(
         val remaining = max(0.0, r.total - progress)
         Live.remainingM = remaining
         Live.etaMs = if (r.total > 0) (r.timeMs * (remaining / r.total)).toLong() else 0L
-        // Hướng tuyến phía trước (nhìn trước ~30 m) để bản đồ luôn để đường thẳng dọc màn hình
-        run {
+        // Lệch tuyến: cách tuyến > 12 m mà hướng đi lệch hướng tuyến > 35°, hoặc cách > 22 m
+        val segBrg = Geo.bearing(r.lats[bestI], r.lons[bestI], r.lats[bestI + 1], r.lons[bestI + 1])
+        val turnedAway = heading != null && speedMps > 1.5 && Geo.angleDiff(heading, segBrg) > 35
+        val off = (bestD > 12 && turnedAway) || bestD > 22
+        Live.offRoute = off
+        // Hướng tuyến phía trước (nhìn trước ~30 m) để bản đồ luôn để đường thẳng dọc màn hình.
+        // Đã lệch tuyến thì bản đồ theo hướng xe thật, không kéo ngược về tuyến cũ.
+        if (off) {
+            Live.roadBearing = heading ?: -1.0
+        } else run {
             var j = bestI + 1
             while (j < n - 1 && r.cum[j] - progress < 30) j++
             val sLat = r.lats[bestI] + bestT * (r.lats[bestI + 1] - r.lats[bestI])
@@ -177,7 +185,6 @@ class NavEngine(
         }
         Live.snapLat = r.lats[bestI] + bestT * (r.lats[bestI + 1] - r.lats[bestI])
         Live.snapLon = r.lons[bestI] + bestT * (r.lons[bestI + 1] - r.lons[bestI])
-        Live.offRoute = bestD > 35
 
         // Đến nơi
         if (remaining < 30) {
@@ -186,10 +193,10 @@ class NavEngine(
             return
         }
 
-        // Đi lệch tuyến → tìm lại
-        if (bestD > 40 && speedMps > 1.5) offCount++ else offCount = 0
+        // Đi lệch tuyến (~10 m) → tìm tuyến mới ngay (2 lần định vị liên tiếp ≈ 2 giây)
+        if (off && speedMps > 1.5) offCount++ else offCount = 0
         val now = SystemClock.elapsedRealtime()
-        if ((offCount >= 3 || bestD > 90) && !routing && now - lastReroute > 8000) {
+        if ((offCount >= 2 || bestD > 40) && !routing && now - lastReroute > 5000) {
             alert("Đi lệch tuyến, đang tìm đường mới", "Đang tìm đường mới", false)
             requestRoute(lat, lon, heading)
         }

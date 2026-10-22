@@ -122,6 +122,7 @@ class NavActivity : Activity() {
                     ui.postDelayed(autoFollow, 8000)
                 }
             }
+            m.addOnCameraMoveListener { positionCar() }
             m.addOnMapLongClickListener { p ->
                 confirmDestination(p.latitude, p.longitude, "Điểm đã chọn trên bản đồ")
                 true
@@ -170,7 +171,25 @@ class NavActivity : Activity() {
     private lateinit var bottomBar: LinearLayout
     private lateinit var speedBox: LinearLayout
 
+    private lateinit var carView: CarMarkerView
+    private var carLat = 0.0
+    private var carLon = 0.0
+    private var carHdg = 0.0
+    private var carShown = false
+
+    /** Đặt mũi tên xe theo vị trí trên màn hình của toạ độ xe. */
+    private fun positionCar() {
+        val m = map ?: return
+        if (!::carView.isInitialized) return
+        if (!carShown || !Live.gpsOk) { carView.visibility = View.INVISIBLE; return }
+        val p = try { m.projection.toScreenLocation(LatLng(carLat, carLon)) } catch (_: Exception) { return }
+        val cp = m.cameraPosition
+        carView.visibility = View.VISIBLE
+        carView.place(p.x, p.y, (carHdg - cp.bearing).toFloat(), cp.tilt.toFloat())
+    }
+
     private fun makeViews() {
+        carView = CarMarkerView(this, carIcon()).apply { visibility = View.INVISIBLE }
         turnCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(green)
@@ -304,9 +323,9 @@ class NavActivity : Activity() {
             setPadding(0, 0, 0, dp(8f))
         }
         bottomBar.addView(choicesPanel, LinearLayout.LayoutParams(-1, -2))
-        etaText = tv(20f, Color.WHITE, true)
+        etaText = tv(if (ls) 18f else 20f, Color.WHITE, true)
         bottomBar.addView(etaText)
-        statusText = tv(13f, muted).apply { maxLines = 3 }
+        statusText = tv(13f, muted).apply { maxLines = if (ls) 2 else 3 }
         bottomBar.addView(statusText)
         val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         fun btn(t: String, color: Int, onClick: () -> Unit) = Button(this).apply {
@@ -565,6 +584,7 @@ class NavActivity : Activity() {
         if (!landscape) {
             // ---- Màn hình dọc: thẻ rẽ trên, bản đồ giữa, thanh dưới ----
             root.addView(mapView, FrameLayout.LayoutParams(-1, -1))
+            root.addView(carView, FrameLayout.LayoutParams(dp(60f), dp(60f)))
             // Hàng trên: nút ☰ + (thẻ rẽ / ô tìm kiếm)
             val topRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -614,18 +634,23 @@ class NavActivity : Activity() {
                 setBackgroundColor(Color.parseColor("#12161B"))
                 setPadding(dp(10f), dp(10f), dp(10f), dp(6f))
             }
+            // Tất cả xếp dọc trong một cột cuộn được: thẻ rẽ trên, giờ đến + nút dưới cùng.
+            // Không bao giờ chồng lên nhau; màn thấp quá thì cuộn.
             val scroll = ScrollView(this).apply { isFillViewport = true }
             val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             inner.addView(turnCard, LinearLayout.LayoutParams(-1, -2))
             inner.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             inner.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
-            scroll.addView(inner, FrameLayout.LayoutParams(-1, -2))
-            panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-            panel.addView(bottomBar, LinearLayout.LayoutParams(-1, -2))
+            inner.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
+            bottomBar.setPadding(dp(2f), dp(8f), dp(2f), dp(4f))
+            inner.addView(bottomBar, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
+            scroll.addView(inner, FrameLayout.LayoutParams(-1, -1))
+            panel.addView(scroll, LinearLayout.LayoutParams(-1, -1))
             row.addView(panel, LinearLayout.LayoutParams(0, -1, 0.36f))
 
             val mapBox = FrameLayout(this)
             mapBox.addView(mapView, FrameLayout.LayoutParams(-1, -1))
+            mapBox.addView(carView, FrameLayout.LayoutParams(dp(60f), dp(60f)))
             mapBox.addView(
                 speedBox,
                 FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply {
@@ -1202,17 +1227,7 @@ class NavActivity : Activity() {
         s.addLayer(lim)
         shownAlerts = Live.alertsVersion
 
-        s.addImage("mn-car", carIcon())
-        s.addLayer(
-            SymbolLayer("mn-me-arrow", "mn-me").withProperties(
-                PropertyFactory.iconImage("mn-car"),
-                PropertyFactory.iconSize(1f),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
-                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
-            ),
-        )
+        // Mũi tên xe: vẽ bằng CarMarkerView (không nháy)
     }
 
     private var shownAlerts = -1
@@ -1441,7 +1456,9 @@ class NavActivity : Activity() {
         val useSnap = nav && r != null && !Live.offRoute
         val lat = if (useSnap) Live.snapLat else Live.lat
         val lon = if (useSnap) Live.snapLon else Live.lon
-        src("mn-me")?.setGeoJson(point(lat, lon))
+        // Đang bám xe với vòng lặp mượt: camTick tự đặt vị trí mũi tên; còn lại đặt ở vị trí thật
+        carShown = true
+        if (!(camLoop && follow && camCur != null)) { carLat = lat; carLon = lon }
 
         if (follow) {
             val spd = Live.speedKmh
@@ -1494,12 +1511,8 @@ class NavActivity : Activity() {
             else -> lastHeading
         }
         lastHeading = hdg
-        if (camUsingCompass) return // mũi tên đang theo la bàn (camTick tự xoay)
-        try {
-            val st = style
-            if (st != null && st.isFullyLoaded) st.getLayer("mn-me-arrow")?.setProperties(PropertyFactory.iconRotate(hdg.toFloat()))
-        } catch (_: Exception) {
-        }
+        if (!camUsingCompass) carHdg = hdg
+        positionCar()
     }
 
     private var lastHeading = 0.0
@@ -1515,7 +1528,6 @@ class NavActivity : Activity() {
     private var camAimed = -1.0       // hướng đích sau vùng chết
     private var camMoving = false
     private var camUsingCompass = false
-    private var arrowShown = -999.0
 
     private fun startCamLoop() {
         compass.start()
@@ -1585,15 +1597,9 @@ class NavActivity : Activity() {
                     moved = true
                 }
             }
-            if (!fromCompass) arrowShown = -999.0
-            if (fromCompass && b >= 0 && (arrowShown < 0 || Geo.angleDiff(b, arrowShown) > 2)) {
-                arrowShown = b
-                try {
-                    val st = style
-                    if (st != null && st.isFullyLoaded) st.getLayer("mn-me-arrow")?.setProperties(PropertyFactory.iconRotate(b.toFloat()))
-                } catch (_: Exception) {}
-            }
-            if (!moved) return
+            if (fromCompass && b >= 0) carHdg = PhoneCompass.lerpAngle(carHdg, b, 0.3)
+            carLat = c[0]; carLon = c[1]
+            if (!moved) { positionCar(); return }
             val pos = CameraPosition.Builder()
                 .target(LatLng(c[0], c[1]))
                 .zoom(c[2])
@@ -1602,6 +1608,7 @@ class NavActivity : Activity() {
                 .padding(0.0, c[4], 0.0, 0.0)
                 .build()
             try { m.moveCamera(CameraUpdateFactory.newCameraPosition(pos)) } catch (_: Exception) {}
+            positionCar()
         }
     }
     private val autoFollow = Runnable {
