@@ -174,6 +174,9 @@ class SettingsActivity : Activity() {
 
         header("Dẫn đường & bản đồ")
         toggle("Xoay bản đồ theo hướng đi", "Tắt thì bản đồ luôn hướng Bắc lên trên", prefs.rotateMap) { prefs.rotateMap = it }
+        choice("Bản đồ xoay theo", "La bàn điện thoại: xoay theo hướng máy đang chĩa (con quay + la bàn), kể cả khi đứng yên", listOf("La bàn điện thoại", "Hướng đường đi"), prefs.mapHeading) {
+            prefs.mapHeading = it
+        }
         toggle("Tự thu phóng theo tốc độ", "Thu nhỏ dần khi chạy trên 30, 50, 65 km/h", prefs.autoZoom) { prefs.autoZoom = it }
         choice("Nền bản đồ", "Tự động: nền tối từ 18h đến 6h sáng", listOf("Tự động", "Sáng", "Tối"), prefs.mapTheme) {
             prefs.mapTheme = it

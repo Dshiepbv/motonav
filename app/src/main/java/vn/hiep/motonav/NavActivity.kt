@@ -1454,6 +1454,12 @@ class NavActivity : Activity() {
             val covered = if (landscape) 0.0 else bottomBar.height.toDouble()
             val carY = h - covered - dp(70f)
             val topPad = (2 * carY - h).coerceIn(0.0, h * 0.8)
+            if (gyroMode()) {
+                // Theo la bàn điện thoại: vòng lặp camTick tự xoay mượt, ở đây chỉ đặt đích
+                camTarget = doubleArrayOf(lat, lon, zoom, if (nav) 55.0 else 40.0, topPad)
+                startCamLoop()
+            } else {
+            stopCamLoop()
             val bearing = when {
                 !prefs.rotateMap -> 0.0
                 // Đang bám tuyến: theo hướng tuyến phía trước (đường luôn dọc màn hình)
@@ -1471,6 +1477,9 @@ class NavActivity : Activity() {
                 .padding(0.0, topPad, 0.0, 0.0)
                 .build()
             m.animateCamera(CameraUpdateFactory.newCameraPosition(pos), 900)
+            }
+        } else {
+            stopCamLoop()
         }
         // Mũi tên xe xoay theo hướng đi
         val hdg = when {
@@ -1488,6 +1497,70 @@ class NavActivity : Activity() {
     }
 
     private var lastHeading = 0.0
+
+    // ---------- Xoay bản đồ theo la bàn / con quay điện thoại ----------
+    private val compass by lazy { PhoneCompass(this) }
+    private var camTarget: DoubleArray? = null
+    private var camCur: DoubleArray? = null
+    private var camBearing = -1.0
+    private var camLoop = false
+
+    private fun gyroMode(): Boolean = prefs.rotateMap && prefs.mapHeading == 0 && compass.available
+
+    private fun startCamLoop() {
+        compass.start()
+        if (camLoop) return
+        camLoop = true
+        camCur = null
+        ui.post(camTick)
+    }
+
+    private fun stopCamLoop() {
+        if (!camLoop) return
+        camLoop = false
+        ui.removeCallbacks(camTick)
+        compass.stop()
+        camCur = null
+        camBearing = -1.0
+    }
+
+    private val camTick = object : Runnable {
+        override fun run() {
+            if (!camLoop) return
+            ui.postDelayed(this, 40)
+            val m = map ?: return
+            val t = camTarget ?: return
+            if (!follow) { camCur = null; return }
+            val cp = m.cameraPosition
+            var c = camCur
+            if (c == null) {
+                val tg = cp.target ?: return
+                c = doubleArrayOf(tg.latitude, tg.longitude, cp.zoom, cp.tilt, t[4])
+                camCur = c
+                camBearing = cp.bearing
+            }
+            var moved = false
+            for (i in 0..4) {
+                val a = if (i < 2) 0.10 else 0.08
+                val d = t[i] - c[i]
+                if (kotlin.math.abs(d) > (if (i < 2) 1e-7 else 0.002)) { c[i] += d * a; moved = true }
+            }
+            val b = compass.bearing
+            if (b >= 0) {
+                val nb = PhoneCompass.lerpAngle(camBearing, b, 0.25)
+                if (Geo.angleDiff(nb, camBearing) > 0.15) { camBearing = nb; moved = true }
+            }
+            if (!moved) return
+            val pos = CameraPosition.Builder()
+                .target(LatLng(c[0], c[1]))
+                .zoom(c[2])
+                .tilt(c[3])
+                .bearing(camBearing)
+                .padding(0.0, c[4], 0.0, 0.0)
+                .build()
+            try { m.moveCamera(CameraUpdateFactory.newCameraPosition(pos)) } catch (_: Exception) {}
+        }
+    }
     private val autoFollow = Runnable {
         if (!follow) {
             follow = true
@@ -1624,6 +1697,7 @@ class NavActivity : Activity() {
     }
 
     override fun onPause() {
+        stopCamLoop()
         Live.appVisible = false
         Live.removeListener(listener)
         Live.changed()
