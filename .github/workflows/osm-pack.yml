@@ -1,0 +1,50 @@
+name: OSM data pack
+
+# Gói dữ liệu đường/camera/biển báo cho MotoNav dùng ngoại tuyến (TP.HCM mở rộng).
+# Chạy mỗi thứ Hai lúc 3h sáng giờ VN, hoặc bấm tay trong tab Actions.
+on:
+  schedule:
+    - cron: "0 20 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq osmium-tool
+          pip install -q osmium
+
+      - name: Download Vietnam extract (Geofabrik)
+        run: curl -sSL -o vn.osm.pbf https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+
+      - name: Cut region + filter
+        run: |
+          # TP.HCM mới (gồm Bình Dương, Bà Rịa – Vũng Tàu) + vùng lân cận
+          osmium extract -b 106.2,10.2,107.8,11.7 vn.osm.pbf -o hcm.osm.pbf --overwrite
+          osmium tags-filter hcm.osm.pbf \
+            w/highway \
+            n/highway=speed_camera,traffic_signals,crossing,stop,give_way,speed_bump,speed_hump \
+            n/traffic_sign n/enforcement n/traffic_calming n/hazard \
+            n/railway=level_crossing,crossing n/man_made=surveillance \
+            -o filtered.osm.pbf --overwrite
+
+      - name: Build pack
+        run: |
+          python3 tools/osmpack.py filtered.osm.pbf osm-hcm.zip
+          ls -la osm-hcm.zip
+
+      - name: Publish (release "osm-data", không thành bản mới nhất của app)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view osm-data >/dev/null 2>&1 || \
+            gh release create osm-data --title "Dữ liệu OSM ngoại tuyến" --notes "Tự cập nhật hằng tuần. © OpenStreetMap contributors (ODbL)." --latest=false
+          gh release upload osm-data osm-hcm.zip --clobber
