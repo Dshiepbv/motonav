@@ -44,7 +44,9 @@ class MainActivity : Activity() {
     private lateinit var sign: SpeedSignView
     private lateinit var signLabel: TextView
     private lateinit var speedText: TextView
-    private lateinit var camBanner: TextView
+    private lateinit var camBox: LinearLayout
+    private lateinit var camTitle: TextView
+    private lateinit var camDist: TextView
     private lateinit var streetText: TextView
     private lateinit var statusText: TextView
     private lateinit var permBar: TextView
@@ -178,13 +180,18 @@ class MainActivity : Activity() {
         speedRow.addView(speedCol, LinearLayout.LayoutParams(-2, -2))
         speedCard.addView(speedRow, LinearLayout.LayoutParams(-2, -2))
 
-        camBanner = label(24f, Color.WHITE, true).apply {
-            gravity = Gravity.CENTER
+        camBox = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             background = rounded(danger, 14f)
-            setPadding(dp(12f), dp(12f), dp(12f), dp(12f))
+            setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
             visibility = View.GONE
         }
-        speedCard.addView(camBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })
+        camTitle = label(22f, Color.WHITE, true).apply { maxLines = 2 }
+        camBox.addView(camTitle, LinearLayout.LayoutParams(0, -2, 1f))
+        camDist = label(40f, Color.WHITE, true).apply { includeFontPadding = false }
+        camBox.addView(camDist, LinearLayout.LayoutParams(-2, -2))
+        speedCard.addView(camBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10f) })
 
         streetText = label(18f, Color.WHITE).apply {
             gravity = Gravity.CENTER
@@ -263,10 +270,12 @@ class MainActivity : Activity() {
         // Camera
         val cam = Live.camText
         if (cam != null) {
-            camBanner.visibility = View.VISIBLE
-            camBanner.text = "⚠ $cam · ${Live.camDistance} m"
+            camBox.visibility = View.VISIBLE
+            camBox.background = rounded(if (Live.camKind == CamKind.SPEED) danger else Color.parseColor("#E65100"), 14f)
+            camTitle.text = "⚠ $cam"
+            camDist.text = "${Live.camDistance} m"
         } else {
-            camBanner.visibility = View.GONE
+            camBox.visibility = View.GONE
         }
 
         streetText.text = Live.street ?: ""
@@ -398,6 +407,8 @@ class MainActivity : Activity() {
             "Xoá camera tự thêm gần nhất (đang có $camCount)",
             "Xoá tất cả camera tự thêm",
             "Hướng dẫn cấp quyền đọc Google Maps",
+            "Nhập danh sách camera từ file (KML, CSV, JSON)",
+            "Xuất danh sách camera ra file CSV",
         )
         AlertDialog.Builder(this)
             .setTitle("Cài đặt")
@@ -434,10 +445,56 @@ class MainActivity : Activity() {
                         showPermissionHelp()
                         return@setItems
                     }
+                    9 -> {
+                        val i = Intent(Intent.ACTION_OPEN_DOCUMENT)
+                            .addCategory(Intent.CATEGORY_OPENABLE)
+                            .setType("*/*")
+                        startActivityForResult(i, REQ_IMPORT)
+                        return@setItems
+                    }
+                    10 -> {
+                        val i = Intent(Intent.ACTION_CREATE_DOCUMENT)
+                            .addCategory(Intent.CATEGORY_OPENABLE)
+                            .setType("text/csv")
+                            .putExtra(Intent.EXTRA_TITLE, "camera-motonav.csv")
+                        startActivityForResult(i, REQ_EXPORT)
+                        return@setItems
+                    }
                 }
                 if (which <= 5) showSettings()
             }
             .setNegativeButton("Đóng", null)
             .show()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) return
+        try {
+            when (requestCode) {
+                REQ_IMPORT -> {
+                    val text = contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+                    val items = CameraIO.parse(text)
+                    val added = CameraStore.addAll(this, items)
+                    val msg = if (items.isEmpty()) "Không tìm thấy điểm camera nào trong file."
+                    else "Đã nhập $added camera mới (đọc được ${items.size} điểm, bỏ qua điểm trùng)."
+                    Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+                }
+                REQ_EXPORT -> {
+                    val cams = CameraStore.all(this)
+                    contentResolver.openOutputStream(uri)?.use { it.write(CameraIO.toCsv(cams).toByteArray(Charsets.UTF_8)) }
+                    Toast.makeText(this, "Đã xuất ${cams.size} camera.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Lỗi đọc/ghi file: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    companion object {
+        private const val REQ_IMPORT = 41
+        private const val REQ_EXPORT = 42
     }
 }

@@ -84,6 +84,21 @@ object CameraStore {
         save(ctx, list)
     }
 
+    /** Thêm nhiều camera (bỏ qua điểm trùng trong 20 m). Trả về số điểm mới. */
+    fun addAll(ctx: Context, items: List<CameraIO.Item>): Int {
+        val list = ArrayList(all(ctx))
+        var added = 0
+        val base = System.currentTimeMillis()
+        for (it in items) {
+            val dup = list.any { c -> Geo.distance(c.lat, c.lon, it.lat, it.lon) < 20 && c.kind == it.kind }
+            if (dup) continue
+            list.add(Camera("u$base-$added", it.lat, it.lon, it.kind, it.heading, true))
+            added++
+        }
+        if (added > 0) save(ctx, list)
+        return added
+    }
+
     /** Xoá camera tự thêm gần vị trí nhất (trong 300 m). Trả về true nếu có xoá. */
     fun removeNearest(ctx: Context, lat: Double, lon: Double): Boolean {
         val list = ArrayList(all(ctx))

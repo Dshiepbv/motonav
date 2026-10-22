@@ -35,6 +35,7 @@ object Live {
     // Camera
     @Volatile var camText: String? = null
     @Volatile var camDistance = 0
+    @Volatile var camKind = -1
 
     @Volatile var status: String = ""
 

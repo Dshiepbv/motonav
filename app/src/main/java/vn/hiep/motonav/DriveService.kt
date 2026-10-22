@@ -40,6 +40,8 @@ class DriveService : Service(), LocationListener {
         private const val CAM_RADIUS = 4000      // tải camera trong bán kính 4 km
         private const val REFETCH_AT = 600.0     // đi xa tâm vùng đã tải 600 m thì tải lại
         private const val MATCH_MAX = 45.0       // điểm khớp đường tối đa (mét + phạt hướng)
+        private const val CAM_ALERT_START = 500.0 // bắt đầu báo camera từ 500 m
+        private val CAM_COUNTDOWN = intArrayOf(300, 100)
 
         fun start(ctx: Context) {
             ctx.startForegroundService(Intent(ctx, DriveService::class.java))
@@ -66,6 +68,7 @@ class DriveService : Service(), LocationListener {
     private var heading = -1.0
 
     private var currentWayId: Long? = null
+    private var currentWay: Way? = null
     private var noMatchCount = 0
     private var pendingKey: String? = null
     private var pendingCount = 0
@@ -237,6 +240,7 @@ class DriveService : Service(), LocationListener {
             if (m != null) {
                 noMatchCount = 0
                 currentWayId = m.way.id
+                currentWay = m.way
                 Live.street = m.way.name ?: roadTypeName(m.way.highway)
                 val res = SpeedRules.resolve(m.way, m.forward, prefs, snap.urbanArea)
                 val key = res?.let { "${it.kmh}/${it.estimated}" } ?: "none"
@@ -249,6 +253,7 @@ class DriveService : Service(), LocationListener {
                 noMatchCount++
                 if (noMatchCount >= 4) {
                     currentWayId = null
+                    currentWay = null
                     Live.street = null
                     applyLimit(null)
                 }
@@ -295,27 +300,55 @@ class DriveService : Service(), LocationListener {
         }
     }
 
+    private class CamAlert(val firstDist: Int) {
+        val spoken = HashSet<Int>()
+    }
+
+    private val camAlerts = HashMap<String, CamAlert>()
+    private var lastCamOverAlert = 0L
+
+    /** Khoảng cách (m) từ camera tới đoạn đường đang đi. */
+    private fun distToWay(w: Way, c: Camera): Double {
+        val proj = LocalProjection(c.lat, c.lon)
+        var best = Double.MAX_VALUE
+        for (i in 0 until w.lats.size - 1) {
+            val ax = proj.x(w.lons[i]); val ay = proj.y(w.lats[i])
+            val bx = proj.x(w.lons[i + 1]); val by = proj.y(w.lats[i + 1])
+            val dx = bx - ax; val dy = by - ay
+            val len2 = dx * dx + dy * dy
+            val t = if (len2 < 0.01) 0.0 else (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
+            val px = ax + t * dx; val py = ay + t * dy
+            best = min(best, sqrt(px * px + py * py))
+        }
+        return best
+    }
+
     private fun checkCameras(snap: OsmSnapshot?, lat: Double, lon: Double, speedMps: Double, hdg: Double?) {
         val cams = ArrayList<Camera>()
         if (snap != null) cams.addAll(snap.cameras)
         cams.addAll(CameraStore.all(this))
+        val way = currentWay
 
         var nearest: Camera? = null
         var nearestDist = Double.MAX_VALUE
-        val alertDist = min(600.0, max(300.0, speedMps * 25))
 
         for (c in cams) {
             val d = Geo.distance(lat, lon, c.lat, c.lon)
             if (d > 800) {
-                alertedCams.remove(c.id)
+                camAlerts.remove(c.id)
                 continue
             }
-            if (hdg == null || d > alertDist) continue
-            val brg = Geo.bearing(lat, lon, c.lat, c.lon)
-            val cone = if (d > 150) 25.0 else 45.0
-            val ahead = d < 35 || Geo.angleDiff(hdg, brg) < cone
-            val dirOk = c.heading < 0 || Geo.angleDiff(c.heading, hdg) < 60
-            if (ahead && dirOk && d < nearestDist) {
+            if (hdg == null || d > CAM_ALERT_START) continue
+            if (c.heading >= 0 && Geo.angleDiff(c.heading, hdg) >= 60) continue
+            val diff = Geo.angleDiff(hdg, Geo.bearing(lat, lon, c.lat, c.lon))
+            val onRoad = way != null && distToWay(way, c) < 40
+            val ahead = when {
+                d < 30 -> true
+                onRoad -> diff < 70
+                d > 200 -> diff < 12
+                else -> diff < 25
+            }
+            if (ahead && d < nearestDist) {
                 nearest = c
                 nearestDist = d
             }
@@ -323,15 +356,42 @@ class DriveService : Service(), LocationListener {
 
         if (nearest == null) {
             Live.camText = null
+            Live.camKind = -1
             return
         }
-        val label = CamKind.label(nearest.kind)
-        Live.camText = label.replaceFirstChar { it.uppercase() }
-        Live.camDistance = nearestDist.roundToInt()
-        if (alertedCams.add(nearest.id) && prefs.voice) {
-            val rounded = max(50, ((nearestDist / 50).roundToInt()) * 50)
-            voice.beep()
-            voice.say("Phía trước $rounded mét có $label")
+        val dInt = nearestDist.roundToInt()
+        Live.camText = CamKind.title(nearest.kind)
+        Live.camKind = nearest.kind
+        Live.camDistance = dInt
+
+        val st = camAlerts[nearest.id]
+        if (st == null) {
+            camAlerts[nearest.id] = CamAlert(dInt)
+            if (prefs.voice) {
+                val r = max(50, (dInt / 50.0).roundToInt() * 50)
+                var msg = "Phía trước $r mét có ${CamKind.label(nearest.kind)}"
+                val lim = shownLimit?.kmh
+                if (nearest.kind == CamKind.SPEED && lim != null) msg += ", giới hạn $lim"
+                voice.beep()
+                voice.say(msg)
+            }
+        } else if (prefs.voice) {
+            for (t in CAM_COUNTDOWN) {
+                if (dInt <= t && st.firstDist > t + 40 && st.spoken.add(t)) {
+                    voice.say("Còn $t mét")
+                    break
+                }
+            }
+        }
+
+        // Đang vượt tốc mà sắp tới camera bắn tốc độ
+        val now = SystemClock.elapsedRealtime()
+        if (nearest.kind == CamKind.SPEED && Live.overspeed && dInt < 350 && now - lastCamOverAlert > 8000) {
+            lastCamOverAlert = now
+            if (prefs.voice) {
+                voice.beep()
+                voice.say("Giảm tốc độ", urgent = true)
+            }
         }
     }
 

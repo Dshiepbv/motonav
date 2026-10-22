@@ -43,10 +43,23 @@ object CamKind {
     const val FINE = 3
 
     fun label(kind: Int): String = when (kind) {
-        SPEED -> "camera tốc độ"
+        SPEED -> "camera bắn tốc độ"
         RED_LIGHT -> "camera đèn đỏ"
         FINE -> "camera phạt nguội"
-        else -> "camera giao thông"
+        else -> "camera giám sát"
+    }
+
+    fun title(kind: Int): String = label(kind).replaceFirstChar { it.uppercase() }
+
+    /** Đoán loại camera từ chữ (tên điểm trong file KML/CSV). */
+    fun fromText(t: String?): Int {
+        val s = (t ?: "").lowercase()
+        return when {
+            s.contains("tốc") || s.contains("toc do") || s.contains("speed") || s.contains("bắn") -> SPEED
+            s.contains("đèn") || s.contains("den do") || s.contains("red") -> RED_LIGHT
+            s.contains("giám sát") || s.contains("giam sat") || s.contains("surveillance") -> TRAFFIC
+            else -> FINE
+        }
     }
 }
 
