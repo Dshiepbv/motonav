@@ -55,6 +55,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:label="Cài đặt" />
+
         <service
             android:name=".DriveService"
             android:exported="false"

@@ -56,6 +56,18 @@ class Prefs(ctx: Context) {
         get() = sp.getString("vmtile", "") ?: ""
         set(v) = sp.edit().putString("vmtile", v.trim()).apply()
 
+    var rotateMap: Boolean
+        get() = sp.getBoolean("rotateMap", true)
+        set(v) = sp.edit().putBoolean("rotateMap", v).apply()
+
+    var autoZoom: Boolean
+        get() = sp.getBoolean("autoZoom", true)
+        set(v) = sp.edit().putBoolean("autoZoom", v).apply()
+
+    var nightMap: Boolean
+        get() = sp.getBoolean("nightMap", true)
+        set(v) = sp.edit().putBoolean("nightMap", v).apply()
+
     companion object {
         const val AREA_AUTO = 0
         const val AREA_URBAN = 1

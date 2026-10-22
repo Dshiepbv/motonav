@@ -146,16 +146,11 @@ class NavActivity : Activity() {
         if (bold) typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
 
-    private fun buildUi(): View {
-        val root = FrameLayout(this)
-        root.setBackgroundColor(bg)
-        root.addView(mapView, FrameLayout.LayoutParams(-1, -1))
+    private var landscape = false
+    private lateinit var bottomBar: LinearLayout
+    private lateinit var speedBox: LinearLayout
 
-        // --- Cột trên: thẻ rẽ, cảnh báo, ô tìm kiếm ---
-        val top = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(10f), dp(10f), dp(10f), 0)
-        }
+    private fun makeViews() {
         turnCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(green)
@@ -167,35 +162,33 @@ class NavActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         turnArrow = ImageView(this)
-        row.addView(turnArrow, LinearLayout.LayoutParams(dp(70f), dp(70f)))
+        row.addView(turnArrow, LinearLayout.LayoutParams(dp(66f), dp(66f)))
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12f), 0, 0, 0)
         }
-        turnDist = tv(34f, Color.WHITE, true)
+        turnDist = tv(32f, Color.WHITE, true)
         col.addView(turnDist)
-        turnText = tv(22f, Color.WHITE, true).apply { maxLines = 2 }
+        turnText = tv(21f, Color.WHITE, true).apply { maxLines = 2 }
         col.addView(turnText)
         row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
         turnCard.addView(row)
         thenText = tv(16f, Color.parseColor("#CFEFE3")).apply { visibility = View.GONE }
         turnCard.addView(thenText)
-        top.addView(turnCard, LinearLayout.LayoutParams(-1, -2))
 
         alertBanner = tv(18f, Color.BLACK, true).apply {
             gravity = Gravity.CENTER
             setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
             visibility = View.GONE
         }
-        top.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
 
         searchBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(Color.argb(235, 22, 26, 32))
+            background = rounded(Color.argb(238, 22, 26, 32))
             setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
         }
         searchInput = EditText(this).apply {
-            hint = "Tìm địa điểm (VietMap)…"
+            hint = "🔍  Tìm địa điểm…"
             setHintTextColor(muted)
             setTextColor(Color.WHITE)
             setSingleLine()
@@ -203,28 +196,23 @@ class NavActivity : Activity() {
             imeOptions = EditorInfo.IME_ACTION_SEARCH
         }
         searchBox.addView(searchInput, LinearLayout.LayoutParams(-1, -2))
-        val hint = tv(13f, muted).apply {
-            text = "Hoặc: mở Google Maps → chọn địa điểm → Chia sẻ → MotoNav.\nGiữ lâu trên bản đồ để chọn điểm đến."
-        }
-        searchBox.addView(hint)
+        searchBox.addView(tv(13f, muted).apply {
+            text = "Hoặc: Google Maps → chọn địa điểm → Chia sẻ → MotoNav. Giữ lâu trên bản đồ để chọn điểm đến."
+        })
         results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val sc = ScrollView(this).apply { addView(results) }
         searchBox.addView(sc, LinearLayout.LayoutParams(-1, -2))
-        top.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
         setupSearch()
 
-        root.addView(top, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
-
-        // --- Góc trái dưới: biển giới hạn + tốc độ + camera ---
-        val speedBox = LinearLayout(this).apply {
+        speedBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            background = rounded(Color.argb(215, 11, 13, 16), 14f)
+            background = rounded(Color.argb(220, 11, 13, 16), 14f)
             setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
         }
         sign = SpeedSignView(this)
-        speedBox.addView(sign, LinearLayout.LayoutParams(dp(74f), dp(74f)))
-        speedText = tv(32f, Color.WHITE, true).apply {
+        speedBox.addView(sign, LinearLayout.LayoutParams(dp(70f), dp(70f)))
+        speedText = tv(30f, Color.WHITE, true).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
         }
@@ -235,24 +223,16 @@ class NavActivity : Activity() {
             setPadding(dp(6f), dp(4f), dp(6f), dp(4f))
             visibility = View.GONE
         }
-        speedBox.addView(camBox, LinearLayout.LayoutParams(dp(92f), -2).apply { topMargin = dp(6f) })
-        root.addView(
-            speedBox,
-            FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
-                leftMargin = dp(10f); bottomMargin = dp(150f)
-            },
-        )
+        speedBox.addView(camBox, LinearLayout.LayoutParams(dp(90f), -2).apply { topMargin = dp(6f) })
 
-        // --- Thanh dưới ---
-        val bottom = LinearLayout(this).apply {
+        bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(Color.argb(240, 22, 26, 32), 0f)
             setPadding(dp(12f), dp(8f), dp(12f), dp(10f))
         }
         etaText = tv(20f, Color.WHITE, true)
-        bottom.addView(etaText)
-        statusText = tv(13f, muted).apply { maxLines = 2 }
-        bottom.addView(statusText)
+        bottomBar.addView(etaText)
+        statusText = tv(13f, muted).apply { maxLines = 3 }
+        bottomBar.addView(statusText)
         val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         fun btn(t: String, color: Int, onClick: () -> Unit) = Button(this).apply {
             text = t
@@ -263,7 +243,7 @@ class NavActivity : Activity() {
             setOnClickListener { onClick() }
         }
         val lp = { LinearLayout.LayoutParams(0, dp(48f), 1f).apply { setMargins(dp(4f), dp(6f), dp(4f), 0) } }
-        recenterBtn = btn("Về vị trí", Color.parseColor("#252B33")) {
+        recenterBtn = btn("◎ Về vị trí", Color.parseColor("#1565C0")) {
             follow = true
             recenterBtn.visibility = View.GONE
             render()
@@ -275,10 +255,67 @@ class NavActivity : Activity() {
             follow = true
         }
         btns.addView(endBtn, lp())
-        btns.addView(btn("Cài đặt", Color.parseColor("#252B33")) { askKey() }, lp())
-        bottom.addView(btns)
-        root.addView(bottom, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+        btns.addView(btn("⚙ Cài đặt", Color.parseColor("#252B33")) {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }, lp())
+        bottomBar.addView(btns)
+    }
 
+    private fun buildUi(): View {
+        landscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        makeViews()
+        val root = FrameLayout(this)
+        root.setBackgroundColor(bg)
+
+        if (!landscape) {
+            // ---- Màn hình dọc: thẻ rẽ trên, bản đồ giữa, thanh dưới ----
+            root.addView(mapView, FrameLayout.LayoutParams(-1, -1))
+            val top = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10f), dp(10f), dp(10f), 0)
+            }
+            top.addView(turnCard, LinearLayout.LayoutParams(-1, -2))
+            top.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
+            top.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
+            root.addView(top, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+
+            bottomBar.background = rounded(Color.argb(242, 22, 26, 32), 0f)
+            root.addView(bottomBar, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
+            root.addView(
+                speedBox,
+                FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
+                    leftMargin = dp(10f); bottomMargin = dp(150f)
+                },
+            )
+        } else {
+            // ---- Màn hình ngang: bảng thông tin trái, bản đồ phải ----
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val panel = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(Color.parseColor("#12161B"))
+                setPadding(dp(10f), dp(10f), dp(10f), dp(6f))
+            }
+            val scroll = ScrollView(this).apply { isFillViewport = true }
+            val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            inner.addView(turnCard, LinearLayout.LayoutParams(-1, -2))
+            inner.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
+            inner.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
+            scroll.addView(inner, FrameLayout.LayoutParams(-1, -2))
+            panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+            panel.addView(bottomBar, LinearLayout.LayoutParams(-1, -2))
+            row.addView(panel, LinearLayout.LayoutParams(0, -1, 0.42f))
+
+            val mapBox = FrameLayout(this)
+            mapBox.addView(mapView, FrameLayout.LayoutParams(-1, -1))
+            mapBox.addView(
+                speedBox,
+                FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
+                    leftMargin = dp(10f); bottomMargin = dp(10f)
+                },
+            )
+            row.addView(mapBox, LinearLayout.LayoutParams(0, -1, 0.58f))
+            root.addView(row, FrameLayout.LayoutParams(-1, -1))
+        }
         return root
     }
 
@@ -461,14 +498,18 @@ class NavActivity : Activity() {
     // ---------- Bản đồ ----------
 
     private fun isNight(): Boolean {
+        if (!prefs.nightMap) return false
         val h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
         return h >= 18 || h < 6
     }
+
+    private var loadedStyleId: String? = null
 
     private fun loadStyle() {
         val m = map ?: return
         val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
         if (key.isBlank()) return
+        loadedStyleId = key + "/" + isNight()
         MapHttp.key = key
         MapHttp.reset()
         styleError = null
@@ -548,15 +589,42 @@ class NavActivity : Activity() {
         )
         labelFont?.let { label.setProperties(PropertyFactory.textFont(it)) }
         s.addLayer(label)
+        s.addImage("mn-car", carIcon())
         s.addLayer(
-            CircleLayer("mn-me-dot", "mn-me").withProperties(
-                PropertyFactory.circleRadius(11f),
-                PropertyFactory.circleColor("#1E88E5"),
-                PropertyFactory.circleStrokeColor("#FFFFFF"),
-                PropertyFactory.circleStrokeWidth(4f),
-                PropertyFactory.circlePitchAlignment(Property.CIRCLE_PITCH_ALIGNMENT_MAP),
+            SymbolLayer("mn-me-arrow", "mn-me").withProperties(
+                PropertyFactory.iconImage("mn-car"),
+                PropertyFactory.iconSize(1f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
             ),
         )
+    }
+
+    /** Mũi tên xe màu xanh viền trắng. */
+    private fun carIcon(): android.graphics.Bitmap {
+        val size = dp(46f)
+        val b = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(b)
+        val f = size.toFloat()
+        val path = android.graphics.Path().apply {
+            moveTo(f / 2, f * 0.08f)
+            lineTo(f * 0.86f, f * 0.9f)
+            lineTo(f / 2, f * 0.7f)
+            lineTo(f * 0.14f, f * 0.9f)
+            close()
+        }
+        val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1E88E5") }
+        val stroke = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = f * 0.07f
+            strokeJoin = android.graphics.Paint.Join.ROUND
+        }
+        c.drawPath(path, fill)
+        c.drawPath(path, stroke)
+        return b
     }
 
     private fun point(lat: Double, lon: Double, label: String? = null): String {
@@ -599,23 +667,39 @@ class NavActivity : Activity() {
 
         if (follow) {
             val spd = Live.speedKmh
-            var zoom = when {
-                spd > 50 -> 16.0
-                spd > 25 -> 16.8
-                else -> 17.4
+            var zoom = if (!prefs.autoZoom) 17.0 else when {
+                spd >= 65 -> 15.4
+                spd >= 50 -> 16.0
+                spd >= 30 -> 16.6
+                else -> 17.3
             }
-            if (nav && Live.navMeters in 0..150) zoom = 17.8
+            if (nav && Live.navMeters in 0..150) zoom = maxOf(zoom, 17.6)
             val h = mapView.height.toDouble()
+            // Đặt xe ở giữa, sát phía dưới vùng bản đồ còn nhìn thấy
+            val covered = if (landscape) 0.0 else bottomBar.height.toDouble()
+            val carY = h - covered - dp(70f)
+            val topPad = (2 * carY - h).coerceIn(0.0, h * 0.8)
+            val bearing = when {
+                !prefs.rotateMap -> 0.0
+                Live.heading >= 0 -> Live.heading
+                else -> m.cameraPosition.bearing
+            }
             val pos = CameraPosition.Builder()
                 .target(LatLng(lat, lon))
                 .zoom(zoom)
-                .tilt(if (nav) 58.0 else 40.0)
-                .bearing(if (Live.heading >= 0) Live.heading else m.cameraPosition.bearing)
-                .padding(0.0, h * 0.42, 0.0, 0.0)
+                .tilt(if (prefs.rotateMap) (if (nav) 55.0 else 40.0) else 0.0)
+                .bearing(bearing)
+                .padding(0.0, topPad, 0.0, 0.0)
                 .build()
             m.animateCamera(CameraUpdateFactory.newCameraPosition(pos), 900)
         }
+        // Mũi tên xe xoay theo hướng đi
+        val hdg = if (Live.heading >= 0) Live.heading else lastHeading
+        lastHeading = hdg
+        style?.getLayer("mn-me-arrow")?.setProperties(PropertyFactory.iconRotate(hdg.toFloat()))
     }
+
+    private var lastHeading = 0.0
 
     // ---------- Vẽ trạng thái ----------
 
@@ -698,6 +782,9 @@ class NavActivity : Activity() {
         mapView.onResume()
         Live.appVisible = true
         Live.addListener(listener)
+        // Quay lại từ Cài đặt: đổi mã hoặc chế độ đêm thì tải lại bản đồ
+        val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
+        if (map != null && loadedStyleId != null && loadedStyleId != key + "/" + isNight()) loadStyle()
         render()
     }
 

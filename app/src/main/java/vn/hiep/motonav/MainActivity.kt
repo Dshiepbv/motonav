@@ -441,6 +441,11 @@ class MainActivity : Activity() {
     }
 
     private fun showSettings() {
+        startActivity(Intent(this, SettingsActivity::class.java))
+    }
+
+    @Suppress("unused")
+    private fun showSettingsOld() {
         val areaNames = arrayOf("Tự động", "Luôn trong khu dân cư", "Luôn ngoài khu dân cư")
         val camCount = CameraStore.all(this).size
         val items = arrayOf(
