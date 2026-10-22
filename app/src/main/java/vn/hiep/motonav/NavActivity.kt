@@ -154,7 +154,9 @@ class NavActivity : Activity() {
 
     // ---------- Giao diện ----------
 
-    private fun dp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics).toInt()
+    /** Hệ số phóng giao diện theo cỡ màn hình (điện thoại nhỏ ↔ máy gập/máy tính bảng). */
+    private var uiScale = 1f
+    private fun dp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v * uiScale, resources.displayMetrics).toInt()
 
     private fun rounded(color: Int, r: Float = 16f) = GradientDrawable().apply {
         setColor(color)
@@ -162,12 +164,13 @@ class NavActivity : Activity() {
     }
 
     private fun tv(size: Float, color: Int = Color.WHITE, bold: Boolean = false) = TextView(this).apply {
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, size * uiScale)
         setTextColor(color)
         if (bold) typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
 
     private var landscape = false
+    private var panelWidthDp = 300f
     private lateinit var bottomBar: LinearLayout
     private lateinit var speedBox: LinearLayout
 
@@ -576,7 +579,13 @@ class NavActivity : Activity() {
     }
 
     private fun buildUi(): View {
-        landscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        // Bố cục theo tỉ lệ màn hình thật (16:9, 21:9, màn vuông máy gập, chia đôi màn hình…)
+        val cfg = resources.configuration
+        val wDp = cfg.screenWidthDp.toFloat().coerceAtLeast(1f)
+        val hDp = cfg.screenHeightDp.toFloat().coerceAtLeast(1f)
+        landscape = wDp >= hDp * 1.2f // gần vuông (máy gập mở) dùng bố cục dọc
+        uiScale = (cfg.smallestScreenWidthDp / 392f).coerceIn(0.85f, 1.3f)
+        panelWidthDp = (wDp * 0.34f).coerceIn(260f, 420f)
         makeViews()
         val root = FrameLayout(this)
         root.setBackgroundColor(bg)
@@ -646,7 +655,8 @@ class NavActivity : Activity() {
             inner.addView(bottomBar, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             scroll.addView(inner, FrameLayout.LayoutParams(-1, -1))
             panel.addView(scroll, LinearLayout.LayoutParams(-1, -1))
-            row.addView(panel, LinearLayout.LayoutParams(0, -1, 0.36f))
+            // Bảng trái rộng cố định theo màn hình (≈1/3, 260–420 dp), bản đồ lấy hết phần còn lại
+            row.addView(panel, LinearLayout.LayoutParams(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, panelWidthDp, resources.displayMetrics).toInt(), -1))
 
             val mapBox = FrameLayout(this)
             mapBox.addView(mapView, FrameLayout.LayoutParams(-1, -1))
@@ -675,7 +685,7 @@ class NavActivity : Activity() {
                     rightMargin = dp(17f); bottomMargin = dp(14f + 58f + 10f)
                 },
             )
-            row.addView(mapBox, LinearLayout.LayoutParams(0, -1, 0.64f))
+            row.addView(mapBox, LinearLayout.LayoutParams(0, -1, 1f))
             root.addView(row, FrameLayout.LayoutParams(-1, -1))
         }
         return root
@@ -1463,9 +1473,9 @@ class NavActivity : Activity() {
         if (follow) {
             val spd = Live.speedKmh
             var zoom = if (!prefs.autoZoom) 17.0 else when {
-                spd >= 65 -> 15.4
-                spd >= 50 -> 16.0
-                spd >= 30 -> 16.6
+                spd >= 60 -> 15.4
+                spd >= 40 -> 16.0
+                spd >= 20 -> 16.6
                 else -> 17.3
             }
             if (nav && Live.navMeters in 0..150) zoom = maxOf(zoom, 17.6)
@@ -1799,14 +1809,18 @@ class NavActivity : Activity() {
         render()
     }
 
-    /** Màn ngang: ẩn thanh trạng thái + thanh điều hướng để bản đồ rộng hơn. */
+    /** Luôn toàn màn hình: ẩn thanh trạng thái + thanh điều hướng (vuốt từ mép để hiện lại). */
     @Suppress("DEPRECATION")
     private fun applyImmersive() {
-        val v = window.decorView
-        v.systemUiVisibility = if (landscape) {
+        window.decorView.systemUiVisibility =
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_FULLSCREEN or
-                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        } else 0
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyImmersive()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
