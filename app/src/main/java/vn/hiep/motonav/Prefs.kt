@@ -47,6 +47,10 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("overlayY", -1)
         set(v) = sp.edit().putInt("overlayY", v).apply()
 
+    var vietmapKey: String
+        get() = sp.getString("vmkey", "") ?: ""
+        set(v) = sp.edit().putString("vmkey", v.trim()).apply()
+
     companion object {
         const val AREA_AUTO = 0
         const val AREA_URBAN = 1

@@ -27,6 +27,34 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".NavActivity"
+            android:exported="true"
+            android:label="MotoNav dẫn đường"
+            android:launchMode="singleTask"
+            android:screenOrientation="unspecified">
+            <!-- Google Maps → Chia sẻ → MotoNav -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <!-- Mở toạ độ geo: -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="geo" />
+            </intent-filter>
+            <!-- Link rút gọn của Google Maps -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="maps.app.goo.gl" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".DriveService"
             android:exported="false"

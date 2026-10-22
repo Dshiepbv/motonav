@@ -230,11 +230,13 @@ class MainActivity : Activity() {
             setOnClickListener { onClick() }
         }
         val lp = { LinearLayout.LayoutParams(0, dp(52f), 1f).apply { setMargins(dp(4f), dp(6f), dp(4f), 0) } }
+        bar.addView(btn("Dẫn đường") { startActivity(Intent(this, NavActivity::class.java)) }.apply {
+            background = rounded(Color.parseColor("#0B6E4F"), 12f)
+        }, lp())
         bar.addView(btn("Google Maps") { openMaps() }, lp())
         bar.addView(btn("+ Cảnh báo") { addCamera() }, lp())
         bar.addView(btn("Cài đặt") { showSettings() }, lp())
         toggleBtn = btn("Dừng") { toggleService() }
-        bar.addView(toggleBtn, lp())
         root.addView(bar, LinearLayout.LayoutParams(-1, -2))
 
         return root
@@ -351,6 +353,24 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun askVietmapKey() {
+        val input = android.widget.EditText(this).apply {
+            setText(prefs.vietmapKey)
+            hint = "Dán mã API VietMap vào đây"
+            setSingleLine()
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Mã API VietMap")
+            .setMessage("Đăng ký miễn phí tại maps.vietmap.vn → Console → API key. Bật các dịch vụ Route, Tilemap, Autocomplete, Place.")
+            .setView(input)
+            .setPositiveButton("Lưu") { _, _ -> prefs.vietmapKey = input.text.toString() }
+            .setNeutralButton("Mở trang đăng ký") { _, _ ->
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.vietmap.vn/console-v2/")))
+            }
+            .setNegativeButton("Đóng", null)
+            .show()
+    }
+
     private fun askOverlayPermission() {
         AlertDialog.Builder(this)
             .setTitle("Hiện tốc độ nổi trên Google Maps")
@@ -457,6 +477,8 @@ class MainActivity : Activity() {
                 1.3f -> "Lớn"
                 else -> "Vừa"
             },
+            "Theo dõi tốc độ & camera: " + if (Live.serviceRunning) "Đang chạy (chạm để dừng)" else "Đã dừng (chạm để chạy)",
+            "Mã API VietMap (dẫn đường riêng): " + if (prefs.vietmapKey.isBlank()) "chưa nhập" else "đã nhập",
         )
         AlertDialog.Builder(this)
             .setTitle("Cài đặt")
@@ -510,6 +532,14 @@ class MainActivity : Activity() {
                     }
                 }
                 when (which) {
+                    13 -> {
+                        toggleService()
+                        return@setItems
+                    }
+                    14 -> {
+                        askVietmapKey()
+                        return@setItems
+                    }
                     11 -> prefs.overlay = !prefs.overlay
                     12 -> prefs.overlayScale = when (prefs.overlayScale) {
                         0.8f -> 1f

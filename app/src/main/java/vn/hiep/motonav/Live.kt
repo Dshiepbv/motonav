@@ -42,6 +42,26 @@ object Live {
 
     @Volatile var status: String = ""
 
+    // Dẫn đường riêng (VietMap)
+    @Volatile var ownNav = false
+    @Volatile var route: Route? = null
+    @Volatile var routeVersion = 0
+    @Volatile var routeStatus: String? = null
+    @Volatile var routeError: String? = null
+    @Volatile var destLat = 0.0
+    @Volatile var destLon = 0.0
+    @Volatile var destName: String? = null
+    @Volatile var remainingM = 0.0
+    @Volatile var etaMs = 0L
+    @Volatile var snapLat = 0.0
+    @Volatile var snapLon = 0.0
+    @Volatile var offRoute = false
+    @Volatile var maneuverLat = 0.0
+    @Volatile var maneuverLon = 0.0
+    @Volatile var maneuverLabel: String? = null
+    @Volatile var maneuverSign = 0
+    @Volatile var thenText: String? = null
+
     // Dải chữ cảnh báo (hiện kèm mọi âm thanh)
     @Volatile var alertText: String? = null
     @Volatile var alertUntil = 0L

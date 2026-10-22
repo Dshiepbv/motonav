@@ -36,7 +36,7 @@ class MapsListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        if (sbn.packageName == MAPS && sbn.key == navKey) {
+        if (sbn.packageName == MAPS && sbn.key == navKey && !Live.ownNav) {
             navKey = null
             Live.clearNav()
         }
@@ -44,6 +44,7 @@ class MapsListener : NotificationListenerService() {
 
     private fun handle(sbn: StatusBarNotification) {
         if (sbn.packageName != MAPS) return
+        if (Live.ownNav) return
         val n = sbn.notification
         val isNav = n.category == "navigation" || (sbn.isOngoing && n.getLargeIcon() != null)
         if (!isNav) return

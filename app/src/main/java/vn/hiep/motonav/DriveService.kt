@@ -35,6 +35,19 @@ class DriveService : Service(), LocationListener {
         private const val CHANNEL = "drive"
         private const val NOTIF_ID = 1
         const val ACTION_STOP = "vn.hiep.motonav.STOP"
+        const val ACTION_NAV_START = "vn.hiep.motonav.NAV_START"
+        const val ACTION_NAV_STOP = "vn.hiep.motonav.NAV_STOP"
+
+        fun startNav(ctx: Context, lat: Double, lon: Double, name: String?) {
+            ctx.startForegroundService(
+                Intent(ctx, DriveService::class.java).setAction(ACTION_NAV_START)
+                    .putExtra("lat", lat).putExtra("lon", lon).putExtra("name", name),
+            )
+        }
+
+        fun stopNav(ctx: Context) {
+            ctx.startService(Intent(ctx, DriveService::class.java).setAction(ACTION_NAV_STOP))
+        }
 
         private const val WAY_RADIUS = 1200      // tải đường trong bán kính 1,2 km
         private const val CAM_RADIUS = 4000      // tải camera trong bán kính 4 km
@@ -58,8 +71,10 @@ class DriveService : Service(), LocationListener {
     private lateinit var prefs: Prefs
     private lateinit var voice: Voice
     private lateinit var overlay: Overlay
+    private lateinit var nav: NavEngine
     private val overlayListener: () -> Unit = { overlay.update() }
     private val executor = Executors.newSingleThreadExecutor()
+    private val navExecutor = Executors.newSingleThreadExecutor()
 
     @Volatile private var snapshot: OsmSnapshot? = null
     @Volatile private var fetching = false
@@ -88,6 +103,7 @@ class DriveService : Service(), LocationListener {
         prefs = Prefs(this)
         voice = Voice(this)
         overlay = Overlay(this, prefs)
+        nav = NavEngine(prefs, navExecutor) { text, speech, urgent -> alert(text, speech, urgent = urgent) }
         Live.addListener(overlayListener)
         lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         thread = HandlerThread("drive").also { it.start() }
@@ -121,9 +137,20 @@ class DriveService : Service(), LocationListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                nav.stop()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_NAV_START -> {
+                val lat = intent.getDoubleExtra("lat", Double.NaN)
+                val lon = intent.getDoubleExtra("lon", Double.NaN)
+                if (!lat.isNaN() && !lon.isNaN()) {
+                    handler.post { nav.start(lat, lon, intent.getStringExtra("name")) }
+                }
+            }
+            ACTION_NAV_STOP -> handler.post { nav.stop() }
         }
         return START_STICKY
     }
@@ -136,6 +163,8 @@ class DriveService : Service(), LocationListener {
         handler.removeCallbacksAndMessages(null)
         thread.quitSafely()
         executor.shutdownNow()
+        navExecutor.shutdownNow()
+        nav.stop()
         voice.shutdown()
         Live.removeListener(overlayListener)
         overlay.hide()
@@ -270,7 +299,8 @@ class DriveService : Service(), LocationListener {
         }
 
         checkOverspeed(speedKmh)
-        checkTurn()
+        nav.onLocation(lat, lon, movingHeading, speedMps)
+        if (!Live.ownNav) checkTurn()
         checkCameras(snap, lat, lon, speedMps, movingHeading)
         Live.changed()
     }
