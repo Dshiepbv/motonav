@@ -72,6 +72,17 @@ object Live {
     @Volatile var junctionVersion = 0
     @Volatile var osm: OsmSnapshot? = null
 
+    // Tốc độ giới hạn sắp đổi phía trước (dọc tuyến)
+    @Volatile var nextLimit: Int? = null
+    @Volatile var nextLimitDist = -1
+    @Volatile var nextLimitLat = 0.0
+    @Volatile var nextLimitLon = 0.0
+    @Volatile var nextLimitEst = false
+
+    // Biểu tượng cảnh báo trên bản đồ (GeoJSON)
+    @Volatile var alertsJson: String? = null
+    @Volatile var alertsVersion = 0
+
     // Dải chữ cảnh báo (hiện kèm mọi âm thanh)
     @Volatile var alertText: String? = null
     @Volatile var alertUntil = 0L

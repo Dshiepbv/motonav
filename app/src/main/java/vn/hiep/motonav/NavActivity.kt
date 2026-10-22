@@ -257,6 +257,20 @@ class NavActivity : Activity() {
             visibility = View.GONE
         }
         speedBox.addView(camBox, LinearLayout.LayoutParams(dp(90f), -2).apply { topMargin = dp(6f) })
+        // Biển tốc độ sắp đổi + đếm ngược (hiện khi còn ≤ 200 m)
+        nextBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = rounded(Color.parseColor("#2C343E"), 10f)
+            setPadding(dp(4f), dp(6f), dp(4f), dp(6f))
+            visibility = View.GONE
+        }
+        nextBox.addView(tv(11f, muted).apply { text = "Sắp tới" })
+        nextSign = SpeedSignView(this)
+        nextBox.addView(nextSign, LinearLayout.LayoutParams(dp(46f), dp(46f)).apply { topMargin = dp(2f) })
+        nextDist = tv(16f, Color.parseColor("#FFD60A"), true).apply { gravity = Gravity.CENTER }
+        nextBox.addView(nextDist)
+        speedBox.addView(nextBox, LinearLayout.LayoutParams(dp(90f), -2).apply { topMargin = dp(6f) })
 
         bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -314,6 +328,9 @@ class NavActivity : Activity() {
     }
 
     private lateinit var menuBtn: TextView
+    private lateinit var nextBox: LinearLayout
+    private lateinit var nextSign: SpeedSignView
+    private lateinit var nextDist: TextView
     private lateinit var reportBtn: WarnButton
     private lateinit var btnRow: LinearLayout
 
@@ -439,7 +456,7 @@ class NavActivity : Activity() {
     private fun showMenu() {
         val items = arrayOf(
             "⚙   Cài đặt",
-            "🗺   Mở Google Maps (ô nổi tốc độ)",
+            "🗺   Mở Google Maps",
             "⏱   Màn hình tốc độ lớn",
             if (Live.serviceRunning) "⏸   Tạm dừng theo dõi tốc độ" else "▶   Bật theo dõi tốc độ",
         )
@@ -975,6 +992,42 @@ class NavActivity : Activity() {
                 PropertyFactory.circleStrokeWidth(2f),
             ),
         )
+        // Biểu tượng cảnh báo cắm trên bản đồ (camera, ổ gà, CSGT, đường sắt, trường học, chợ)
+        for (k in 0..8) s.addImage("alert-$k", alertIcon(k))
+        s.addSource(GeoJsonSource("mn-alerts", Live.alertsJson ?: emptyFc))
+        s.addLayer(
+            SymbolLayer("mn-alerts-icon", "mn-alerts").withProperties(
+                PropertyFactory.iconImage(Expression.concat(Expression.literal("alert-"), Expression.toString(Expression.get("k")))),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
+                PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
+            ),
+        )
+        // Biển tốc độ sắp đổi, cắm ngay tại điểm đổi
+        s.addSource(GeoJsonSource("mn-limit", emptyFc))
+        val lim = SymbolLayer("mn-limit-sign", "mn-limit").withProperties(
+            PropertyFactory.iconImage(Expression.get("img")),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.iconIgnorePlacement(true),
+            PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+            PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
+            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
+            PropertyFactory.textField(Expression.get("d")),
+            PropertyFactory.textSize(15f),
+            PropertyFactory.textColor("#FFD60A"),
+            PropertyFactory.textHaloColor("#111111"),
+            PropertyFactory.textHaloWidth(3f),
+            PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
+            PropertyFactory.textAllowOverlap(true),
+            PropertyFactory.textIgnorePlacement(true),
+            PropertyFactory.textPitchAlignment(Property.TEXT_PITCH_ALIGNMENT_VIEWPORT),
+        )
+        labelFont?.let { lim.setProperties(PropertyFactory.textFont(it)) }
+        s.addLayer(lim)
+        shownAlerts = Live.alertsVersion
+
         s.addImage("mn-car", carIcon())
         s.addLayer(
             SymbolLayer("mn-me-arrow", "mn-me").withProperties(
@@ -986,6 +1039,54 @@ class NavActivity : Activity() {
                 PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
             ),
         )
+    }
+
+    private var shownAlerts = -1
+
+    /** Biểu tượng cảnh báo: vòng tròn trắng viền màu, có hình bên trong, chân nhọn. */
+    private fun alertIcon(kind: Int): android.graphics.Bitmap {
+        val w = dp(40f)
+        val h = dp(48f)
+        val b = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(b)
+        val col = Color.parseColor(CamKind.color(kind))
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        val cx = w / 2f
+        val r = w / 2f - dp(2f)
+        // chân nhọn
+        p.color = col
+        val tail = android.graphics.Path().apply {
+            moveTo(cx - r * 0.45f, r * 1.6f); lineTo(cx, h.toFloat()); lineTo(cx + r * 0.45f, r * 1.6f); close()
+        }
+        c.drawPath(tail, p)
+        c.drawCircle(cx, r + dp(2f), r, p)
+        p.color = Color.WHITE
+        c.drawCircle(cx, r + dp(2f), r * 0.78f, p)
+        val t = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = r * 1.0f
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        c.drawText(CamKind.emoji(kind), cx, r + dp(2f) + t.textSize * 0.36f, t)
+        return b
+    }
+
+    /** Biển tốc độ (vòng đỏ, số đen) dùng cắm trên bản đồ. */
+    private fun limitIcon(v: Int): android.graphics.Bitmap {
+        val s = dp(44f)
+        val b = android.graphics.Bitmap.createBitmap(s, s, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(b)
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        val r = s / 2f - dp(1f)
+        p.color = Color.parseColor("#E53935")
+        c.drawCircle(s / 2f, s / 2f, r, p)
+        p.color = Color.WHITE
+        c.drawCircle(s / 2f, s / 2f, r * 0.76f, p)
+        p.color = Color.BLACK
+        p.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        p.textAlign = android.graphics.Paint.Align.CENTER
+        p.textSize = if (v >= 100) r * 0.75f else r * 0.95f
+        c.drawText(v.toString(), s / 2f, s / 2f + p.textSize * 0.35f, p)
+        return b
     }
 
     /** Mũi tên xe màu xanh viền trắng. */
@@ -1056,6 +1157,25 @@ class NavActivity : Activity() {
             src("mn-next")?.setGeoJson(emptyFc)
             src("mn-junction")?.setGeoJson(emptyFc)
             shownJunction = -1
+        }
+
+        if (shownAlerts != Live.alertsVersion) {
+            shownAlerts = Live.alertsVersion
+            src("mn-alerts")?.setGeoJson(Live.alertsJson ?: emptyFc)
+        }
+        val nl = Live.nextLimit
+        if (nl != null && Live.nextLimitDist in 0..320) {
+            try {
+                val st = style
+                if (st != null && st.isFullyLoaded && st.getImage("lim-$nl") == null) st.addImage("lim-$nl", limitIcon(nl))
+            } catch (_: Exception) {
+            }
+            val props = """{"img":"lim-$nl","d":"${Live.nextLimitDist} m"}"""
+            src("mn-limit")?.setGeoJson(
+                """{"type":"Feature","properties":$props,"geometry":{"type":"Point","coordinates":[${Live.nextLimitLon},${Live.nextLimitLat}]}}""",
+            )
+        } else {
+            src("mn-limit")?.setGeoJson(emptyFc)
         }
 
         if (!Live.gpsOk) return
@@ -1148,6 +1268,15 @@ class NavActivity : Activity() {
         sign.estimated = Live.limitEstimated
         speedText.text = if (Live.gpsOk && Live.speedKmh >= 0) Live.speedKmh.toString() else "--"
         speedText.setTextColor(if (Live.overspeed) danger else Color.WHITE)
+        val nl = Live.nextLimit
+        if (nl != null && Live.nextLimitDist in 0..200) {
+            nextBox.visibility = View.VISIBLE
+            nextSign.limit = nl
+            nextSign.estimated = Live.nextLimitEst
+            nextDist.text = "${Live.nextLimitDist} m"
+        } else {
+            nextBox.visibility = View.GONE
+        }
         if (Live.camText != null) {
             camBox.visibility = View.VISIBLE
             camBox.text = CamKind.short(Live.camKind) + "\n" + Live.camDistance + " m"

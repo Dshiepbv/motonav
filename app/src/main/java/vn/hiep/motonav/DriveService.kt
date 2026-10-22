@@ -326,6 +326,8 @@ class DriveService : Service(), LocationListener {
         checkOverspeed(speedKmh)
         nav.onLocation(lat, lon, movingHeading, speedMps)
         updateJunctions(lat, lon)
+        updateLimitAhead()
+        updateAlertIcons(lat, lon)
         if (!Live.ownNav) checkTurn()
         checkCameras(snap, lat, lon, speedMps, movingHeading)
         Live.changed()
@@ -366,6 +368,117 @@ class DriveService : Service(), LocationListener {
             Live.alertUrgent = true
             voice.beep()
         }
+    }
+
+    // ---------- Tốc độ giới hạn sắp đổi phía trước ----------
+
+    private var lastAhead = 0L
+    private var announcedAhead: String? = null
+
+    private fun updateLimitAhead() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastAhead < 2000) return
+        lastAhead = now
+        val r = Live.route
+        val snap = snapshot
+        val cur = shownLimit?.kmh
+        if (!Live.ownNav || r == null || snap == null || cur == null) {
+            clearAhead()
+            return
+        }
+        val n = r.lats.size
+        val start = Live.routeProgress
+        var prevId: Long? = currentWayId
+        var cand: Int? = null
+        var candEst = false
+        var candDist = -1.0
+        var candLat = 0.0
+        var candLon = 0.0
+        var confirm = 0
+        var d = 20.0
+        var i = Live.routeSeg
+        while (d <= 320) {
+            val target = start + d
+            while (i < n - 2 && r.cum[i + 1] < target) i++
+            if (r.cum[i + 1] < target) break
+            val segLen = r.cum[i + 1] - r.cum[i]
+            val t = if (segLen < 0.01) 0.0 else ((target - r.cum[i]) / segLen).coerceIn(0.0, 1.0)
+            val la = r.lats[i] + t * (r.lats[i + 1] - r.lats[i])
+            val lo = r.lons[i] + t * (r.lons[i + 1] - r.lons[i])
+            val brg = Geo.bearing(r.lats[i], r.lons[i], r.lats[i + 1], r.lons[i + 1])
+            val m = match(snap, la, lo, brg, prevId)
+            if (m != null) {
+                prevId = m.way.id
+                val res = SpeedRules.resolve(m.way, m.forward, prefs, snap.urbanArea)
+                val v = res?.kmh
+                if (v != null && v != cur) {
+                    if (cand == v) {
+                        confirm++
+                    } else {
+                        cand = v; candEst = res.estimated; candDist = d; candLat = la; candLon = lo; confirm = 1
+                    }
+                    if (confirm >= 2) break
+                } else if (cand != null) {
+                    cand = null; confirm = 0
+                }
+            }
+            d += 20.0
+        }
+        if (cand == null || confirm < 2) {
+            clearAhead()
+            return
+        }
+        Live.nextLimit = cand
+        Live.nextLimitDist = candDist.roundToInt()
+        Live.nextLimitLat = candLat
+        Live.nextLimitLon = candLon
+        Live.nextLimitEst = candEst
+        // Báo một lần khi còn ≤ 200 m
+        val key = "$cand@${(candLat * 2000).roundToInt()},${(candLon * 2000).roundToInt()}"
+        if (candDist <= 200 && announcedAhead != key) {
+            announcedAhead = key
+            val r50 = max(20, (candDist / 10).roundToInt() * 10)
+            alert("Sắp đổi giới hạn: $cand km/h · còn $r50 m", "Còn $r50 mét, giới hạn $cand", beep = false, showMs = 5000)
+        }
+    }
+
+    private fun clearAhead() {
+        if (Live.nextLimit != null) {
+            Live.nextLimit = null
+            Live.nextLimitDist = -1
+        }
+    }
+
+    // ---------- Biểu tượng cảnh báo trên bản đồ ----------
+
+    private var lastIcons = 0L
+    private var iconsSnap: OsmSnapshot? = null
+    private var iconsCount = -1
+
+    private fun updateAlertIcons(lat: Double, lon: Double) {
+        val now = SystemClock.elapsedRealtime()
+        val snap = snapshot
+        val user = CameraStore.all(this)
+        if (snap === iconsSnap && user.size == iconsCount && now - lastIcons < 30000) return
+        lastIcons = now
+        iconsSnap = snap
+        iconsCount = user.size
+        val all = ArrayList<Camera>()
+        if (snap != null) all.addAll(snap.cameras)
+        all.addAll(user)
+        val sb = StringBuilder("""{"type":"FeatureCollection","features":[""")
+        var first = true
+        for (c in all) {
+            if (Geo.distance(lat, lon, c.lat, c.lon) > 4000) continue
+            if (!first) sb.append(',')
+            first = false
+            sb.append("""{"type":"Feature","properties":{"k":""").append(c.kind)
+                .append("""},"geometry":{"type":"Point","coordinates":[""")
+                .append(c.lon).append(',').append(c.lat).append("]}}")
+        }
+        sb.append("]}")
+        Live.alertsJson = sb.toString()
+        Live.alertsVersion++
     }
 
     private var lastJunctions = 0L
@@ -466,10 +579,14 @@ class DriveService : Service(), LocationListener {
                 camAlerts.remove(c.id)
                 continue
             }
-            if (hdg == null || d > CAM_ALERT_START) continue
+            val place = CamKind.isPlace(c.kind)
+            val startAt = if (place || c.kind == CamKind.RAIL) 250.0 else CAM_ALERT_START
+            if (hdg == null || d > startAt) continue
             if (c.heading >= 0 && Geo.angleDiff(c.heading, hdg) >= 60) continue
             val diff = Geo.angleDiff(hdg, Geo.bearing(lat, lon, c.lat, c.lon))
-            val onRoad = way != null && distToWay(way, c) < 40
+            // Trường học/chợ là khu đất: chấp nhận cách đường tới 90 m
+            val onRoad = way != null && distToWay(way, c) < (if (place) 90.0 else 40.0)
+            if (place && !onRoad) continue
             val ahead = when {
                 d < 30 -> true
                 onRoad -> diff < 70
@@ -551,12 +668,12 @@ class DriveService : Service(), LocationListener {
 
     private class Match(val way: Way, val forward: Boolean, val score: Double)
 
-    private fun match(snap: OsmSnapshot, lat: Double, lon: Double, hdg: Double?): Match? {
+    private fun match(snap: OsmSnapshot, lat: Double, lon: Double, hdg: Double?, prevIdIn: Long? = currentWayId): Match? {
         val proj = LocalProjection(lat, lon)
         val pad = 0.0006
         var best: Match? = null
         var keep: Match? = null
-        val prevId = currentWayId
+        val prevId = prevIdIn
 
         for (w in snap.ways) {
             if (lat < w.minLat - pad || lat > w.maxLat + pad || lon < w.minLon - pad || lon > w.maxLon + pad) continue

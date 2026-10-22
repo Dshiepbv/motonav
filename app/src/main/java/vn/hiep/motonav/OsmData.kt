@@ -43,6 +43,32 @@ object CamKind {
     const val FINE = 3
     const val HAZARD = 4
     const val POLICE = 5
+    const val RAIL = 6
+    const val SCHOOL = 7
+    const val MARKET = 8
+
+    /** Điểm cố định (không phải camera): báo gần hơn và theo khoảng cách tới đường. */
+    fun isPlace(kind: Int) = kind == SCHOOL || kind == MARKET
+
+    /** Biểu tượng hiện trên bản đồ. */
+    fun emoji(kind: Int): String = when (kind) {
+        SPEED -> "🚨"
+        RED_LIGHT -> "🚦"
+        FINE -> "📷"
+        HAZARD -> "⚠️"
+        POLICE -> "👮"
+        RAIL -> "🚂"
+        SCHOOL -> "🏫"
+        MARKET -> "🛒"
+        else -> "📹"
+    }
+
+    fun color(kind: Int): String = when (kind) {
+        SPEED, POLICE -> "#E53935"
+        FINE, RED_LIGHT, TRAFFIC -> "#E65100"
+        HAZARD, RAIL -> "#F9A825"
+        else -> "#1E88E5"
+    }
 
     fun label(kind: Int): String = when (kind) {
         SPEED -> "camera bắn tốc độ"
@@ -50,6 +76,9 @@ object CamKind {
         FINE -> "camera phạt nguội"
         HAZARD -> "ổ gà, đường xấu"
         POLICE -> "trạm cảnh sát giao thông"
+        RAIL -> "đường sắt cắt ngang"
+        SCHOOL -> "khu vực trường học"
+        MARKET -> "khu chợ, đông người"
         else -> "camera giám sát"
     }
 
@@ -60,6 +89,9 @@ object CamKind {
         RED_LIGHT -> "ĐÈN ĐỎ"
         HAZARD -> "Ổ GÀ"
         POLICE -> "CSGT"
+        RAIL -> "ĐƯỜNG SẮT"
+        SCHOOL -> "TRƯỜNG HỌC"
+        MARKET -> "KHU CHỢ"
         else -> "CAMERA"
     }
 
@@ -123,8 +155,15 @@ object Overpass {
             append("node(around:$camRadius,$p)[\"man_made\"=\"surveillance\"][\"surveillance:zone\"=\"traffic\"];\n")
             append("node(around:$camRadius,$p)[\"man_made\"=\"surveillance\"][\"surveillance:type\"=\"ALPR\"];\n")
             append("node(around:$camRadius,$p)[\"hazard\"];\n")
+            append("node(around:$camRadius,$p)[\"railway\"~\"^(level_crossing|crossing)\$\"];\n")
             append(");\n")
             append("out;\n")
+            // Trường học, chợ (khu đông người) – lấy điểm giữa
+            append("(\n")
+            append("nwr(around:$wayRadius,$p)[\"amenity\"=\"school\"];\n")
+            append("nwr(around:$wayRadius,$p)[\"amenity\"=\"marketplace\"];\n")
+            append(");\n")
+            append("out center tags;\n")
             append("is_in($p)->.a;\n")
             append("area.a[\"boundary\"=\"administrative\"];\n")
             append("out tags;\n")
@@ -182,7 +221,21 @@ object Overpass {
                 }
             }
             when (e.optString("type")) {
-                "way" -> {
+                "way", "relation" -> {
+                    // Trường học / chợ (có "center", không có hình đường)
+                    val ctr = e.optJSONObject("center")
+                    val amen = tags["amenity"]
+                    if (ctr != null && (amen == "school" || amen == "marketplace")) {
+                        cams.add(
+                            Camera(
+                                "osm" + e.optString("type") + e.optLong("id"),
+                                ctr.optDouble("lat"), ctr.optDouble("lon"),
+                                if (amen == "school") CamKind.SCHOOL else CamKind.MARKET, -1.0, false,
+                            ),
+                        )
+                        continue
+                    }
+                    if (e.optString("type") != "way") continue
                     val svc = tags["service"]
                     if (svc == "parking_aisle" || svc == "driveway" || svc == "drive-through") continue
                     if (tags["access"] == "private" || tags["access"] == "no") continue
@@ -199,6 +252,9 @@ object Overpass {
                 }
                 "node" -> {
                     val kind = when {
+                        tags["amenity"] == "school" -> CamKind.SCHOOL
+                        tags["amenity"] == "marketplace" -> CamKind.MARKET
+                        tags["railway"] == "level_crossing" || tags["railway"] == "crossing" -> CamKind.RAIL
                         tags["hazard"] != null -> CamKind.HAZARD
                         tags["highway"] == "speed_camera" -> CamKind.SPEED
                         tags["enforcement"] == "maxspeed" -> CamKind.SPEED
