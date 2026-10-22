@@ -60,10 +60,10 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("rotateMap", true)
         set(v) = sp.edit().putBoolean("rotateMap", v).apply()
 
-    /** Hướng xoay bản đồ: 0 = theo la bàn/con quay của điện thoại, 1 = theo hướng đường đi (GPS) */
+    /** Hướng xoay bản đồ: 0 = như Google Maps (chạy: hướng đường, dừng: la bàn), 1 = luôn la bàn, 2 = luôn hướng đường */
     var mapHeading: Int
-        get() = sp.getInt("mapHeading", 0)
-        set(v) = sp.edit().putInt("mapHeading", v).apply()
+        get() = sp.getInt("mapHeading2", 0)
+        set(v) = sp.edit().putInt("mapHeading2", v).apply()
 
     var autoZoom: Boolean
         get() = sp.getBoolean("autoZoom", true)

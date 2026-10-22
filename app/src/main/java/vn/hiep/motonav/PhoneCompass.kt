@@ -78,7 +78,7 @@ class PhoneCompass(private val ctx: Context) : SensorEventListener {
         if (!has) {
             sx = ex; sy = ey; has = true
         } else {
-            val a = 0.12
+            val a = 0.07
             sx += a * (ex - sx); sy += a * (ey - sy)
         }
         val now = System.currentTimeMillis()

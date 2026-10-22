@@ -1454,29 +1454,29 @@ class NavActivity : Activity() {
             val covered = if (landscape) 0.0 else bottomBar.height.toDouble()
             val carY = h - covered - dp(70f)
             val topPad = (2 * carY - h).coerceIn(0.0, h * 0.8)
-            if (gyroMode()) {
-                // Theo la bàn điện thoại: vòng lặp camTick tự xoay mượt, ở đây chỉ đặt đích
-                camTarget = doubleArrayOf(lat, lon, zoom, if (nav) 55.0 else 40.0, topPad)
-                startCamLoop()
-            } else {
-            stopCamLoop()
-            val bearing = when {
-                !prefs.rotateMap -> 0.0
+            val course = when {
                 // Đang bám tuyến: theo hướng tuyến phía trước (đường luôn dọc màn hình)
                 nav && r != null && !Live.offRoute && Live.roadBearing >= 0 -> Live.roadBearing
                 // Đang chạy: theo hướng đoạn đường, nếu lệch nhiều so với GPS thì theo GPS
                 Live.roadBearing >= 0 && (Live.heading < 0 || Geo.angleDiff(Live.roadBearing, Live.heading) < 50) -> Live.roadBearing
                 Live.heading >= 0 -> Live.heading
-                else -> m.cameraPosition.bearing
+                else -> -1.0
             }
-            val pos = CameraPosition.Builder()
-                .target(LatLng(lat, lon))
-                .zoom(zoom)
-                .tilt(if (prefs.rotateMap) (if (nav) 55.0 else 40.0) else 0.0)
-                .bearing(bearing)
-                .padding(0.0, topPad, 0.0, 0.0)
-                .build()
-            m.animateCamera(CameraUpdateFactory.newCameraPosition(pos), 900)
+            camCourse = course
+            if (prefs.rotateMap) {
+                // Vòng lặp camTick xoay + trượt bản đồ mượt (kiểu Google Maps), ở đây chỉ đặt đích
+                camTarget = doubleArrayOf(lat, lon, zoom, if (nav) 55.0 else 40.0, topPad)
+                startCamLoop()
+            } else {
+                stopCamLoop()
+                val pos = CameraPosition.Builder()
+                    .target(LatLng(lat, lon))
+                    .zoom(zoom)
+                    .tilt(0.0)
+                    .bearing(0.0)
+                    .padding(0.0, topPad, 0.0, 0.0)
+                    .build()
+                m.animateCamera(CameraUpdateFactory.newCameraPosition(pos), 900)
             }
         } else {
             stopCamLoop()
@@ -1489,6 +1489,7 @@ class NavActivity : Activity() {
             else -> lastHeading
         }
         lastHeading = hdg
+        if (camUsingCompass) return // mũi tên đang theo la bàn (camTick tự xoay)
         try {
             val st = style
             if (st != null && st.isFullyLoaded) st.getLayer("mn-me-arrow")?.setProperties(PropertyFactory.iconRotate(hdg.toFloat()))
@@ -1505,10 +1506,14 @@ class NavActivity : Activity() {
     private var camBearing = -1.0
     private var camLoop = false
 
-    private fun gyroMode(): Boolean = prefs.rotateMap && prefs.mapHeading == 0 && compass.available
+    private var camCourse = -1.0
+    private var camAimed = -1.0       // hướng đích sau vùng chết
+    private var camMoving = false
+    private var camUsingCompass = false
+    private var arrowShown = -999.0
 
     private fun startCamLoop() {
-        compass.start()
+        if (prefs.mapHeading != 2 && compass.available) compass.start() else compass.stop()
         if (camLoop) return
         camLoop = true
         camCur = null
@@ -1522,6 +1527,24 @@ class NavActivity : Activity() {
         compass.stop()
         camCur = null
         camBearing = -1.0
+        camAimed = -1.0
+        camUsingCompass = false
+    }
+
+    /**
+     * Chọn hướng bản đồ giống Google Maps:
+     * đang chạy (≥ 10 km/h) → theo hướng đường đi; chậm/dừng (< 5 km/h) → theo la bàn điện thoại.
+     * Có vùng chết vài độ để bản đồ không rung, và giới hạn tốc độ xoay.
+     */
+    private fun pickBearing(): Pair<Double, Boolean> {
+        val spd = Live.speedKmh
+        if (spd >= 10) camMoving = true else if (spd in 0..4 || !Live.gpsOk) camMoving = false
+        val cmp = compass.bearing
+        return when (prefs.mapHeading) {
+            1 -> if (cmp >= 0) cmp to true else camCourse to false
+            2 -> camCourse to false
+            else -> if ((camMoving && camCourse >= 0) || cmp < 0) camCourse to false else cmp to true
+        }
     }
 
     private val camTick = object : Runnable {
@@ -1545,10 +1568,29 @@ class NavActivity : Activity() {
                 val d = t[i] - c[i]
                 if (kotlin.math.abs(d) > (if (i < 2) 1e-7 else 0.002)) { c[i] += d * a; moved = true }
             }
-            val b = compass.bearing
+            val (b, fromCompass) = pickBearing()
+            camUsingCompass = fromCompass
             if (b >= 0) {
-                val nb = PhoneCompass.lerpAngle(camBearing, b, 0.25)
-                if (Geo.angleDiff(nb, camBearing) > 0.15) { camBearing = nb; moved = true }
+                // Vùng chết: la bàn 5°, hướng đường 3° (hoặc đổi nguồn thì nhận ngay)
+                val dead = if (fromCompass) 5.0 else 3.0
+                if (camAimed < 0 || Geo.angleDiff(b, camAimed) > dead) camAimed = b
+                var d = (camAimed - camBearing) % 360.0
+                if (d > 180) d -= 360.0
+                if (d < -180) d += 360.0
+                if (kotlin.math.abs(d) > 0.2) {
+                    // Xoay êm: ~12%/khung hình, tối đa 3,5° mỗi 40 ms (~90°/s)
+                    val step = (d * 0.12).coerceIn(-3.5, 3.5)
+                    camBearing = Geo.norm(camBearing + step)
+                    moved = true
+                }
+            }
+            if (!fromCompass) arrowShown = -999.0
+            if (fromCompass && b >= 0 && (arrowShown < 0 || Geo.angleDiff(b, arrowShown) > 2)) {
+                arrowShown = b
+                try {
+                    val st = style
+                    if (st != null && st.isFullyLoaded) st.getLayer("mn-me-arrow")?.setProperties(PropertyFactory.iconRotate(b.toFloat()))
+                } catch (_: Exception) {}
             }
             if (!moved) return
             val pos = CameraPosition.Builder()
