@@ -197,8 +197,14 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
             wm.addView(box, p)
             root = box
             params = p
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             root = null
+            android.widget.Toast.makeText(
+                ctx,
+                "MotoNav không hiện được ô nổi: ${e.javaClass.simpleName}. Kiểm tra quyền hiển thị trên ứng dụng khác " +
+                    "(máy Xiaomi: bật thêm \"Hiển thị cửa sổ bật lên khi chạy trong nền\").",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
         }
     }
 

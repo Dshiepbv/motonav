@@ -35,42 +35,57 @@ object AppActions {
 
     /** Mở Google Maps (MotoNav hiện ô nổi tốc độ + cảnh báo trên đó). */
     fun openGoogleMaps(a: Activity, prefs: Prefs) {
-        if (prefs.overlay && !Settings.canDrawOverlays(a)) {
+        // Bấm "Mở Google Maps" nghĩa là muốn có ô nổi → luôn bật
+        if (!prefs.overlay) prefs.overlay = true
+
+        // 1. Quyền hiện trên ứng dụng khác (bắt buộc)
+        if (!Settings.canDrawOverlays(a)) {
             AlertDialog.Builder(a)
-                .setTitle("Hiện tốc độ nổi trên Google Maps")
+                .setTitle("Cần quyền hiện ô nổi")
                 .setMessage(
-                    "MotoNav sẽ hiện một ô nhỏ (biển giới hạn, tốc độ, cảnh báo) đè lên Google Maps.\n\n" +
-                        "Bấm \"Cho phép\", tìm MotoNav và bật \"Cho phép hiển thị trên ứng dụng khác\".",
+                    "Để ô tốc độ nổi trên Google Maps, bấm \"Cấp quyền\", tìm MotoNav và bật " +
+                        "\"Cho phép hiển thị trên ứng dụng khác\".\n\nXong quay lại MotoNav bấm Mở Google Maps lần nữa.",
                 )
-                .setPositiveButton("Cho phép") { _, _ ->
+                .setPositiveButton("Cấp quyền") { _, _ ->
                     a.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${a.packageName}")))
                 }
-                .setNeutralButton("Mở luôn") { _, _ -> launchMaps(a) }
                 .setNegativeButton("Huỷ", null)
                 .show()
             return
         }
-        val sp = a.getSharedPreferences("motonav", android.content.Context.MODE_PRIVATE)
-        if (prefs.overlay && !ForegroundApp.hasPermission(a) && !sp.getBoolean("askedUsage", false)) {
-            sp.edit().putBoolean("askedUsage", true).apply()
+
+        // 2. Quyền biết app nào đang mở (để tự bật/tắt ô nổi) – hỏi cho tới khi cấp hoặc chọn "Không cần"
+        val sp = a.getSharedPreferences("motonav", Context.MODE_PRIVATE)
+        if (!ForegroundApp.hasPermission(a) && !sp.getBoolean("skipUsage", false)) {
             AlertDialog.Builder(a)
-                .setTitle("Tự bật/tắt ô nổi")
+                .setTitle("Tự bật/tắt ô nổi theo Google Maps")
                 .setMessage(
-                    "Để ô tốc độ chỉ hiện khi đang mở Google Maps và tự tắt khi thoát, MotoNav cần quyền " +
-                        "\"Truy cập dữ liệu sử dụng\" (chỉ để biết app nào đang mở, không đọc nội dung).\n\n" +
-                        "Bấm \"Cấp quyền\", tìm MotoNav và bật lên.",
+                    "Cấp quyền \"Truy cập dữ liệu sử dụng\" để ô tốc độ chỉ hiện khi Google Maps đang mở và tự tắt khi thoát " +
+                        "(chỉ để biết app nào đang mở, không đọc nội dung).\n\n" +
+                        "Bấm \"Cấp quyền\" → tìm MotoNav → bật. Xong quay lại bấm Mở Google Maps lần nữa.",
                 )
                 .setPositiveButton("Cấp quyền") { _, _ ->
-                    a.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                    try {
+                        a.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                    } catch (_: Exception) {
+                        Toast.makeText(a, "Máy không mở được trang này, vào Cài đặt → Ứng dụng → Quyền đặc biệt → Truy cập dữ liệu sử dụng", Toast.LENGTH_LONG).show()
+                    }
                 }
-                .setNegativeButton("Bỏ qua") { _, _ -> openGoogleMaps(a, prefs) }
+                .setNeutralButton("Không cần") { _, _ ->
+                    sp.edit().putBoolean("skipUsage", true).apply()
+                    startAndLaunch(a)
+                }
+                .setNegativeButton("Để sau") { _, _ -> startAndLaunch(a) }
                 .show()
             return
         }
-        if (!Live.serviceRunning) {
-            Live.userStopped = false
-            try { DriveService.start(a) } catch (_: Exception) {}
-        }
+        startAndLaunch(a)
+    }
+
+    private fun startAndLaunch(a: Activity) {
+        Live.userStopped = false
+        try { DriveService.start(a) } catch (_: Exception) {}
+        Toast.makeText(a, "Ô tốc độ sẽ nổi trên Google Maps", Toast.LENGTH_SHORT).show()
         launchMaps(a)
     }
 

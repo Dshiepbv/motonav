@@ -248,6 +248,12 @@ class SettingsActivity : Activity() {
             }
         }
         action(
+            "Máy Xiaomi / Redmi / POCO",
+            "Thông tin ứng dụng → Quyền khác → bật \"Hiển thị cửa sổ bật lên khi chạy trong nền\" để ô nổi hiện được",
+        ) {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+        }
+        action(
             "Quyền tự bật/tắt ô nổi theo Google Maps",
             status(ForegroundApp.hasPermission(this)) + "\nTìm MotoNav → bật \"Cho phép truy cập dữ liệu sử dụng\"",
         ) {
