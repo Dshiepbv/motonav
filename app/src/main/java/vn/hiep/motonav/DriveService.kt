@@ -325,6 +325,8 @@ class DriveService : Service(), LocationListener {
                 currentWayId = m.way.id
                 currentWay = m.way
                 Live.street = m.way.name ?: roadTypeName(m.way.highway)
+                // Không dẫn đường: xoay bản đồ theo hướng đoạn đường đang đi
+                if (!Live.ownNav && m.bearing >= 0) Live.roadBearing = m.bearing
                 checkUrban(m.way, snap.urbanArea)
                 checkCameraStreet(m.way, lat, lon)
                 if (m.way.highway == "motorway" && m.way.id != warnedMotorway && speedMps > 3) {
@@ -839,7 +841,7 @@ class DriveService : Service(), LocationListener {
 
     // ---------- Khớp vị trí với đoạn đường ----------
 
-    private class Match(val way: Way, val forward: Boolean, val score: Double)
+    private class Match(val way: Way, val forward: Boolean, val score: Double, val bearing: Double = -1.0)
 
     private fun match(snap: OsmSnapshot, lat: Double, lon: Double, hdg: Double?, prevIdIn: Long? = currentWayId): Match? {
         val proj = LocalProjection(lat, lon)
@@ -886,7 +888,11 @@ class DriveService : Service(), LocationListener {
                     else -> 0.0
                 }
                 val score = dist + penalty + classBonus
-                if (wBest == null || score < wBest.score) wBest = Match(w, forward, score)
+                if (wBest == null || score < wBest.score) {
+                    // Hướng chạy dọc theo đoạn đường (theo chiều xe đang đi)
+                    val travel = if (forward) segBearing else Geo.norm(segBearing + 180)
+                    wBest = Match(w, forward, score, if (hdg != null) travel else -1.0)
+                }
             }
             if (wBest == null) continue
             if (best == null || wBest.score < best.score) best = wBest

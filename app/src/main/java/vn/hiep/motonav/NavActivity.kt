@@ -116,6 +116,9 @@ class NavActivity : Activity() {
                     follow = false
                     recenterBtn.visibility = View.VISIBLE
                     btnRow.visibility = View.VISIBLE
+                    // Không chạm thêm 8 giây → tự quay lại bám theo xe
+                    ui.removeCallbacks(autoFollow)
+                    ui.postDelayed(autoFollow, 8000)
                 }
             }
             m.addOnMapLongClickListener { p ->
@@ -1433,6 +1436,10 @@ class NavActivity : Activity() {
             val topPad = (2 * carY - h).coerceIn(0.0, h * 0.8)
             val bearing = when {
                 !prefs.rotateMap -> 0.0
+                // Đang bám tuyến: theo hướng tuyến phía trước (đường luôn dọc màn hình)
+                nav && r != null && !Live.offRoute && Live.roadBearing >= 0 -> Live.roadBearing
+                // Đang chạy: theo hướng đoạn đường, nếu lệch nhiều so với GPS thì theo GPS
+                Live.roadBearing >= 0 && (Live.heading < 0 || Geo.angleDiff(Live.roadBearing, Live.heading) < 50) -> Live.roadBearing
                 Live.heading >= 0 -> Live.heading
                 else -> m.cameraPosition.bearing
             }
@@ -1446,7 +1453,12 @@ class NavActivity : Activity() {
             m.animateCamera(CameraUpdateFactory.newCameraPosition(pos), 900)
         }
         // Mũi tên xe xoay theo hướng đi
-        val hdg = if (Live.heading >= 0) Live.heading else lastHeading
+        val hdg = when {
+            useSnap && Live.roadBearing >= 0 -> Live.roadBearing
+            Live.heading >= 0 -> Live.heading
+            Live.roadBearing >= 0 -> Live.roadBearing
+            else -> lastHeading
+        }
         lastHeading = hdg
         try {
             val st = style
@@ -1456,6 +1468,13 @@ class NavActivity : Activity() {
     }
 
     private var lastHeading = 0.0
+    private val autoFollow = Runnable {
+        if (!follow) {
+            follow = true
+            recenterBtn.visibility = View.GONE
+            render()
+        }
+    }
     private var shownJunction = -1
 
     // ---------- Vẽ trạng thái ----------

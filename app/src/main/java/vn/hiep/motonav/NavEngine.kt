@@ -163,6 +163,16 @@ class NavEngine(
         val remaining = max(0.0, r.total - progress)
         Live.remainingM = remaining
         Live.etaMs = if (r.total > 0) (r.timeMs * (remaining / r.total)).toLong() else 0L
+        // Hướng tuyến phía trước (nhìn trước ~30 m) để bản đồ luôn để đường thẳng dọc màn hình
+        run {
+            var j = bestI + 1
+            while (j < n - 1 && r.cum[j] - progress < 30) j++
+            val sLat = r.lats[bestI] + bestT * (r.lats[bestI + 1] - r.lats[bestI])
+            val sLon = r.lons[bestI] + bestT * (r.lons[bestI + 1] - r.lons[bestI])
+            if (Geo.distance(sLat, sLon, r.lats[j], r.lons[j]) > 3) {
+                Live.roadBearing = Geo.bearing(sLat, sLon, r.lats[j], r.lons[j])
+            }
+        }
         Live.snapLat = r.lats[bestI] + bestT * (r.lats[bestI + 1] - r.lats[bestI])
         Live.snapLon = r.lons[bestI] + bestT * (r.lons[bestI + 1] - r.lons[bestI])
         Live.offRoute = bestD > 35

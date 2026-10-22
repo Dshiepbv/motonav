@@ -29,6 +29,8 @@ object Live {
     @Volatile var lat = 0.0
     @Volatile var lon = 0.0
     @Volatile var heading = -1.0
+    /** Hướng của con đường phía trước (tuyến dẫn đường hoặc đoạn đường đang đi), -1 nếu chưa biết. */
+    @Volatile var roadBearing = -1.0
     @Volatile var speedKmh = -1
 
     // Tốc độ giới hạn
