@@ -202,6 +202,19 @@ object Overpass {
         throw lastError ?: RuntimeException("Không tải được dữ liệu")
     }
 
+    /** Gửi một truy vấn Overpass bất kỳ, thử lần lượt các máy chủ. */
+    fun raw(query: String): JSONObject {
+        var lastError: Exception? = null
+        for (ep in endpoints) {
+            try {
+                return JSONObject(post(ep, query))
+            } catch (e: Exception) {
+                lastError = e
+            }
+        }
+        throw lastError ?: RuntimeException("Không tải được dữ liệu")
+    }
+
     private fun post(endpoint: String, query: String): String {
         val conn = URL(endpoint).openConnection() as HttpURLConnection
         try {

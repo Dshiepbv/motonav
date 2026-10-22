@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "src": "Phòng CSGT Công an TP.HCM (PC08) – báo Người Lao Động 18/11/2025",
+      "kind": "fine",
+      "near": [10.7845, 106.6935], "r": 4000,
+      "items": [
+        ["Nguyễn Thị Minh Khai", "Pasteur"], ["Nguyễn Thị Minh Khai", "Hai Bà Trưng"], ["Nguyễn Thị Minh Khai", "Mạc Đĩnh Chi"],
+        ["Nguyễn Thị Minh Khai", "Đinh Tiên Hoàng"], ["Nguyễn Thị Minh Khai", "Nguyễn Bỉnh Khiêm"],
+        ["Võ Thị Sáu", "Hai Bà Trưng"], ["Võ Thị Sáu", "Pasteur"], ["Võ Thị Sáu", "Trương Định"],
+        ["Võ Thị Sáu", "Bà Huyện Thanh Quan"], ["Võ Thị Sáu", "Nguyễn Thông"],
+        ["Điện Biên Phủ", "Đinh Tiên Hoàng"], ["Điện Biên Phủ", "Nguyễn Thông"], ["Điện Biên Phủ", "Bà Huyện Thanh Quan"],
+        ["Điện Biên Phủ", "Trương Định"], ["Điện Biên Phủ", "Trần Quốc Thảo"], ["Điện Biên Phủ", "Lê Quý Đôn"],
+        ["Điện Biên Phủ", "Pasteur"], ["Điện Biên Phủ", "Phạm Ngọc Thạch"], ["Điện Biên Phủ", "Hai Bà Trưng"]
+      ]
+    },
+    {
+      "src": "Phòng CSGT Công an TP.HCM (PC08) – báo Người Lao Động 18/11/2025",
+      "kind": "fine",
+      "near": [10.8030, 106.7120], "r": 3000,
+      "items": [
+        ["Xô Viết Nghệ Tĩnh", "Nguyễn Văn Lạc"], ["Xô Viết Nghệ Tĩnh", "Phan Văn Hân"],
+        ["Nguyễn Hữu Cảnh", null, "Manor"]
+      ]
+    },
+    {
+      "src": "Phòng CSGT Công an TP.HCM (PC08) – báo Người Lao Động 18/11/2025",
+      "kind": "fine",
+      "near": [10.8850, 106.6150], "r": 7000,
+      "items": [
+        ["Đặng Thúc Vịnh", "Tô Ký"], ["Đặng Thúc Vịnh", "Trịnh Thị Miếng"],
+        ["Đặng Thúc Vịnh", "Nguyễn Thị Ngâu"], ["Đặng Thúc Vịnh", "Lê Văn Khương"]
+      ]
+    },
+    {
+      "src": "Phòng CSGT Công an TP.HCM (PC08) – báo Người Lao Động 18/11/2025",
+      "kind": "fine",
+      "near": [10.8000, 106.7700], "r": 6000,
+      "items": [
+        ["Nguyễn Thị Định", "Đường A"],
+        [null, null, null, "Ngã tư Bình Thái"]
+      ]
+    },
+    {
+      "src": "Phòng CSGT Công an tỉnh Đắk Lắk – CV 2397/PC08-Đ2, báo 05/01/2026",
+      "kind": "red",
+      "near": [12.6670, 108.0380], "r": 6000,
+      "items": [
+        ["Phan Bội Châu", "Phan Chu Trinh"], ["Lê Duẩn", "Nguyễn Công Trứ"], ["Nguyễn Tất Thành", "Lý Tự Trọng"]
+      ]
+    },
+    {
+      "src": "Phòng CSGT Công an tỉnh Đắk Lắk – CV 2397/PC08-Đ2, báo 05/01/2026",
+      "kind": "speed",
+      "near": [12.6670, 108.0380], "r": 6000,
+      "items": [
+        ["Đinh Tiên Hoàng", null, "Cầu Đinh Tiên Hoàng"], ["Lê Duẩn", null, "Cầu Trắng"], ["Hà Huy Tập", null, "Hoàng Việt"]
+      ]
+    },
+    {
+      "src": "Phòng CSGT Công an tỉnh Đắk Lắk – CV 2397/PC08-Đ2, báo 05/01/2026",
+      "kind": "red",
+      "near": [13.0600, 109.2000], "r": 30000,
+      "items": [
+        ["QL25", "QL1"], ["QL25", "QL19C"], ["QL25", "Trần Phú"],
+        ["QL29|Hùng Vương", "Trần Phú"], ["QL29|Hùng Vương", "Nguyễn Văn Linh"], ["QL29", "QL19C"]
+      ]
+    },
+    {
+      "src": "Phòng CSGT Công an tỉnh Đắk Lắk – CV 2397/PC08-Đ2, báo 05/01/2026",
+      "kind": "speed",
+      "near": [13.0000, 109.1500], "r": 25000,
+      "items": [
+        ["QL29", null, "Cầu Tổng"]
+      ]
+    },
+    {
+      "src": "Phòng CSGT Công an TP Hà Nội (PC67) – báo Công Thương",
+      "kind": "fine",
+      "near": [21.0200, 105.8400], "r": 6000,
+      "items": [
+        ["Điện Biên Phủ", "Trần Phú"], ["Phố Huế", "Trần Khát Chân"], ["Giải Phóng", "Đại Cồ Việt"],
+        ["Giải Phóng", "Kim Đồng"], ["Láng Hạ", "Thái Hà"], ["Giảng Võ", "Cát Linh"],
+        [null, null, null, "Ô Chợ Dừa"]
+      ]
+    }
+  ]
+}

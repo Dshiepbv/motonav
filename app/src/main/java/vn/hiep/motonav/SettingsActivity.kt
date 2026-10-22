@@ -210,6 +210,33 @@ class SettingsActivity : Activity() {
             prefs.overlayScale = scales[it]
         }
 
+        header("Camera theo thông báo CSGT")
+        val (okN, totalN) = OfficialCameras.status(this)
+        action(
+            "Đã định vị $okN/$totalN điểm",
+            (Live.officialProgress ?: "Ngã tư do CSGT TP.HCM, Hà Nội, Đắk Lắk công bố. App tự tìm toạ độ trên OpenStreetMap.") +
+                "\nChạm để xem nguồn và các điểm chưa định vị được",
+        ) {
+            val failed = OfficialCameras.failedTitles(this)
+            val srcs = try { OfficialCameras.entries(this).map { it.src }.distinct() } catch (_: Exception) { emptyList() }
+            AlertDialog.Builder(this)
+                .setTitle("Nguồn dữ liệu")
+                .setMessage(
+                    srcs.joinToString("\n") { "• $it" } +
+                        (if (failed.isNotEmpty()) "\n\nChưa tìm được trên bản đồ:\n" + failed.joinToString("\n") { "– $it" } else ""),
+                )
+                .setPositiveButton("Đóng", null)
+                .show()
+        }
+        action("Định vị lại từ đầu", "Dùng khi bản đồ OSM vừa được cập nhật") {
+            OfficialCameras.reset(this)
+            toast("Sẽ định vị lại ở lần bật theo dõi tốc độ kế tiếp")
+            Live.userStopped = false
+            DriveService.stop(this)
+            android.os.Handler(mainLooper).postDelayed({ DriveService.start(this) }, 800)
+            build()
+        }
+
         header("Camera & điểm cảnh báo")
         val n = CameraStore.all(this).size
         action("Nhập danh sách từ file", "KML (Google My Maps), CSV, JSON · đang có $n điểm") {

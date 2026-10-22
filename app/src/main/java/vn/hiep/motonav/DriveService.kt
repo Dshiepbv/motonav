@@ -136,6 +136,20 @@ class DriveService : Service(), LocationListener {
         }
         handler.postDelayed(watchdog, 3000)
         handler.postDelayed(fgWatch, 1500)
+        // Camera theo thông báo CSGT: tìm toạ độ ngã tư trên OSM (chạy nền, chỉ khi còn điểm chưa có)
+        if (OfficialCameras.needsResolve(this)) {
+            Thread {
+                try {
+                    OfficialCameras.resolveAll(this) { i, n ->
+                        Live.officialProgress = "Đang định vị camera CSGT $i/$n…"
+                    }
+                } catch (_: Exception) {
+                }
+                Live.officialProgress = null
+                lastIcons = 0L
+                Live.changed()
+            }.apply { isDaemon = true; start() }
+        }
         // App bị tắt giữa chuyến → dẫn tiếp tới điểm cũ
         prefs.pendingTrip()?.let { (la, lo, nm) ->
             if (!Live.ownNav) handler.post { nav.start(la, lo, nm) }
@@ -461,7 +475,7 @@ class DriveService : Service(), LocationListener {
     private fun updateAlertIcons(lat: Double, lon: Double) {
         val now = SystemClock.elapsedRealtime()
         val snap = snapshot
-        val user = CameraStore.all(this)
+        val user = CameraStore.all(this) + OfficialCameras.cameras(this)
         if (snap === iconsSnap && user.size == iconsCount && now - lastIcons < 30000) return
         lastIcons = now
         iconsSnap = snap
@@ -649,6 +663,7 @@ class DriveService : Service(), LocationListener {
         val cams = ArrayList<Camera>()
         if (snap != null) cams.addAll(snap.cameras)
         cams.addAll(CameraStore.all(this))
+        cams.addAll(OfficialCameras.cameras(this))
         val way = currentWay
 
         var nearest: Camera? = null

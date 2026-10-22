@@ -16,6 +16,8 @@ object CameraStreets {
         "Cộng Hòa", "Hoàng Văn Thụ", "Hồng Hà", "Bạch Đằng", "Kinh Dương Vương",
         "Nguyễn Thị Tú", "Lê Trọng Tấn", "Đinh Bộ Lĩnh", "Đồng Văn Cống", "Nguyễn Duy Trinh",
         "Nguyễn Xiển", "Cống Quỳnh", "Quốc lộ 1", "Quốc lộ 22",
+        // Bà Rịa – Vũng Tàu (nay thuộc TP.HCM): camera giám sát trên 3 quốc lộ (Công an tỉnh BR-VT)
+        "Quốc lộ 51", "Quốc lộ 55", "Quốc lộ 56",
     )
 
     private fun norm(s: String): String = s.lowercase()
@@ -27,7 +29,10 @@ object CameraStreets {
 
     /** Trả về tên tuyến nếu đường đang đi nằm trong danh sách. Chỉ áp dụng trong TP.HCM (vĩ độ/kinh độ). */
     fun match(name: String?, ref: String?, lat: Double, lon: Double): String? {
-        if (lat < 10.3 || lat > 11.2 || lon < 106.3 || lon > 107.1) return null
+        // Vùng TP.HCM mở rộng (gồm Bình Dương, Bà Rịa – Vũng Tàu)
+        if (lat < 10.3 || lat > 11.6 || lon < 106.3 || lon > 107.7) return null
+        // Các tên đường nội thành chỉ áp dụng trong TP.HCM cũ (tránh trùng tên đường ở Vũng Tàu, Bình Dương)
+        val oldHcm = lat in 10.35..11.2 && lon in 106.35..107.05
         val cands = listOfNotNull(name, ref?.let { r ->
             // "QL1A", "QL.22" → "Quốc lộ 1", "Quốc lộ 22"
             Regex("""(?i)QL\.?\s*(\d+)""").find(r)?.let { "Quốc lộ " + it.groupValues[1] }
@@ -35,7 +40,7 @@ object CameraStreets {
         for (c in cands) {
             val n = norm(c)
             val i = normed.indexOfFirst { it == n || (it.length >= 6 && n.startsWith(it + " ")) || n == "xa lộ $it" }
-            if (i >= 0) return list[i]
+            if (i >= 0 && (oldHcm || list[i].startsWith("Quốc lộ 5"))) return list[i]
             if (n.startsWith("quốc lộ 1a") || n == "ql1a") return "Quốc lộ 1"
         }
         return null
