@@ -65,6 +65,9 @@ class PhoneCompass(private val ctx: Context) : SensorEventListener {
         val a = 0.15f
         when (e.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {
+                // Xe xóc / ôm cua: gia tốc lệch xa 1g thì bỏ mẫu này (tránh bản đồ giật)
+                val gm = sqrt((e.values[0] * e.values[0] + e.values[1] * e.values[1] + e.values[2] * e.values[2]).toDouble())
+                if (hasG && kotlin.math.abs(gm - 9.81) > 2.0) return
                 if (!hasG) { e.values.copyInto(grav, 0, 0, 3); hasG = true }
                 else for (i in 0..2) grav[i] += a * (e.values[i] - grav[i])
             }
@@ -87,8 +90,12 @@ class PhoneCompass(private val ctx: Context) : SensorEventListener {
         // Mặt lưng máy (-Z): hướng nhìn khi điện thoại dựng đứng
         val be = -r[2]
         val bn = -r[5]
-        val fe = (ue + be).toDouble()
-        val fn = (un + bn).toDouble()
+        // Máy nằm ngang → theo cạnh trên màn hình; máy dựng đứng (gắn giá xe) → theo mặt lưng.
+        // Trộn theo độ nghiêng để nghiêng xe/lắc tay lái không làm lệch hướng.
+        val gz = kotlin.math.abs(r[8]).toDouble() // 1 = nằm ngang, 0 = dựng đứng
+        val wu = gz * gz
+        val fe = ue * wu + be * (1 - wu)
+        val fn = un * wu + bn * (1 - wu)
         val len = sqrt(fe * fe + fn * fn)
         if (len < 0.15) return // máy úp/ngửa lưng chừng, không rõ hướng
         val ex = fe / len

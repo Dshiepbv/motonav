@@ -594,12 +594,20 @@ class DriveService : Service(), LocationListener {
 
     private val announcedSigns = HashSet<String>()
 
-    private fun updateSigns(lat: Double, lon: Double, hdg: Double?) {
+    private var signHdg = -1.0
+
+    private fun updateSigns(lat: Double, lon: Double, hdgIn: Double?) {
         val snap = snapshot
+        if (hdgIn != null) signHdg = hdgIn
+        // Dừng xe vẫn giữ biển theo hướng vừa đi
+        val hdg: Double? = hdgIn ?: (if (signHdg >= 0) signHdg else null)
         val out = ArrayList<Triple<Int, Int, Int>>()
-        currentWay?.let { w -> if (w.parkingRule != 0) out.add(Triple(w.parkingRule, 0, -1)) }
+        val way = currentWay
+        way?.let { w ->
+            if (w.parkingRule != 0) out.add(Triple(w.parkingRule, 0, -1))
+            if (w.oneway != 0 && w.tags["junction"] != "roundabout") out.add(Triple(SignType.ONE_WAY, 0, -1))
+        }
         if (snap != null && hdg != null) {
-            val way = currentWay
             val found = ArrayList<Pair<RoadSign, Double>>()
             for (sg in snap.signs) {
                 if (sg.type == SignType.SPEED) continue // giới hạn tốc độ đã có ô riêng
@@ -618,12 +626,39 @@ class DriveService : Service(), LocationListener {
                 }
                 if (ahead) found.add(Pair(sg, d))
             }
+            // Đường phía trước: vòng xuyến, cấm xe máy (từ thẻ của đường trên OSM)
+            for (w in snap.ways) {
+                val ra = w.tags["junction"] == "roundabout" || w.tags["junction"] == "circular"
+                val noMoto = w.tags["motorcycle"] == "no" || w.tags["motor_vehicle"] == "no"
+                if (!ra && !noMoto) continue
+                if (w === way) continue
+                var bi = -1
+                var bd = Double.MAX_VALUE
+                for (i in w.lats.indices) {
+                    val d = Geo.distance(lat, lon, w.lats[i], w.lons[i])
+                    if (d < bd) { bd = d; bi = i }
+                }
+                if (bi < 0 || bd > 250 || bd < 8) continue
+                if (Geo.angleDiff(hdg, Geo.bearing(lat, lon, w.lats[bi], w.lons[bi])) > 25) continue
+                val t = if (noMoto) SignType.NO_MOTO else SignType.ROUNDABOUT
+                found.add(Pair(RoadSign("w${w.id}", w.lats[bi], w.lons[bi], t, 0, -1.0), bd))
+            }
             found.sortBy { it.second }
-            // Cắm lên bản đồ: tối đa 6 biển gần nhất
+            // Vạch người đi bộ ngay cạnh đèn tín hiệu: chỉ giữ biển đèn
+            val sig = found.filter { it.first.type == SignType.SIGNALS }
+            found.removeAll { f ->
+                f.first.type == SignType.PEDESTRIAN && sig.any { Geo.distance(it.first.lat, it.first.lon, f.first.lat, f.first.lon) < 40 }
+            }
+            // Gộp biển cùng loại đứng sát nhau (< 30 m)
+            val uniq = ArrayList<Pair<RoadSign, Double>>()
+            for (f in found) {
+                if (uniq.none { it.first.type == f.first.type && Geo.distance(it.first.lat, it.first.lon, f.first.lat, f.first.lon) < 30 }) uniq.add(f)
+            }
+            // Cắm lên bản đồ: tối đa 6 biển gần nhất (không kèm số mét để biểu tượng không nháy)
             val sb = StringBuilder("""{"type":"FeatureCollection","features":[""")
-            found.take(6).forEachIndexed { k, (sg, d) ->
+            uniq.take(6).forEachIndexed { k, (sg, _) ->
                 if (k > 0) sb.append(',')
-                sb.append("""{"type":"Feature","properties":{"img":"sign-${sg.type}-${sg.value}","t":${sg.type},"v":${sg.value},"d":"${d.roundToInt()} m"},"geometry":{"type":"Point","coordinates":[${sg.lon},${sg.lat}]}}""")
+                sb.append("""{"type":"Feature","properties":{"img":"sign-${sg.type}-${sg.value}","t":${sg.type},"v":${sg.value}},"geometry":{"type":"Point","coordinates":[${sg.lon},${sg.lat}]}}""")
             }
             sb.append("]}")
             val js = sb.toString()
@@ -631,8 +666,8 @@ class DriveService : Service(), LocationListener {
                 Live.signsJson = js
                 Live.signsVersion++
             }
-            for ((sg, d) in found) {
-                if (out.size >= 3) break
+            for ((sg, d) in uniq) {
+                if (out.size >= 4) break
                 out.add(Triple(sg.type, sg.value, d.roundToInt()))
                 if (SignType.important(sg.type) && d <= 120 && announcedSigns.add(sg.id)) {
                     val txt = SignType.label(sg.type, sg.value)

@@ -1021,6 +1021,7 @@ class NavActivity : Activity() {
     private val emptyFc = """{"type":"FeatureCollection","features":[]}"""
 
     private fun addLayers(s: Style) {
+        lastJson.clear()
         s.addSource(GeoJsonSource("mn-route", emptyFc))
         s.addSource(GeoJsonSource("mn-me", emptyFc))
         s.addSource(GeoJsonSource("mn-turn", emptyFc))
@@ -1357,6 +1358,15 @@ class NavActivity : Activity() {
         null
     }
 
+    /** Chỉ nạp lại dữ liệu khi nội dung đổi – nạp lại liên tục làm biểu tượng/chữ trên bản đồ nháy. */
+    private val lastJson = HashMap<String, String>()
+    private fun setOnce(id: String, js: String) {
+        if (lastJson[id] == js) return
+        val s = src(id) ?: return
+        lastJson[id] = js
+        s.setGeoJson(js)
+    }
+
     private fun updateMap() {
         val m = map ?: return
         if (style == null) return
@@ -1368,25 +1378,25 @@ class NavActivity : Activity() {
                 shownRouteVersion = Live.routeVersion
                 src("mn-route")?.setGeoJson(if (prefs.traffic) r.toCongestionGeoJson() else r.toGeoJsonLine())
             }
-            src("mn-dest")?.setGeoJson(point(Live.destLat, Live.destLon))
+            setOnce("mn-dest", point(Live.destLat, Live.destLon))
             if (shownJunction != Live.junctionVersion) {
                 shownJunction = Live.junctionVersion
-                src("mn-junction")?.setGeoJson(Live.junctionJson ?: emptyFc)
+                setOnce("mn-junction", Live.junctionJson ?: emptyFc)
             }
-            src("mn-next")?.setGeoJson(Live.nextLeg ?: emptyFc)
+            setOnce("mn-next", Live.nextLeg ?: emptyFc)
             val lab = if (Live.junctionHasTurn) "" else Live.maneuverLabel
             if (lab != null && Live.navMeters in 0..1500) {
-                src("mn-turn")?.setGeoJson(point(Live.maneuverLat, Live.maneuverLon, lab))
+                setOnce("mn-turn", point(Live.maneuverLat, Live.maneuverLon, lab))
             } else {
-                src("mn-turn")?.setGeoJson(emptyFc)
+                setOnce("mn-turn", emptyFc)
             }
         } else if (shownRouteVersion != -2) {
             shownRouteVersion = -2
             src("mn-route")?.setGeoJson(emptyFc)
-            src("mn-turn")?.setGeoJson(emptyFc)
-            src("mn-dest")?.setGeoJson(emptyFc)
-            src("mn-next")?.setGeoJson(emptyFc)
-            src("mn-junction")?.setGeoJson(emptyFc)
+            setOnce("mn-turn", emptyFc)
+            setOnce("mn-dest", emptyFc)
+            setOnce("mn-next", emptyFc)
+            setOnce("mn-junction", emptyFc)
             shownJunction = -1
         }
 
@@ -1454,12 +1464,10 @@ class NavActivity : Activity() {
                 if (st != null && st.isFullyLoaded && st.getImage("lim-$nl") == null) st.addImage("lim-$nl", limitIcon(nl))
             } catch (_: Exception) {
             }
-            val props = """{"img":"lim-$nl","d":"${Live.nextLimitDist} m"}"""
-            src("mn-limit")?.setGeoJson(
-                """{"type":"Feature","properties":$props,"geometry":{"type":"Point","coordinates":[${Live.nextLimitLon},${Live.nextLimitLat}]}}""",
-            )
+            val js = """{"type":"Feature","properties":{"img":"lim-$nl"},"geometry":{"type":"Point","coordinates":[${Live.nextLimitLon},${Live.nextLimitLat}]}}"""
+            setOnce("mn-limit", js)
         } else {
-            src("mn-limit")?.setGeoJson(emptyFc)
+            setOnce("mn-limit", emptyFc)
         }
 
         if (!Live.gpsOk) return
@@ -1490,10 +1498,12 @@ class NavActivity : Activity() {
                 // Đang bám tuyến: theo hướng tuyến phía trước (đường luôn dọc màn hình)
                 nav && r != null && !Live.offRoute && Live.roadBearing >= 0 -> Live.roadBearing
                 // Đang chạy: theo hướng đoạn đường, nếu lệch nhiều so với GPS thì theo GPS
-                Live.roadBearing >= 0 && (Live.heading < 0 || Geo.angleDiff(Live.roadBearing, Live.heading) < 50) -> Live.roadBearing
+                Live.roadBearing >= 0 && (Live.heading < 0 || Geo.angleDiff(Live.roadBearing, Live.heading) < 70) -> Live.roadBearing
                 Live.heading >= 0 -> Live.heading
                 else -> -1.0
             }
+            // Hướng GPS thô (lệch tuyến, chưa khớp đường) dao động khi lách xe/đổi làn → vùng chết lớn hơn
+            camCourseRaw = course >= 0 && course == Live.heading && course != Live.roadBearing
             camCourse = course
             if (prefs.rotateMap) {
                 // Vòng lặp camTick xoay + trượt bản đồ mượt (kiểu Google Maps), ở đây chỉ đặt đích
@@ -1538,6 +1548,7 @@ class NavActivity : Activity() {
     private var camAimed = -1.0       // hướng đích sau vùng chết
     private var camMoving = false
     private var camBearingOk = false
+    private var camCourseRaw = false
     private var camUsingCompass = false
 
     private fun startCamLoop() {
@@ -1613,7 +1624,11 @@ class NavActivity : Activity() {
                 moved = true
             } else if (b >= 0) {
                 // Vùng chết: la bàn 5°, hướng đường 3° (hoặc đổi nguồn thì nhận ngay)
-                val dead = if (fromCompass) 5.0 else 3.0
+                val dead = when {
+                    fromCompass -> 5.0
+                    camCourseRaw -> 12.0 // GPS thô: bỏ qua lách xe, đổi làn
+                    else -> 4.0          // hướng đường/tuyến: đã ổn định sẵn
+                }
                 if (camAimed < 0 || Geo.angleDiff(b, camAimed) > dead) camAimed = b
                 var d = (camAimed - camBearing) % 360.0
                 if (d > 180) d -= 360.0
@@ -1701,7 +1716,12 @@ class NavActivity : Activity() {
         speedText.text = if (Live.gpsOk && Live.speedKmh >= 0) Live.speedKmh.toString() else "--"
         speedText.setTextColor(if (Live.overspeed) danger else Color.WHITE)
         val sa = Live.signsAhead
-        if (sa != shownSigns) {
+        val sameKinds = shownSigns?.let { old -> old.size == sa.size && old.indices.all { old[it].first == sa[it].first && old[it].second == sa[it].second } } == true
+        if (sa != shownSigns && sameKinds) {
+            // Cùng các biển, chỉ đổi số mét: sửa chữ, không vẽ lại hình (không nháy)
+            shownSigns = sa
+            for ((k, tr) in sa.withIndex()) (signsBox.getChildAt(k * 2 + 1) as? TextView)?.text = if (tr.third < 0) "Đoạn này" else "${tr.third} m"
+        } else if (sa != shownSigns) {
             shownSigns = sa
             signsBox.removeAllViews()
             for ((t, v, d) in sa) {

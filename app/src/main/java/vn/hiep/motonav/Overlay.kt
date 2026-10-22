@@ -270,7 +270,11 @@ class Overlay(private val ctx: Context, private val prefs: Prefs) {
         if (root == null) return
         // Biển báo phía trước
         val sa = Live.signsAhead
-        if (sa != shownSigns) {
+        val sameKinds = shownSigns?.let { old -> old.size == sa.size && old.indices.all { old[it].first == sa[it].first && old[it].second == sa[it].second } } == true
+        if (sa != shownSigns && sameKinds) {
+            shownSigns = sa
+            for ((k, tr) in sa.withIndex()) (signsCol.getChildAt(k * 2 + 1) as? TextView)?.text = if (tr.third < 0) "Đoạn này" else "${tr.third} m"
+        } else if (sa != shownSigns) {
             shownSigns = sa
             signsCol.removeAllViews()
             val sz = px(40f * builtScale)

@@ -25,6 +25,10 @@ object SignType {
     const val CHILDREN = 11    // W.225 trẻ em
     const val WARNING = 12     // biển nguy hiểm khác
     const val NO_MOTO = 13     // P.111a/b cấm xe máy
+    const val SIGNALS = 14     // W.210 giao nhau có tín hiệu đèn
+    const val BUMP = 15        // W.221b gồ giảm tốc
+    const val ROUNDABOUT = 16  // W.203 / R.303 vòng xuyến
+    const val ONE_WAY = 17     // I.407a đường một chiều
 
     fun label(t: Int, v: Int): String = when (t) {
         NO_STOP -> "Cấm dừng và đỗ xe"
@@ -39,11 +43,15 @@ object SignType {
         PEDESTRIAN -> "Người đi bộ cắt ngang"
         CHILDREN -> "Trẻ em"
         NO_MOTO -> "Cấm xe máy"
+        SIGNALS -> "Đèn tín hiệu giao thông"
+        BUMP -> "Gờ giảm tốc"
+        ROUNDABOUT -> "Vòng xuyến"
+        ONE_WAY -> "Đường một chiều"
         else -> "Chú ý nguy hiểm"
     }
 
     /** Biển có cần đọc thành tiếng không (ảnh hưởng trực tiếp tới việc lái). */
-    fun important(t: Int) = t == NO_ENTRY || t == NO_LEFT || t == NO_RIGHT || t == NO_UTURN || t == NO_MOTO || t == STOP
+    fun important(t: Int) = t == NO_ENTRY || t == NO_LEFT || t == NO_RIGHT || t == NO_UTURN || t == NO_MOTO || t == STOP || t == BUMP
 
     private val speedRe = Regex("""(\d{2,3})""")
 
@@ -52,7 +60,11 @@ object SignType {
         when (tags["highway"]) {
             "stop" -> return Pair(STOP, 0)
             "give_way" -> return Pair(GIVE_WAY, 0)
+            "traffic_signals" -> return Pair(SIGNALS, 0)
+            "crossing" -> if (tags["traffic_sign"] == null) return Pair(PEDESTRIAN, 0)
+            "speed_bump", "speed_hump" -> return Pair(BUMP, 0)
         }
+        if (tags["traffic_calming"] in setOf("bump", "hump", "table", "rumble_strip", "cushion", "yes")) return Pair(BUMP, 0)
         val raw = tags["traffic_sign"] ?: return null
         for (part in raw.split(';', ',')) {
             val s = part.trim()
@@ -155,6 +167,14 @@ object SignType {
             NO_RIGHT -> { ring(Color.WHITE); arrow(1); slash() }
             NO_UTURN -> { ring(Color.WHITE); arrow(2); slash() }
             NO_MOTO -> { ring(Color.WHITE); text("🏍", s * 0.4f, Color.BLACK); slash() }
+            ONE_WAY -> {
+                p.style = Paint.Style.FILL; p.color = blue
+                c.drawRoundRect(s * 0.08f, s * 0.08f, s * 0.92f, s * 0.92f, s * 0.1f, s * 0.1f, p)
+                p.color = Color.WHITE
+                c.drawRect(cx - s * 0.08f, s * 0.42f, cx + s * 0.08f, s * 0.8f, p)
+                val ah = Path().apply { moveTo(cx, s * 0.18f); lineTo(cx + s * 0.24f, s * 0.46f); lineTo(cx - s * 0.24f, s * 0.46f); close() }
+                c.drawPath(ah, p)
+            }
             STOP -> {
                 p.style = Paint.Style.FILL; p.color = red
                 val oct = Path()
@@ -184,6 +204,9 @@ object SignType {
                 val sym = when (t) {
                     PEDESTRIAN -> "🚶"
                     CHILDREN -> "🚸"
+                    SIGNALS -> "🚦"
+                    BUMP -> "⌒"
+                    ROUNDABOUT -> "⟳"
                     else -> "!"
                 }
                 text(sym, s * 0.3f, Color.BLACK, s * 0.6f)

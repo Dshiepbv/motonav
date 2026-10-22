@@ -271,6 +271,11 @@ class SettingsActivity : Activity() {
         }
 
         header("Hệ thống")
+        action(
+            "Cập nhật phần mềm",
+            "Đang dùng bản ${Updater.currentVersion(this)} · tải bản mới từ GitHub và cài luôn (không lưu file trong máy)",
+            Color.parseColor("#7CC4FF"),
+        ) { Updater.check(this, prefs) }
         toggle("Theo dõi tốc độ & camera", "Chạy nền khi dùng app", Live.serviceRunning) { on ->
             if (on) {
                 Live.userStopped = false

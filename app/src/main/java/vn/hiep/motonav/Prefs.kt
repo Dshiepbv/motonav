@@ -56,6 +56,11 @@ class Prefs(ctx: Context) {
         get() = sp.getString("vmtile", "") ?: ""
         set(v) = sp.edit().putString("vmtile", v.trim()).apply()
 
+    /** Mã GitHub chỉ-đọc để tải bản cập nhật từ kho riêng tư. */
+    var githubToken: String
+        get() = sp.getString("ghtoken", "") ?: ""
+        set(v) = sp.edit().putString("ghtoken", v.trim()).apply()
+
     var rotateMap: Boolean
         get() = sp.getBoolean("rotateMap", true)
         set(v) = sp.edit().putBoolean("rotateMap", v).apply()
