@@ -127,6 +127,7 @@ class NavActivity : Activity() {
             if (ofmTried == OFM_DARK) {
                 // Kiểu tối không tải được → quay về kiểu sáng
                 ofmTried = OFM_STYLE
+                style = null
                 map?.setStyle(Style.Builder().fromUri(OFM_STYLE)) { s ->
                     style = s
                     shownRouteVersion = -1
@@ -531,6 +532,7 @@ class NavActivity : Activity() {
         styleError = null
         MapHttp.reset()
         val onLoaded = { s: Style ->
+            if (night) try { brightenDark(s) } catch (_: Exception) {}
             style = s
             shownRouteVersion = -1
             shownJunction = -1
@@ -542,6 +544,7 @@ class NavActivity : Activity() {
             // OpenFreeMap: bản đồ OpenStreetMap miễn phí, không cần mã
             val ofm = if (night) OFM_DARK else OFM_STYLE
             ofmTried = ofm
+            style = null
             m.setStyle(Style.Builder().fromUri(ofm)) { s -> onLoaded(s) }
             return
         }
@@ -570,6 +573,45 @@ class NavActivity : Activity() {
     private var ofmTried: String? = null
 
     /** Lấy font chữ có sẵn trong kiểu bản đồ VietMap để nhãn tên đường hiển thị được. */
+    /** Nền tối: làm sáng đường và chữ tên đường để dễ nhìn ban đêm. */
+    private fun brightenDark(s: Style) {
+        for (l in s.layers) {
+            val id = l.id.lowercase()
+            when (l) {
+                is org.maplibre.android.style.layers.BackgroundLayer ->
+                    l.setProperties(PropertyFactory.backgroundColor("#1C2530"))
+                is LineLayer -> {
+                    val sl = (l.sourceLayer ?: "").lowercase()
+                    if (sl == "transportation" || id.contains("road") || id.contains("highway") || id.contains("street")) {
+                        val major = id.contains("motorway") || id.contains("trunk") || id.contains("primary")
+                        val color = when {
+                            id.contains("casing") -> "#10161D"
+                            major -> "#D9A85B"
+                            id.contains("secondary") || id.contains("tertiary") -> "#9FB0C2"
+                            else -> "#6F8296"
+                        }
+                        l.setProperties(PropertyFactory.lineColor(color))
+                    }
+                }
+                is org.maplibre.android.style.layers.FillLayer -> {
+                    val sl = (l.sourceLayer ?: "").lowercase()
+                    if (sl == "water") l.setProperties(PropertyFactory.fillColor("#24435E"))
+                    if (sl == "building") l.setProperties(PropertyFactory.fillColor("#2A3440"))
+                }
+                is SymbolLayer -> {
+                    if (id.startsWith("mn-")) continue
+                    val sl = (l.sourceLayer ?: "").lowercase()
+                    val roadName = sl == "transportation_name"
+                    l.setProperties(
+                        PropertyFactory.textColor(if (roadName) "#FFFFFF" else "#C9D3DD"),
+                        PropertyFactory.textHaloColor("#05080B"),
+                        PropertyFactory.textHaloWidth(if (roadName) 2.2f else 1.6f),
+                    )
+                }
+            }
+        }
+    }
+
     private fun findFont(s: Style): Array<String>? {
         for (l in s.layers) {
             if (l is SymbolLayer) {
@@ -582,7 +624,7 @@ class NavActivity : Activity() {
 
     companion object {
         private const val OFM_STYLE = "https://tiles.openfreemap.org/styles/liberty"
-        private const val OFM_DARK = "https://tiles.openfreemap.org/styles/dark"
+        private const val OFM_DARK = "https://tiles.openfreemap.org/styles/fiord"
     }
 
     private val emptyFc = """{"type":"FeatureCollection","features":[]}"""
@@ -746,7 +788,12 @@ class NavActivity : Activity() {
         return """{"type":"Feature","properties":$props,"geometry":{"type":"Point","coordinates":[$lon,$lat]}}"""
     }
 
-    private fun src(id: String): GeoJsonSource? = style?.getSource(id) as? GeoJsonSource
+    private fun src(id: String): GeoJsonSource? = try {
+        val s = style
+        if (s != null && s.isFullyLoaded) s.getSource(id) as? GeoJsonSource else null
+    } catch (_: Exception) {
+        null
+    }
 
     private fun updateMap() {
         val m = map ?: return
@@ -818,7 +865,11 @@ class NavActivity : Activity() {
         // Mũi tên xe xoay theo hướng đi
         val hdg = if (Live.heading >= 0) Live.heading else lastHeading
         lastHeading = hdg
-        style?.getLayer("mn-me-arrow")?.setProperties(PropertyFactory.iconRotate(hdg.toFloat()))
+        try {
+            val st = style
+            if (st != null && st.isFullyLoaded) st.getLayer("mn-me-arrow")?.setProperties(PropertyFactory.iconRotate(hdg.toFloat()))
+        } catch (_: Exception) {
+        }
     }
 
     private var lastHeading = 0.0

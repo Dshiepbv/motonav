@@ -135,12 +135,16 @@ class DriveService : Service(), LocationListener {
             Live.changed()
         }
         handler.postDelayed(watchdog, 3000)
+        // App bị tắt giữa chuyến → dẫn tiếp tới điểm cũ
+        prefs.pendingTrip()?.let { (la, lo, nm) ->
+            if (!Live.ownNav) handler.post { nav.start(la, lo, nm) }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                nav.stop()
+                nav.finish()
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -151,7 +155,7 @@ class DriveService : Service(), LocationListener {
                     handler.post { nav.start(lat, lon, intent.getStringExtra("name")) }
                 }
             }
-            ACTION_NAV_STOP -> handler.post { nav.stop() }
+            ACTION_NAV_STOP -> handler.post { nav.finish() }
         }
         return START_STICKY
     }

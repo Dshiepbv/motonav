@@ -23,6 +23,7 @@ class NavEngine(
     private val spoken = HashSet<String>()
 
     fun start(lat: Double, lon: Double, name: String?) {
+        prefs.saveTrip(lat, lon, name)
         Live.ownNav = true
         Live.destLat = lat
         Live.destLon = lon
@@ -34,6 +35,12 @@ class NavEngine(
         if (Live.gpsOk) requestRoute(Live.lat, Live.lon, null)
         else Live.routeStatus = "Đang chờ GPS để tìm đường…"
         Live.changed()
+    }
+
+    /** Kết thúc chuyến (người dùng bấm Kết thúc hoặc đã đến nơi): xoá chuyến đã lưu. */
+    fun finish() {
+        prefs.clearTrip()
+        stop()
     }
 
     fun stop() {
@@ -125,7 +132,7 @@ class NavEngine(
         // Đến nơi
         if (remaining < 30) {
             alert("Đã đến nơi${Live.destName?.let { ": $it" } ?: ""}", "Đã đến nơi", false)
-            stop()
+            finish()
             return
         }
 

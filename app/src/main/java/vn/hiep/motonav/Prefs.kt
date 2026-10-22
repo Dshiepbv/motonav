@@ -83,6 +83,23 @@ class Prefs(ctx: Context) {
         get() = sp.getString("vmstyle", "") ?: ""
         set(v) = sp.edit().putString("vmstyle", v.trim()).apply()
 
+    /** Chuyến đang đi (để dẫn tiếp nếu app bị tắt giữa chừng). */
+    fun saveTrip(lat: Double, lon: Double, name: String?) {
+        sp.edit().putString("tripLat", lat.toString()).putString("tripLon", lon.toString())
+            .putString("tripName", name ?: "").putLong("tripAt", System.currentTimeMillis()).apply()
+    }
+
+    fun clearTrip() = sp.edit().remove("tripLat").remove("tripLon").remove("tripName").remove("tripAt").apply()
+
+    /** Trả về (lat, lon, tên) nếu có chuyến dở trong vòng 3 giờ. */
+    fun pendingTrip(): Triple<Double, Double, String?>? {
+        val at = sp.getLong("tripAt", 0L)
+        if (at == 0L || System.currentTimeMillis() - at > 3 * 3600_000L) return null
+        val lat = sp.getString("tripLat", null)?.toDoubleOrNull() ?: return null
+        val lon = sp.getString("tripLon", null)?.toDoubleOrNull() ?: return null
+        return Triple(lat, lon, sp.getString("tripName", "")?.ifBlank { null })
+    }
+
     companion object {
         const val AREA_AUTO = 0
         const val AREA_URBAN = 1
