@@ -221,6 +221,16 @@ object TftLink {
     @Volatile var lastCmdSeen: Int = -1
         private set
 
+    /** Số lần gửi kênh chữ (turnPacket) thành công kể từ khi bắt tay xong — 0 nghĩa là chưa hề
+     * gửi gói dẫn đường nào (ví dụ chưa có tuyến/chưa dẫn đường thật), khác với lỗi gửi. */
+    @Volatile var txCount: Int = 0
+        private set
+
+    /** Thời điểm (millis hệ thống) gửi kênh chữ gần nhất thành công — dùng để biết kết nối có
+     * còn "sống" và đang thực sự truyền hay đã âm thầm rớt kết nối từ lúc nào. */
+    @Volatile var lastTxAt: Long = 0
+        private set
+
     /** Gom các byte đọc được từ socket thành từng gói tin hoàn chỉnh theo khuôn [magic]...[payload]. */
     private class FrameReader {
         private var buf = ByteArray(0)
@@ -305,6 +315,8 @@ object TftLink {
         rxBytes = 0
         handshakeStep = 0
         lastCmdSeen = -1
+        txCount = 0
+        lastTxAt = 0
     }
 
     private fun serverLoop(a: BluetoothAdapter) {
@@ -391,6 +403,8 @@ object TftLink {
         rxBytes = 0
         handshakeStep = 0
         lastCmdSeen = -1
+        txCount = 0
+        lastTxAt = 0
         Thread({ readLoop(input, socket) }, "tft-reader").apply { isDaemon = true; start() }
     }
 
@@ -486,7 +500,10 @@ object TftLink {
         val key = "$icon|${distanceM / 5}|$road|$etaMinutes"
         if (key == lastSentKey) return
         if (lastSentKey == "off" || lastSentKey.isEmpty()) send(navActivePacket(true))
-        send(turnPacket(icon, distanceM.toFloat(), road))
+        if (send(turnPacket(icon, distanceM.toFloat(), road))) {
+            txCount++
+            lastTxAt = System.currentTimeMillis()
+        }
         send(etaPacket(etaMinutes))
         lastSentKey = key
     }

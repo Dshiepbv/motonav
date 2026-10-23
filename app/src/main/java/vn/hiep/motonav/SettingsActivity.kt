@@ -408,7 +408,17 @@ class SettingsActivity : Activity() {
         ) { pickTftDevice() }
         if (prefs.tftLink) {
             val tftStatus = when {
-                TftLink.authed -> "✅ Đã bắt tay xong, đang gửi dữ liệu"
+                TftLink.authed -> {
+                    val n = TftLink.txCount
+                    val txDetail = when {
+                        n <= 0 -> " — chưa gửi gói dẫn đường nào (chưa dẫn đường thật/chưa có tuyến)"
+                        else -> {
+                            val agoS = (System.currentTimeMillis() - TftLink.lastTxAt) / 1000
+                            " — đã gửi $n lần, lần cuối $agoS giây trước"
+                        }
+                    }
+                    "✅ Đã bắt tay xong, đang gửi dữ liệu$txDetail"
+                }
                 TftLink.connected -> {
                     val step = TftLink.handshakeStep
                     val detail = if (TftLink.rxBytes <= 0L) {
