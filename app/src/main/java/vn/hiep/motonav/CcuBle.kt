@@ -19,26 +19,34 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Bước 2/3 của "bắt cặp BLE" (Y-Connect) — dò ngược từ lớp n3.o của NConnect: sau khi có mã CCU +
+ * Bước 2+3 của "bắt cặp BLE" (Y-Connect) — dò ngược từ lớp n3.o của NConnect: sau khi có mã CCU +
  * passkey (xem [CcuAuth]), quét Bluetooth năng lượng thấp (BLE) tìm đúng màn xe theo tên quảng bá
- * "YCCU_<mã CCU>", mở kết nối GATT, dò dịch vụ, rồi đăng ký nhận dữ liệu (notify/indicate) trên 7
- * characteristic mà app gốc đăng ký. CHƯA xác thực (bước 3, dùng mã CCU + passkey) — bản này chỉ
- * để xác nhận bước kết nối/đăng ký tự nó có chạy đúng trên thiết bị thật không.
+ * "YCCU_<mã CCU>", mở kết nối GATT, dò dịch vụ, đăng ký nhận dữ liệu (notify/indicate) trên 7
+ * characteristic mà app gốc đăng ký, rồi gửi "hello" + "AuthenticationV2" (mã CCU + passkey) qua
+ * kênh DDT (giống bước 4/5 trong n3.o.java — hàm m()/f()/g()). Lưu ý: khuôn gói "khởi đầu DDT"
+ * (hàm f() trong bản gốc, gọi queue op "E1(gatt,13,characteristic)") không dò ra được chính xác từ
+ * mã đã giải dịch (lớp D.E1 không đọc được) — phần đó là suy đoán hợp lý nhất, cần xe thật xác nhận.
  */
 object CcuBle {
     private val SERVICE_UUID = UUID.fromString("AFA2CDF4-ECCF-46A7-A5EA-9DA428C0157A")
     private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
+    // Kênh "hello"/lệnh (f8736L trong bản gốc) — chỉ ghi, không đăng ký notify
+    private val HELLO_UUID = UUID.fromString("B606C7F9-E5A1-4E75-B313-2A920054A8EB")
+    // Kênh dữ liệu DDT từng đoạn (f8740P) — chỉ ghi, không đăng ký notify
+    private val DATA_UUID = UUID.fromString("E998AEAB-EA8F-4063-83AA-2017C1A44484")
+
     // 7 characteristic app gốc đăng ký nhận dữ liệu — (UUID, dùng indicate thay vì notify?)
     private val NOTIFY_CHARS = listOf(
         UUID.fromString("9C810D26-B605-4306-8C1C-755A1BA3066C") to false,
-        UUID.fromString("75AB2788-87F6-4F61-BA9C-6F85A12600D1") to false, // DDT
+        UUID.fromString("75AB2788-87F6-4F61-BA9C-6F85A12600D1") to false, // DDT (f8738N) — cũng là kênh "khởi đầu" ghi ở bước 3
         UUID.fromString("77808451-E42F-4F6B-83ED-3AB44AA3D16A") to false,
         UUID.fromString("347456EE-A588-4DD5-BD98-62BE3672E27A") to false,
         UUID.fromString("E974B9A1-FA31-43C6-91AE-09931F3F6EF1") to false,
         UUID.fromString("56DC2D58-CBE1-4BA9-A104-E9B8EB4DA95C") to true,
         UUID.fromString("AB8D233A-CC58-4932-B397-A3751911E021") to true,
     )
+    private val DDT_UUID = NOTIFY_CHARS[1].first
 
     @Volatile var running = false
         private set
@@ -49,23 +57,55 @@ object CcuBle {
     @Volatile var subscribedCount = 0
         private set
     val expectedCount = NOTIFY_CHARS.size
+    @Volatile var missingChars: String? = null // UUID rút gọn các characteristic KHÔNG đăng ký được, để debug
+        private set
+
+    // Bước 3: gửi hello + AuthenticationV2
+    @Volatile var authStage: String = "Chưa gửi"
+        private set
+    @Volatile var authError: String? = null
+        private set
+    @Volatile var lastNotify: String? = null // gói notify/indicate gần nhất xe gửi về (để debug phản hồi)
+        private set
 
     private val handler = Handler(Looper.getMainLooper())
     private val busy = AtomicBoolean(false)
     @Volatile private var gatt: BluetoothGatt? = null
     private val descQueue = ArrayDeque<BluetoothGattDescriptor>()
+    private val missingUuids = mutableListOf<String>()
     @Volatile private var attempt = 0 // 0, 1, 2 — xe gốc cũng thử tối đa 3 lần mới bỏ cuộc
+    @Volatile private var seqCounter = 0
+    @Volatile private var authCcuCode: String? = null
+    @Volatile private var authPasskey: String? = null
+
+    private class WriteOp(val uuid: UUID, val value: ByteArray)
+    private val writeQueue = ArrayDeque<WriteOp>()
+
+    private fun nextSeq(): Int {
+        seqCounter = (seqCounter + 1) and 0xFF
+        if (seqCounter == 0) seqCounter = 1
+        return seqCounter
+    }
+
+    private fun shortU(u: UUID): String = u.toString().substring(0, 8)
 
     fun connectOnce(ctx: Context, ccuCode: String?, passkey: String?) {
-        if (ccuCode.isNullOrBlank()) {
-            error = "Chưa có mã CCU — bấm bước 1 trước"
+        if (ccuCode.isNullOrBlank() || passkey.isNullOrBlank()) {
+            error = "Chưa có mã CCU/passkey — bấm bước 1 trước"
             return
         }
         if (!busy.compareAndSet(false, true)) return
         running = true
         error = null
+        authError = null
+        authStage = "Chưa gửi"
+        lastNotify = null
         subscribedCount = 0
+        missingChars = null
+        missingUuids.clear()
         attempt = 0
+        authCcuCode = ccuCode
+        authPasskey = passkey
         stage = "Đang quét BLE tìm xe…"
         val targetName = "YCCU_$ccuCode"
         try {
@@ -119,6 +159,13 @@ object CcuBle {
         busy.set(false)
     }
 
+    private fun failAuth(msg: String) {
+        authError = msg
+        authStage = "Lỗi"
+        running = false
+        busy.set(false)
+    }
+
     private fun connectGatt(ctx: Context, device: BluetoothDevice) {
         // Autoconnect=true ở lần thử thứ 3 (giống app gốc: "cách i2+1/3", lần cuối tự kết nối nền)
         val autoConnect = attempt == 2
@@ -156,25 +203,49 @@ object CcuBle {
                     }
                     stage = "Đã thấy dịch vụ, đang đăng ký nhận dữ liệu…"
                     descQueue.clear()
-                    var missing = 0
                     for ((uuid, indicate) in NOTIFY_CHARS) {
                         val c = service.getCharacteristic(uuid)
                         if (c == null) {
-                            missing++
+                            missingUuids.add("${shortU(uuid)} (không có trên xe)")
                             TripLog.ev("ccuBle", "missingChar" to uuid.toString())
                             continue
                         }
                         try { g.setCharacteristicNotification(c, true) } catch (_: Exception) {}
                         val d = c.getDescriptor(CCCD_UUID)
-                        if (d != null) descQueue.addLast(d.also { it.setIndicateOrNotify(indicate) })
+                        if (d != null) {
+                            descQueue.addLast(d.also { it.setIndicateOrNotify(indicate) })
+                        } else {
+                            missingUuids.add("${shortU(uuid)} (thiếu CCCD)")
+                        }
                     }
-                    if (missing > 0) TripLog.ev("ccuBle", "missingCount" to missing)
                     writeNextDescriptor(g)
                 }
 
                 override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-                    if (status == BluetoothGatt.GATT_SUCCESS) subscribedCount++
+                    if (status == BluetoothGatt.GATT_SUCCESS) {
+                        subscribedCount++
+                    } else {
+                        missingUuids.add("${shortU(descriptor.characteristic.uuid)} (ghi CCCD lỗi status=$status)")
+                        TripLog.ev("ccuBle", "cccdFail" to descriptor.characteristic.uuid.toString(), "status" to status)
+                    }
                     writeNextDescriptor(g)
+                }
+
+                override fun onCharacteristicWrite(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+                    TripLog.ev("ccuBle", "writeDone" to shortU(characteristic.uuid), "status" to status)
+                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                        failAuth("Ghi ${shortU(characteristic.uuid)} lỗi (status=$status)")
+                        return
+                    }
+                    runNextWrite(g)
+                }
+
+                @Suppress("DEPRECATION")
+                override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+                    val v = characteristic.value ?: ByteArray(0)
+                    val hex = v.joinToString(" ") { String.format("%02X", it) }
+                    lastNotify = "${shortU(characteristic.uuid)}: $hex"
+                    TripLog.ev("ccuBle", "notify" to shortU(characteristic.uuid), "hex" to hex)
                 }
             }, BluetoothDevice.TRANSPORT_LE)
             gatt = g
@@ -193,9 +264,9 @@ object CcuBle {
     private fun writeNextDescriptor(g: BluetoothGatt) {
         val d = descQueue.pollFirst()
         if (d == null) {
-            stage = "Xong — đã đăng ký $subscribedCount/$expectedCount characteristic"
-            running = false
-            busy.set(false)
+            missingChars = if (missingUuids.isEmpty()) null else missingUuids.joinToString("; ")
+            stage = "Đã đăng ký $subscribedCount/$expectedCount — đang gửi hello + xác thực…"
+            startAuth(g)
             return
         }
         try {
@@ -206,6 +277,72 @@ object CcuBle {
             fail("Thiếu quyền ghi GATT")
         } catch (e: Exception) {
             writeNextDescriptor(g)
+        }
+    }
+
+    // Bước 3 (dò theo n3.j.java case 3 + default, n3.o.java m()/f()/g()):
+    //   1) "hello" cmd=2 → kênh f8736L: [0x00,0x02, seq,0,0,0x12,0x34]
+    //   2) AuthenticationV2 → kênh DDT (f8738N), đóng gói [1,1] + mã CCU (14B) + passkey (6B),
+    //      gửi qua một gói "khởi đầu" rồi các đoạn dữ liệu tới kênh f8740P.
+    //      LƯU Ý: khuôn gói "khởi đầu" (hàm f() gốc, op "E1(gatt,13,characteristic)") không có đủ mã
+    //      nguồn để dò chính xác — đoạn dưới dùng khuôn 4 byte giống g() ([seq, 0,0,0], offset=0) làm
+    //      phỏng đoán hợp lý nhất; nếu xe không phản hồi đúng, bước này cần chỉnh lại theo kết quả test.
+    private fun startAuth(g: BluetoothGatt) {
+        val code = authCcuCode
+        val pass = authPasskey
+        if (code == null || pass == null) {
+            failAuth("Thiếu mã CCU/passkey")
+            return
+        }
+        writeQueue.clear()
+        val seqHello = nextSeq()
+        writeQueue.addLast(WriteOp(HELLO_UUID, byteArrayOf(0x00, 0x02, seqHello.toByte(), 0, 0, 0x12, 0x34)))
+
+        val authPayload = byteArrayOf(1, 1) + code.toByteArray(Charsets.US_ASCII) + pass.toByteArray(Charsets.US_ASCII)
+        val seqAuth = nextSeq()
+        // Gói "khởi đầu DDT" — phỏng đoán: [seq, offHi=0, offMid=0, offLo=0] không kèm dữ liệu
+        writeQueue.addLast(WriteOp(DDT_UUID, byteArrayOf(seqAuth.toByte(), 0, 0, 0)))
+
+        var offset = 0
+        val chunkSize = 20 // giống g() gốc: max(20, min(180, mtu-4)) với mtu mặc định 23
+        while (offset < authPayload.size) {
+            val end = minOf(authPayload.size, offset + chunkSize)
+            val header = byteArrayOf(seqAuth.toByte(), (offset ushr 16).toByte(), (offset ushr 8).toByte(), offset.toByte())
+            writeQueue.addLast(WriteOp(DATA_UUID, header + authPayload.copyOfRange(offset, end)))
+            offset = end
+        }
+        authStage = "Đang gửi hello…"
+        runNextWrite(g)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun runNextWrite(g: BluetoothGatt) {
+        val op = writeQueue.pollFirst()
+        if (op == null) {
+            authStage = "Đã gửi xong hello + AuthenticationV2 — chờ xe phản hồi (xem mục notify)"
+            running = false
+            busy.set(false)
+            return
+        }
+        val service = g.getService(SERVICE_UUID)
+        val c = service?.getCharacteristic(op.uuid)
+        if (c == null) {
+            failAuth("Không thấy characteristic ${shortU(op.uuid)} để ghi")
+            return
+        }
+        authStage = when (op.uuid) {
+            HELLO_UUID -> "Đang gửi hello…"
+            DDT_UUID -> "Đang gửi tín hiệu bắt đầu DDT…"
+            else -> "Đang gửi gói dữ liệu xác thực…"
+        }
+        try {
+            c.value = op.value
+            val ok = g.writeCharacteristic(c)
+            if (!ok) failAuth("Không ghi được ${shortU(op.uuid)} (writeCharacteristic trả false)")
+        } catch (e: SecurityException) {
+            failAuth("Thiếu quyền ghi GATT")
+        } catch (e: Exception) {
+            failAuth(e.message ?: "Lỗi ghi GATT")
         }
     }
 }

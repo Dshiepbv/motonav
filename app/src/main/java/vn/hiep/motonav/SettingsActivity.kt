@@ -450,17 +450,23 @@ class SettingsActivity : Activity() {
                 note = "Bước đầu để làm hiện icon dẫn đường trên màn xe (khác kênh dữ liệu ở trên) — đang thử nghiệm, chạm để dò lại.",
             ) { CcuAuth.queryOnce(this, prefs.tftDevice); build() }
 
-            // ---- Chẩn đoán bước 2/3: quét + kết nối BLE, đăng ký nhận dữ liệu (chưa xác thực) ----
+            // ---- Chẩn đoán bước 2+3: quét + kết nối BLE, đăng ký nhận dữ liệu, gửi hello + xác thực ----
             val bleStatus = when {
                 CcuBle.running -> "🔄 ${CcuBle.stage}"
-                CcuBle.subscribedCount > 0 -> "✅ ${CcuBle.stage} — đăng ký được ${CcuBle.subscribedCount}/${CcuBle.expectedCount} characteristic"
                 CcuBle.error != null -> "⚠️ ${CcuBle.error}"
+                CcuBle.authError != null -> "⚠️ Đăng ký ${CcuBle.subscribedCount}/${CcuBle.expectedCount} OK, nhưng bước gửi xác thực lỗi: ${CcuBle.authError}"
+                CcuBle.subscribedCount > 0 -> "✅ Đăng ký ${CcuBle.subscribedCount}/${CcuBle.expectedCount} · ${CcuBle.authStage}"
                 else -> "Chưa thử"
             }
+            val bleNote = buildString {
+                append("Cần bấm bước 1 lấy mã CCU trước. Quét BLE tìm đúng màn xe, kết nối GATT, đăng ký nhận dữ liệu rồi gửi hello + xác thực (mã CCU/passkey) — chạm để thử lại.")
+                CcuBle.missingChars?.let { append("\nChưa đăng ký được: ") ; append(it) }
+                CcuBle.lastNotify?.let { append("\nXe phản hồi gần nhất: ") ; append(it) }
+            }
             action(
-                "Thử nghiệm: quét + kết nối BLE (bước 2)",
+                "Thử nghiệm: quét + kết nối BLE + xác thực (bước 2+3)",
                 bleStatus,
-                note = "Cần bấm bước 1 lấy mã CCU trước. Quét Bluetooth năng lượng thấp tìm đúng màn xe rồi kết nối GATT — chạm để thử lại.",
+                note = bleNote,
             ) {
                 if (!hasBleScanPermission() || !hasBtPermission()) {
                     requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), REQ_BLE_PERM)
