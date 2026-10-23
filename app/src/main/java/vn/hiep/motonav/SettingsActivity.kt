@@ -14,7 +14,6 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 
@@ -37,7 +36,7 @@ class SettingsActivity : Activity() {
         val scroll = ScrollView(this).apply { setBackgroundColor(bg) }
         list = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14f), dp(14f), dp(14f), dp(24f))
+            setPadding(dp(12f), dp(10f), dp(12f), dp(16f))
         }
         scroll.addView(list)
         setContentView(scroll)
@@ -50,9 +49,10 @@ class SettingsActivity : Activity() {
 
     private fun dp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics).toInt()
 
-    private fun rounded(color: Int, r: Float = 14f) = GradientDrawable().apply {
+    private fun rounded(color: Int, r: Float = 14f, strokeColor: Int = 0, strokeDp: Float = 0f) = GradientDrawable().apply {
         setColor(color)
         cornerRadius = dp(r).toFloat()
+        if (strokeDp > 0f) setStroke(dp(strokeDp), strokeColor)
     }
 
     private fun tv(size: Float, color: Int = Color.WHITE, bold: Boolean = false) = TextView(this).apply {
@@ -76,30 +76,32 @@ class SettingsActivity : Activity() {
         }
     }
 
-    /** Tiêu đề mục: huy hiệu biểu tượng tròn + tên, trực quan hơn là chỉ chữ in hoa. */
+    private val panelBorder = Color.parseColor("#2A323C")
+
+    /** Tiêu đề mục: huy hiệu biểu tượng tròn + tên, nhóm bên dưới gói trong khung viền gọn. */
     private fun header(icon: String, t: String) {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(2f), dp(22f), 0, dp(8f))
+            setPadding(dp(2f), dp(14f), 0, dp(5f))
         }
         row.addView(
-            tv(14f).apply {
+            tv(12f).apply {
                 text = icon
                 gravity = Gravity.CENTER
-                background = rounded(Color.parseColor("#1C2229"), 9f)
+                background = rounded(Color.parseColor("#1C2229"), 7f)
             },
-            LinearLayout.LayoutParams(dp(28f), dp(28f)),
+            LinearLayout.LayoutParams(dp(22f), dp(22f)),
         )
         row.addView(
-            tv(13f, Color.parseColor("#5DD3A6"), true).apply { text = t.uppercase() },
-            LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(10f) },
+            tv(12f, Color.parseColor("#5DD3A6"), true).apply { text = t.uppercase() },
+            LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8f) },
         )
         list.addView(row)
         group = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(card, 16f)
-            setPadding(dp(14f), dp(4f), dp(14f), dp(4f))
+            background = rounded(card, 12f, panelBorder, 1f)
+            setPadding(dp(12f), dp(2f), dp(12f), dp(2f))
         }
         list.addView(group)
     }
@@ -107,7 +109,7 @@ class SettingsActivity : Activity() {
     private fun divider() {
         val g = group ?: return
         if (g.childCount == 0) return
-        g.addView(View(this).apply { setBackgroundColor(Color.parseColor("#262C34")) }, LinearLayout.LayoutParams(-1, 1))
+        g.addView(View(this).apply { setBackgroundColor(Color.parseColor("#20262D")) }, LinearLayout.LayoutParams(-1, 1))
     }
 
     private fun labelCol(title: String, sub: String?, note: String? = null, titleColor: Int = Color.WHITE): LinearLayout = LinearLayout(this).apply {
@@ -116,10 +118,42 @@ class SettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        top.addView(tv(16f, titleColor).apply { text = title })
+        top.addView(tv(14f, titleColor).apply { text = title })
         if (note != null) top.addView(infoIcon(note, title))
         addView(top)
-        if (sub != null) addView(tv(13f, muted).apply { text = sub; setPadding(0, dp(2f), 0, 0) })
+        if (sub != null) addView(tv(11.5f, muted).apply { text = sub; setPadding(0, dp(1f), 0, 0) })
+    }
+
+    /** Hộp 2 nấc TẮT/BẬT gọn (thay cho Switch hệ thống, đỡ chiếm chỗ). */
+    private fun pillToggle(value: Boolean, onChange: (Boolean) -> Unit): LinearLayout {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = rounded(Color.parseColor("#0F1216"), 8f)
+            setPadding(dp(2f), dp(2f), dp(2f), dp(2f))
+        }
+        val off = tv(10.5f, muted, true).apply { text = "TẮT"; gravity = Gravity.CENTER; setPadding(dp(8f), dp(5f), dp(8f), dp(5f)) }
+        val on = tv(10.5f, muted, true).apply { text = "BẬT"; gravity = Gravity.CENTER; setPadding(dp(8f), dp(5f), dp(8f), dp(5f)) }
+        var cur = value
+        fun paint() {
+            off.background = if (!cur) rounded(Color.parseColor("#FF6B60"), 6f) else null
+            off.setTextColor(if (!cur) Color.WHITE else muted)
+            on.background = if (cur) rounded(accent, 6f) else null
+            on.setTextColor(if (cur) Color.WHITE else muted)
+        }
+        paint()
+        fun set(v: Boolean) {
+            if (v == cur) return
+            cur = v
+            paint()
+            onChange(v)
+            Live.changed()
+        }
+        off.setOnClickListener { set(false) }
+        on.setOnClickListener { set(true) }
+        box.addView(off)
+        box.addView(on)
+        box.tag = Runnable { set(!cur) } // dòng cả hàng bấm được, không chỉ riêng hộp
+        return box
     }
 
     /** Hàng có công tắc bật/tắt. */
@@ -128,18 +162,12 @@ class SettingsActivity : Activity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(12f), 0, dp(12f))
+            setPadding(0, dp(8f), 0, dp(8f))
         }
         row.addView(labelCol(title, sub, note), LinearLayout.LayoutParams(0, -2, 1f))
-        val sw = Switch(this).apply {
-            isChecked = value
-            setOnCheckedChangeListener { _, v ->
-                onChange(v)
-                Live.changed()
-            }
-        }
-        row.setOnClickListener { sw.toggle() }
-        row.addView(sw)
+        val pill = pillToggle(value, onChange)
+        row.setOnClickListener { (pill.tag as Runnable).run() }
+        row.addView(pill)
         group?.addView(row)
     }
 
@@ -148,27 +176,27 @@ class SettingsActivity : Activity() {
         divider()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(12f), 0, dp(12f))
+            setPadding(0, dp(8f), 0, dp(8f))
         }
         box.addView(labelCol(title, sub, note))
         val seg = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = rounded(Color.parseColor("#0F1216"), 10f)
+            background = rounded(Color.parseColor("#0F1216"), 9f)
             setPadding(dp(3f), dp(3f), dp(3f), dp(3f))
         }
         val views = ArrayList<TextView>()
         options.forEachIndexed { i, o ->
-            val t = tv(14f, Color.WHITE, true).apply {
+            val t = tv(12.5f, Color.WHITE, true).apply {
                 text = o
                 gravity = Gravity.CENTER
-                setPadding(dp(4f), dp(9f), dp(4f), dp(9f))
+                setPadding(dp(4f), dp(7f), dp(4f), dp(7f))
             }
             views.add(t)
             seg.addView(t, LinearLayout.LayoutParams(0, -2, 1f))
         }
         fun paint(sel: Int) {
             views.forEachIndexed { i, v ->
-                v.background = if (i == sel) rounded(accent, 8f) else null
+                v.background = if (i == sel) rounded(accent, 7f) else null
                 v.setTextColor(if (i == sel) Color.WHITE else muted)
             }
         }
@@ -180,7 +208,7 @@ class SettingsActivity : Activity() {
                 Live.changed()
             }
         }
-        box.addView(seg, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) })
+        box.addView(seg, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
         group?.addView(box)
     }
 
@@ -190,11 +218,11 @@ class SettingsActivity : Activity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(14f), 0, dp(14f))
+            setPadding(0, dp(10f), 0, dp(10f))
             setOnClickListener { onClick() }
         }
         row.addView(labelCol(title, sub, note, color), LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(tv(20f, muted).apply { text = "›" })
+        row.addView(tv(18f, muted).apply { text = "›" })
         group?.addView(row)
     }
 
