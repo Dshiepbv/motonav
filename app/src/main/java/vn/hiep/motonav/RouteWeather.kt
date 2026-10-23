@@ -172,7 +172,7 @@ object RouteWeather {
         marks.forEachIndexed { i, m ->
             if (i > 0) sb.append(',')
             val night = isNightAt(m.minutes)
-            val id = "wx-${m.cat}-${if (night) 1 else 0}-${m.label}"
+            val id = "wx-${m.cat}-${if (night) 1 else 0}"
             sb.append("""{"type":"Feature","properties":{"img":${JSONObject.quote(id)},"c":${m.cat},"n":${if (night) 1 else 0},"l":${JSONObject.quote(m.label)}},"geometry":{"type":"Point","coordinates":[${m.lon},${m.lat}]}}""")
         }
         sb.append("]}")
