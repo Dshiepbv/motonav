@@ -11,7 +11,10 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
 import java.util.ArrayDeque
@@ -86,6 +89,7 @@ object CcuBle {
     @Volatile private var round = 0
     @Volatile private var savedCtx: Context? = null
     @Volatile private var savedDeviceAddr: String? = null
+    @Volatile private var btReceiver: BroadcastReceiver? = null
 
     private class WriteOp(val uuid: UUID, val value: ByteArray)
     private val writeQueue = ArrayDeque<WriteOp>()
@@ -113,6 +117,7 @@ object CcuBle {
             gatt = null
             descQueue.clear()
             writeQueue.clear()
+            unregisterBtReceiver()
             busy.set(false)
             if (!busy.compareAndSet(false, true)) return
         }
@@ -131,7 +136,34 @@ object CcuBle {
         val appCtx = ctx.applicationContext ?: ctx
         savedCtx = appCtx
         savedDeviceAddr = deviceAddr
+        val a = (appCtx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+        if (a == null || !a.isEnabled) {
+            fail("Bluetooth đang tắt — anh bật Bluetooth lên rồi bấm lại nhé")
+            return
+        }
+        // Theo dõi Bluetooth bị tắt GIỮA CHỪNG (vd người dùng tắt tay để "reset") — nếu không, cả
+        // vòng quét/kết nối sẽ treo vô ích đến khi hết giờ thay vì báo lỗi ngay.
+        unregisterBtReceiver()
+        val recv = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, intent: Intent) {
+                val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)
+                if (state == BluetoothAdapter.STATE_TURNING_OFF || state == BluetoothAdapter.STATE_OFF) {
+                    TripLog.ev("ccuBle", "btTurnedOffMidRun" to state)
+                    fail("Bluetooth bị tắt giữa chừng — anh bật lại rồi bấm lại nhé")
+                }
+            }
+        }
+        btReceiver = recv
+        try { appCtx.registerReceiver(recv, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)) } catch (_: Exception) {}
         startRound(appCtx, deviceAddr, ccuCode)
+    }
+
+    private fun unregisterBtReceiver() {
+        val r = btReceiver
+        if (r != null) {
+            try { savedCtx?.unregisterReceiver(r) } catch (_: Exception) {}
+            btReceiver = null
+        }
     }
 
     private fun startRound(ctx: Context, deviceAddr: String, ccuCode: String) {
@@ -216,9 +248,11 @@ object CcuBle {
         stage = "Lỗi"
         running = false
         busy.set(false)
+        unregisterBtReceiver()
     }
 
     private fun failAuth(msg: String) {
+        unregisterBtReceiver()
         authError = msg
         authStage = "Lỗi"
         running = false
