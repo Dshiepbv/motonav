@@ -395,11 +395,12 @@ object CcuBle {
 
     // Bước 3 (dò theo n3.j.java case 3 + default, n3.o.java m()/f()/g()):
     //   1) "hello" cmd=2 → kênh f8736L: [0x00,0x02, seq,0,0,0x12,0x34]
-    //   2) AuthenticationV2 → kênh DDT (f8738N), đóng gói [1,1] + mã CCU (14B) + passkey (6B),
-    //      gửi qua một gói "khởi đầu" rồi các đoạn dữ liệu tới kênh f8740P.
-    //      LƯU Ý: khuôn gói "khởi đầu" (hàm f() gốc, op "E1(gatt,13,characteristic)") không có đủ mã
-    //      nguồn để dò chính xác — đoạn dưới dùng khuôn 4 byte giống g() ([seq, 0,0,0], offset=0) làm
-    //      phỏng đoán hợp lý nhất; nếu xe không phản hồi đúng, bước này cần chỉnh lại theo kết quả test.
+    //   2) AuthenticationV2 → đóng gói [1,1] + mã CCU (14B) + passkey (6B), gửi từng đoạn tới kênh
+    //      f8740P. Trước đây đoán có thêm một gói "khởi đầu" ghi vào kênh DDT (f8738N, hàm f() gốc,
+    //      op "E1(gatt,13,characteristic)") — test thật cho thấy characteristic đó KHÔNG ghi được
+    //      (writeCharacteristic trả false ngay, tức sai kiểu ghi hoặc không có quyền ghi): nhiều khả
+    //      năng "E1" không phải một lệnh ghi dữ liệu mà chỉ là thao tác đăng ký lại notify cho DDT
+    //      (đã làm ở bước 2 rồi) — nên bỏ bước ghi riêng này, đi thẳng vào gửi từng đoạn dữ liệu.
     private fun startAuth(g: BluetoothGatt) {
         val code = authCcuCode
         val pass = authPasskey
@@ -413,8 +414,6 @@ object CcuBle {
 
         val authPayload = byteArrayOf(1, 1) + code.toByteArray(Charsets.US_ASCII) + pass.toByteArray(Charsets.US_ASCII)
         val seqAuth = nextSeq()
-        // Gói "khởi đầu DDT" — phỏng đoán: [seq, offHi=0, offMid=0, offLo=0] không kèm dữ liệu
-        writeQueue.addLast(WriteOp(DDT_UUID, byteArrayOf(seqAuth.toByte(), 0, 0, 0)))
 
         var offset = 0
         val chunkSize = 20 // giống g() gốc: max(20, min(180, mtu-4)) với mtu mặc định 23
@@ -445,13 +444,23 @@ object CcuBle {
         }
         authStage = when (op.uuid) {
             HELLO_UUID -> "Đang gửi hello…"
-            DDT_UUID -> "Đang gửi tín hiệu bắt đầu DDT…"
             else -> "Đang gửi gói dữ liệu xác thực…"
         }
+        // Chọn đúng kiểu ghi theo property thật của characteristic — ghi sai kiểu (có hồi đáp/không hồi
+        // đáp) khiến writeCharacteristic() trả false ngay mà không hề chạm tới sóng. Nếu characteristic
+        // không hỗ trợ ghi kiểu nào cả thì bỏ qua op này (không phải lỗi chết) và sang op kế tiếp.
+        val canWriteDefault = (c.properties and BluetoothGattCharacteristic.PROPERTY_WRITE) != 0
+        val canWriteNoResp = (c.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0
+        if (!canWriteDefault && !canWriteNoResp) {
+            TripLog.ev("ccuBle", "skipNonWritable" to shortU(op.uuid), "props" to c.properties)
+            runNextWrite(g)
+            return
+        }
+        c.writeType = if (canWriteDefault) BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT else BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
         try {
             c.value = op.value
             val ok = g.writeCharacteristic(c)
-            if (!ok) failAuth("Không ghi được ${shortU(op.uuid)} (writeCharacteristic trả false)")
+            if (!ok) failAuth("Không ghi được ${shortU(op.uuid)} (writeCharacteristic trả false, props=${c.properties})")
         } catch (e: SecurityException) {
             failAuth("Thiếu quyền ghi GATT")
         } catch (e: Exception) {
