@@ -158,6 +158,7 @@ class DriveService : Service(), LocationListener {
         }
         handler.postDelayed(watchdog, 3000)
         handler.postDelayed(fgWatch, 1500)
+        handler.postDelayed(tftWatch, 1000)
         // Camera theo thông báo CSGT: tìm toạ độ ngã tư trên OSM (chạy nền, chỉ khi còn điểm chưa có)
         if (OfficialCameras.needsResolve(this)) {
             Thread {
@@ -225,6 +226,7 @@ class DriveService : Service(), LocationListener {
         navExecutor.shutdownNow()
         nav.stop()
         voice.shutdown()
+        TftLink.stop()
         Live.removeListener(overlayListener)
         overlay.hide()
         Live.serviceRunning = false
@@ -272,6 +274,29 @@ class DriveService : Service(), LocationListener {
                 Live.changed()
             }
             handler.postDelayed(this, if (prefs.batterySaver) 3000 else 1200)
+        }
+    }
+
+    /** Đẩy dẫn đường (kênh chữ nhẹ) lên màn TFT của xe qua Bluetooth, nếu đã bật trong Cài đặt. */
+    private var tftLinkWasOn = false
+    private val tftWatch = object : Runnable {
+        override fun run() {
+            val on = prefs.tftLink
+            if (on != tftLinkWasOn) {
+                tftLinkWasOn = on
+                if (on) TftLink.start(this@DriveService, prefs.tftDevice) else TftLink.stop()
+            }
+            if (on) {
+                TftLink.update(
+                    active = Live.ownNav && Live.navActive,
+                    sign = Live.maneuverSign,
+                    roundabout = Live.maneuverSign == 6,
+                    distanceM = if (Live.navMeters >= 0) Live.navMeters else 0,
+                    road = Live.navInstruction ?: Live.maneuverLabel ?: "",
+                    etaMinutes = (Live.etaMs / 60000L).toInt(),
+                )
+            }
+            handler.postDelayed(this, 1000)
         }
     }
 

@@ -1,8 +1,11 @@
 package vn.hiep.motonav
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.bluetooth.BluetoothManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -387,6 +390,26 @@ class SettingsActivity : Activity() {
             }
         }
 
+        header("📟", "Màn TFT xe (Bluetooth)")
+        toggle(
+            "Đẩy dẫn đường lên màn xe",
+            if (prefs.tftDevice.isNotBlank()) "Thiết bị: ${prefs.tftDeviceName.ifBlank { prefs.tftDevice }}" else "Chưa chọn thiết bị",
+            prefs.tftLink,
+            note = "Gửi mũi tên rẽ, khoảng cách, tên đường, giờ đến — dạng CHỮ rất nhẹ qua Bluetooth, không gửi hình ảnh nên không nghẽn/disconnect như các app khác. Thử nghiệm giai đoạn 1: mã mũi tên rẽ bên màn xe chưa được xác nhận 100%, cần chạy thử thực tế.",
+        ) { on ->
+            if (on && !hasBtPermission()) {
+                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQ_BT_PERM)
+                toast("Cho phép quyền Bluetooth rồi bật lại")
+            } else {
+                prefs.tftLink = on
+            }
+        }
+        action(
+            "Chọn thiết bị màn xe",
+            if (prefs.tftDevice.isNotBlank()) "Đang chọn: ${prefs.tftDeviceName.ifBlank { prefs.tftDevice }}" else "Ghép đôi (pair) với màn xe trong Cài đặt Bluetooth của máy trước, rồi chọn ở đây",
+            note = "Danh sách lấy từ các thiết bị Bluetooth đã ghép đôi (pair) với điện thoại.",
+        ) { pickTftDevice() }
+
         header("⚙️", "Hệ thống")
         val packOk = try { OfflinePack.open(this) } catch (_: Exception) { false }
         action(
@@ -456,6 +479,52 @@ class SettingsActivity : Activity() {
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
 
+    private fun hasBtPermission(): Boolean =
+        android.os.Build.VERSION.SDK_INT < 31 ||
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_BT_PERM && hasBtPermission()) {
+            prefs.tftLink = true
+            build()
+        }
+    }
+
+    /** Chọn trong các thiết bị Bluetooth đã ghép đôi (pair) với máy — màn TFT của xe phải pair trước. */
+    private fun pickTftDevice() {
+        if (!hasBtPermission()) {
+            requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQ_BT_PERM)
+            return
+        }
+        try {
+            val adapter = (getSystemService(BluetoothManager::class.java))?.adapter
+            if (adapter == null || !adapter.isEnabled) {
+                toast("Bật Bluetooth của máy trước")
+                return
+            }
+            val devices = adapter.bondedDevices.toList()
+            if (devices.isEmpty()) {
+                toast("Chưa ghép đôi (pair) với thiết bị nào. Vào Cài đặt Bluetooth của máy để pair với màn xe trước.")
+                return
+            }
+            val names = devices.map { "${it.name ?: "(không tên)"}\n${it.address}" }.toTypedArray()
+            AlertDialog.Builder(this)
+                .setTitle("Chọn màn TFT xe")
+                .setItems(names) { _, i ->
+                    val d = devices[i]
+                    prefs.tftDevice = d.address
+                    prefs.tftDeviceName = d.name ?: d.address
+                    toast("Đã chọn ${d.name ?: d.address}")
+                    build()
+                }
+                .setNegativeButton("Huỷ", null)
+                .show()
+        } catch (_: SecurityException) {
+            toast("Thiếu quyền Bluetooth")
+        }
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -487,5 +556,6 @@ class SettingsActivity : Activity() {
     companion object {
         private const val REQ_IMPORT = 51
         private const val REQ_EXPORT = 52
+        private const val REQ_BT_PERM = 53
     }
 }

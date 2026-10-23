@@ -121,6 +121,21 @@ class Prefs(ctx: Context) {
         get() = sp.getString("vmstyle", "") ?: ""
         set(v) = sp.edit().putString("vmstyle", v.trim()).apply()
 
+    /** Đẩy dẫn đường (dạng chữ, nhẹ) lên màn TFT của xe qua Bluetooth. */
+    var tftLink: Boolean
+        get() = sp.getBoolean("tftLink", false)
+        set(v) = sp.edit().putBoolean("tftLink", v).apply()
+
+    /** Địa chỉ MAC Bluetooth đã ghép đôi của màn TFT xe (rỗng = chưa chọn thiết bị). */
+    var tftDevice: String
+        get() = sp.getString("tftDevice", "") ?: ""
+        set(v) = sp.edit().putString("tftDevice", v.trim()).apply()
+
+    /** Tên hiển thị của thiết bị trên, chỉ để hiện trong Cài đặt. */
+    var tftDeviceName: String
+        get() = sp.getString("tftDeviceName", "") ?: ""
+        set(v) = sp.edit().putString("tftDeviceName", v.trim()).apply()
+
     /** Chuyến đang đi (để dẫn tiếp nếu app bị tắt giữa chừng). */
     fun saveTrip(lat: Double, lon: Double, name: String?) {
         sp.edit().putString("tripLat", lat.toString()).putString("tripLon", lon.toString())
