@@ -269,6 +269,107 @@ object WayLimits {
     }
 }
 
+/**
+ * Vùng tốc độ cố định theo ĐÚNG RANH GIỚI khu vực (đa giác) — ví dụ đường viền cam "Khu công nghệ
+ * cao" trên bản đồ quy hoạch. Ghi bằng cách chạy một vòng theo đường viền khu (chỉ cần đi hết viền,
+ * không cần đi hết từng con đường bên trong), rồi khép vòng lại: mọi vị trí nằm TRONG đa giác đó đều
+ * được áp mức tốc độ đã chọn, kể cả những đường nhỏ bên trong app chưa từng đi qua.
+ */
+object ZonePolygons {
+    class Zone(val id: String, val kmh: Int, val lats: DoubleArray, val lons: DoubleArray)
+
+    @Volatile
+    private var cache: List<Zone>? = null
+
+    fun all(ctx: Context): List<Zone> {
+        cache?.let { return it }
+        val sp = ctx.applicationContext.getSharedPreferences("motonav", Context.MODE_PRIVATE)
+        val list = ArrayList<Zone>()
+        try {
+            val arr = JSONArray(sp.getString("zone_polys", "[]"))
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val pts = o.getJSONArray("pts")
+                val lats = DoubleArray(pts.length() / 2)
+                val lons = DoubleArray(pts.length() / 2)
+                for (k in lats.indices) { lats[k] = pts.getDouble(k * 2); lons[k] = pts.getDouble(k * 2 + 1) }
+                list.add(Zone(o.getString("id"), o.getInt("kmh"), lats, lons))
+            }
+        } catch (_: Exception) {
+        }
+        cache = list
+        return list
+    }
+
+    private fun save(ctx: Context, list: List<Zone>) {
+        val arr = JSONArray()
+        for (z in list) {
+            val pts = JSONArray()
+            for (i in z.lats.indices) { pts.put(z.lats[i]); pts.put(z.lons[i]) }
+            arr.put(JSONObject().put("id", z.id).put("kmh", z.kmh).put("pts", pts))
+        }
+        ctx.applicationContext.getSharedPreferences("motonav", Context.MODE_PRIVATE)
+            .edit().putString("zone_polys", arr.toString()).apply()
+        cache = list
+    }
+
+    fun add(ctx: Context, kmh: Int, lats: DoubleArray, lons: DoubleArray) {
+        val list = ArrayList(all(ctx))
+        list.add(Zone("p" + System.currentTimeMillis(), kmh, lats, lons))
+        save(ctx, list)
+    }
+
+    /** Thuật toán ray-casting: điểm có nằm trong đa giác không. */
+    private fun inside(lat: Double, lon: Double, lats: DoubleArray, lons: DoubleArray): Boolean {
+        var inside = false
+        var j = lats.size - 1
+        for (i in lats.indices) {
+            if ((lats[i] > lat) != (lats[j] > lat)) {
+                val x = (lons[j] - lons[i]) * (lat - lats[i]) / (lats[j] - lats[i]) + lons[i]
+                if (lon < x) inside = !inside
+            }
+            j = i
+        }
+        return inside
+    }
+
+    fun kmhAt(ctx: Context, lat: Double, lon: Double): Int? =
+        all(ctx).firstOrNull { it.lats.size >= 3 && inside(lat, lon, it.lats, it.lons) }?.kmh
+
+    fun count(ctx: Context): Int = all(ctx).size
+
+    fun clear(ctx: Context) = save(ctx, emptyList())
+}
+
+/** Bộ nhớ tạm trong lúc đang ghi viền khu vực (xem [ZonePolygons]) — chỉ sống trong lúc service chạy. */
+object ZoneRecorder {
+    private val lats = ArrayList<Double>()
+    private val lons = ArrayList<Double>()
+
+    @Synchronized
+    fun reset() { lats.clear(); lons.clear() }
+
+    /** Thêm điểm khi đã đi được > 15 m kể từ điểm ghi trước (giữ số điểm vừa phải). */
+    @Synchronized
+    fun add(lat: Double, lon: Double) {
+        if (lats.isEmpty() || Geo.distance(lats.last(), lons.last(), lat, lon) > 15.0) {
+            lats.add(lat); lons.add(lon)
+        }
+    }
+
+    @Synchronized
+    fun size(): Int = lats.size
+
+    /** Khép vòng và lưu lại. Trả về false nếu chưa đi đủ để tạo thành một vòng (< 3 điểm). */
+    @Synchronized
+    fun finish(ctx: Context, kmh: Int): Boolean {
+        if (lats.size < 3) return false
+        ZonePolygons.add(ctx, kmh, lats.toDoubleArray(), lons.toDoubleArray())
+        reset()
+        return true
+    }
+}
+
 /** Vị trí người dùng tự báo "đường bị chặn/cấm" (dữ liệu bản đồ cũ), lưu trong máy, dùng để né khi tìm đường. */
 object BlockedRoads {
     class Blocked(val id: String, val lat: Double, val lon: Double, val addedAt: Long)

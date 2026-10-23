@@ -308,9 +308,19 @@ class SettingsActivity : Activity() {
                 .setNegativeButton("Huỷ", null)
                 .show()
         }
+        val zp = ZonePolygons.count(this)
+        if (zp > 0) {
+            action("Xoá các khu vực tốc độ cố định đã vẽ ($zp)", "Vẽ ranh giới trong menu ☰ khi đang dẫn đường", Color.parseColor("#FF6B60")) {
+                AlertDialog.Builder(this)
+                    .setMessage("Xoá $zp khu vực tốc độ cố định đã vẽ ranh giới?")
+                    .setPositiveButton("Xoá") { _, _ -> ZonePolygons.clear(this); build() }
+                    .setNegativeButton("Huỷ", null)
+                    .show()
+            }
+        }
         val zn = WayLimits.count(this)
         if (zn > 0) {
-            action("Xoá các đoạn đường đã gán tốc độ cố định ($zn)", "Ghi trong menu ☰ khi đang dẫn đường", Color.parseColor("#FF6B60")) {
+            action("Xoá các đoạn đường đã gán tốc độ cố định ($zn)", "Cách ghi cũ, không còn dùng", Color.parseColor("#FF6B60")) {
                 AlertDialog.Builder(this)
                     .setMessage("Xoá tốc độ cố định đã gán cho $zn đoạn đường?")
                     .setPositiveButton("Xoá") { _, _ -> WayLimits.clear(this); build() }

@@ -627,7 +627,7 @@ class NavActivity : Activity() {
         val items = arrayOf(
             "📝   Ghi chú sự cố (vào nhật ký)",
             "🚧   Báo đường đang đứng bị chặn",
-            if (recording) "⏹   Dừng ghi vùng tốc độ (đang gán ${prefs.recordZoneKmh} km/h)" else "🛣️   Ghi vùng tốc độ cố định theo đường đang chạy",
+            if (recording) "⏹   Dừng ghi ranh giới khu vực (đang gán ${prefs.recordZoneKmh} km/h, ${ZoneRecorder.size()} điểm)" else "🛣️   Vẽ ranh giới khu vực tốc độ cố định",
             "⚙   Cài đặt",
             "🗺   Mở Google Maps",
             "⏱   Màn hình tốc độ lớn",
@@ -676,19 +676,26 @@ class NavActivity : Activity() {
     private fun zoneRecordDialog() {
         val kmhs = arrayOf("30", "40", "50", "60", "70")
         AlertDialog.Builder(this)
-            .setTitle("Chạy qua đường nào gán đường đó mức tốc độ xe máy:")
+            .setTitle("Chạy một vòng theo đường biên (ranh giới) của khu vực, mức tốc độ xe máy áp dụng trong khu:")
             .setItems(kmhs) { _, i ->
                 val kmh = kmhs[i].toInt()
+                ZoneRecorder.reset()
                 prefs.recordZoneKmh = kmh
-                toast("Đang ghi $kmh km/h — chạy qua hết các đường cần gán rồi vào ☰ bấm Dừng ghi")
+                toast("Đang ghi $kmh km/h — chạy một vòng theo đường biên ngoài cùng của khu vực (không cần chạy hết đường bên trong), xong vào ☰ bấm Dừng ghi để khép vùng")
             }
             .setNegativeButton("Huỷ", null)
             .show()
     }
 
     private fun stopZoneRecording() {
+        val kmh = prefs.recordZoneKmh
         prefs.recordZoneKmh = -1
-        toast("Đã dừng ghi — đã gán ${WayLimits.count(this)} đoạn đường tổng cộng")
+        val ok = ZoneRecorder.finish(this, kmh)
+        if (ok) {
+            toast("Đã khép vùng — tổng cộng ${ZonePolygons.count(this)} khu vực đang áp dụng tốc độ cố định")
+        } else {
+            toast("Chưa đủ điểm để khép vùng (cần chạy xa hơn dọc theo đường biên) — thử ghi lại")
+        }
     }
 
     private fun buildUi(): View {
