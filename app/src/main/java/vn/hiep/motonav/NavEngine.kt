@@ -167,7 +167,10 @@ class NavEngine(
         val proj = LocalProjection(lat, lon)
         val n = r.lats.size
         val lo = max(0, seg - 5)
-        val hi = min(n - 2, seg + 80)
+        var hi = min(n - 2, seg + 80)
+        // Giới hạn thêm theo khoảng cách thực (không chỉ số điểm) — tránh khớp nhảy xa hàng trăm mét
+        // chỉ vì 1 lần định vị nhiễu trùng hợp gần một điểm xa trên tuyến (ví dụ gần cuối tuyến)
+        while (hi > seg && r.cum[hi] - r.cum[seg] > 400.0) hi--
         var bestD = Double.MAX_VALUE
         var bestI = seg
         var bestT = 0.0
@@ -212,8 +215,9 @@ class NavEngine(
         Live.snapLat = r.lats[bestI] + bestT * (r.lats[bestI + 1] - r.lats[bestI])
         Live.snapLon = r.lons[bestI] + bestT * (r.lons[bestI + 1] - r.lons[bestI])
 
-        // Đến nơi
-        if (remaining < 30) {
+        // Đến nơi — chốt thêm bằng khoảng cách thẳng tới điểm đích thực tế, tránh báo "đến nơi"
+        // sớm khi khớp tuyến bị nhảy nhầm tới gần cuối tuyến (ví dụ GPS nhiễu/tuyến vòng gần đích)
+        if (remaining < 30 && Geo.distance(lat, lon, Live.destLat, Live.destLon) < 40) {
             alert("Đã đến nơi${Live.destName?.let { ": $it" } ?: ""}", "Đã đến nơi", false)
             finish()
             return

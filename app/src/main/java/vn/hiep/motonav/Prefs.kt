@@ -214,6 +214,54 @@ object CameraStore {
     fun clear(ctx: Context) = save(ctx, emptyList())
 }
 
+/**
+ * Vùng tốc độ cố định do người dùng tự đặt (ví dụ cả khu công nghệ cao quy định chung 50 km/h cho
+ * xe máy, không theo từng đoạn đường/làn trên OSM) — đè lên kết quả tính theo thẻ OSM khi ở trong vùng.
+ */
+object SpeedZones {
+    class Zone(val id: String, val lat: Double, val lon: Double, val radius: Double, val kmh: Int)
+
+    @Volatile
+    private var cache: List<Zone>? = null
+
+    fun all(ctx: Context): List<Zone> {
+        cache?.let { return it }
+        val sp = ctx.applicationContext.getSharedPreferences("motonav", Context.MODE_PRIVATE)
+        val list = ArrayList<Zone>()
+        try {
+            val arr = JSONArray(sp.getString("speed_zones", "[]"))
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                list.add(Zone(o.getString("id"), o.getDouble("lat"), o.getDouble("lon"), o.getDouble("r"), o.getInt("kmh")))
+            }
+        } catch (_: Exception) {
+        }
+        cache = list
+        return list
+    }
+
+    private fun save(ctx: Context, list: List<Zone>) {
+        val arr = JSONArray()
+        for (z in list) arr.put(JSONObject().put("id", z.id).put("lat", z.lat).put("lon", z.lon).put("r", z.radius).put("kmh", z.kmh))
+        ctx.applicationContext.getSharedPreferences("motonav", Context.MODE_PRIVATE)
+            .edit().putString("speed_zones", arr.toString()).apply()
+        cache = list
+    }
+
+    fun add(ctx: Context, lat: Double, lon: Double, radius: Double, kmh: Int) {
+        val list = ArrayList(all(ctx))
+        list.removeAll { Geo.distance(it.lat, it.lon, lat, lon) < radius }
+        list.add(Zone("z" + System.currentTimeMillis(), lat, lon, radius, kmh))
+        save(ctx, list)
+    }
+
+    /** Tốc độ cố định tại vị trí này, nếu nằm trong một vùng đã đặt. */
+    fun kmhAt(ctx: Context, lat: Double, lon: Double): Int? =
+        all(ctx).firstOrNull { Geo.distance(lat, lon, it.lat, it.lon) <= it.radius }?.kmh
+
+    fun clear(ctx: Context) = save(ctx, emptyList())
+}
+
 /** Vị trí người dùng tự báo "đường bị chặn/cấm" (dữ liệu bản đồ cũ), lưu trong máy, dùng để né khi tìm đường. */
 object BlockedRoads {
     class Blocked(val id: String, val lat: Double, val lon: Double, val addedAt: Long)

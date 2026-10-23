@@ -626,6 +626,7 @@ class NavActivity : Activity() {
         val items = arrayOf(
             "📝   Ghi chú sự cố (vào nhật ký)",
             "🚧   Báo đường đang đứng bị chặn",
+            "5️⃣0️⃣   Đặt vùng tốc độ cố định quanh đây",
             "⚙   Cài đặt",
             "🗺   Mở Google Maps",
             "⏱   Màn hình tốc độ lớn",
@@ -637,10 +638,11 @@ class NavActivity : Activity() {
                 when (which) {
                     0 -> noteDialog()
                     1 -> reportBlocked()
-                    2 -> startActivity(Intent(this, SettingsActivity::class.java))
-                    3 -> AppActions.openGoogleMaps(this, prefs)
-                    4 -> startActivity(Intent(this, MainActivity::class.java))
-                    5 -> if (Live.serviceRunning) {
+                    2 -> speedZoneDialog()
+                    3 -> startActivity(Intent(this, SettingsActivity::class.java))
+                    4 -> AppActions.openGoogleMaps(this, prefs)
+                    5 -> startActivity(Intent(this, MainActivity::class.java))
+                    6 -> if (Live.serviceRunning) {
                         Live.userStopped = true
                         DriveService.stop(this)
                     } else {
@@ -662,6 +664,28 @@ class NavActivity : Activity() {
         TripLog.ev("note", "text" to "Đường bị chặn (người dùng báo)", "lat" to Live.lat, "lon" to Live.lon,
             "street" to Live.street, "nav" to Live.ownNav)
         toast("Đã ghi nhận: đường bị chặn ở đây, lần sau sẽ né")
+    }
+
+    /**
+     * Đặt một vùng (bán kính ~1,5 km quanh vị trí hiện tại) có tốc độ giới hạn cố định cho xe máy,
+     * dùng khi cả khu vực quy định chung một mức (ví dụ khu công nghệ cao) chứ không theo từng đoạn
+     * đường/làn như dữ liệu OSM, để khỏi bị nhảy số do khớp lẫn giữa các đoạn/làn gần nhau.
+     */
+    private fun speedZoneDialog() {
+        if (!Live.gpsOk) {
+            toast("Chưa có GPS, thử lại sau")
+            return
+        }
+        val kmhs = arrayOf("30", "40", "50", "60", "70")
+        AlertDialog.Builder(this)
+            .setTitle("Tốc độ xe máy cố định ở khu vực này (bán kính ~1,5 km)")
+            .setItems(kmhs) { _, i ->
+                val kmh = kmhs[i].toInt()
+                SpeedZones.add(this, Live.lat, Live.lon, 1500.0, kmh)
+                toast("Đã đặt: trong bán kính 1,5 km quanh đây, xe máy tối đa $kmh km/h")
+            }
+            .setNegativeButton("Huỷ", null)
+            .show()
     }
 
     private fun buildUi(): View {

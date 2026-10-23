@@ -96,6 +96,7 @@ class DriveService : Service(), LocationListener {
     private var currentWayForward: Boolean = true
     private var warnedMotorway: Long? = null
     private var warnedNoMoto: Long? = null
+    private var noMotoCount = 0
     private val matcher = MapMatcher()
     private var noMatchCount = 0
     private var logMatchKey = ""
@@ -384,12 +385,18 @@ class DriveService : Service(), LocationListener {
                     warnedMotorway = m.way.id
                     alert("CẢNH BÁO: đây là đường cao tốc, xe máy không được đi!", "Cảnh báo, xe máy không được đi đường cao tốc", urgent = true, showMs = 10000)
                 }
+                // Hai làn song song cách nhau dải phân cách (ví dụ làn ô tô/xe máy) có thể bị nhầm lẫn
+                // qua lại do GPS nhiễu — chỉ báo khi khớp CHẮC CHẮN (sát đường, nhiều lần liên tiếp)
                 val noMotoHere = m.way.tags["motorcycle"] == "no" || m.way.tags["motor_vehicle"] == "no"
-                if (noMotoHere && m.way.id != warnedNoMoto && speedMps > 3) {
+                if (noMotoHere && m.score < 10.0) noMotoCount++ else noMotoCount = 0
+                if (noMotoCount >= 4 && m.way.id != warnedNoMoto && speedMps > 3) {
                     warnedNoMoto = m.way.id
                     alert("CẢNH BÁO: đang đi vào làn/đường cấm xe máy!", "Cảnh báo, đang đi vào đường cấm xe máy", urgent = true, showMs = 10000)
                 }
-                val res = SpeedRules.resolve(m.way, m.forward, prefs, snap.urbanArea)
+                // Vùng tốc độ cố định do người dùng tự đặt (ví dụ cả khu quy định chung) ghi đè lên
+                // kết quả tính theo từng đoạn/làn — tránh nhảy số do khớp lẫn giữa các làn/đoạn gần nhau
+                val zoneKmh = SpeedZones.kmhAt(this, lat, lon)
+                val res = if (zoneKmh != null) LimitResult(zoneKmh, false) else SpeedRules.resolve(m.way, m.forward, prefs, snap.urbanArea)
                 val key = res?.let { "${it.kmh}/${it.estimated}" } ?: "none"
                 if (key == pendingKey) pendingCount++ else {
                     pendingKey = key
