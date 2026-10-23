@@ -409,8 +409,10 @@ object TftLink {
                     lastCmdSeen = cmd
                     when (cmd) {
                         0x42 -> { // 1/3: xe gửi serial → trả khả năng hỗ trợ
-                            step2Done = false
-                            step3Done = false
+                            // Xe có thể gửi lại cmd này nhiều lần (loan báo định kỳ) kể cả sau khi đã
+                            // qua bước 2/3, 3/3 — KHÔNG được coi là "bắt đầu lại từ đầu" và reset các
+                            // bước đã qua, nếu không sẽ bị kẹt mãi dù xe đã xác nhận xong (lỗi đã gặp
+                            // thực tế: xe báo đã tới bước 3/3 nhưng app vẫn chưa coi là bắt tay xong).
                             if (handshakeStep < 1) handshakeStep = 1
                             send(pack(byteArrayOf(1, 0), 0x51, 0))
                             send(pack(byteArrayOf(0x7c, 6, 0, 1, 0, 0, 0, 0), 0x21, 1))
@@ -419,7 +421,6 @@ object TftLink {
                             val key = if (payload.size > 12) payload.copyOfRange(12, payload.size) else ByteArray(0)
                             send(pack(key, 0x54, 1))
                             step2Done = true
-                            step3Done = false
                             if (handshakeStep < 2) handshakeStep = 2
                         }
                         0x52 -> { // 3/3: xe xác nhận (payload[0] == 1)
