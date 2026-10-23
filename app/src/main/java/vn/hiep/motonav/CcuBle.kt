@@ -350,6 +350,22 @@ object CcuBle {
                         failAuth("Ghi ${shortU(characteristic.uuid)} lỗi (status=$status)")
                         return
                     }
+                    if (characteristic.uuid == HELLO_UUID) {
+                        // Gửi "hello" xong — thử đọc kênh DDT trước khi gửi dữ liệu xác thực: DDT
+                        // (75ab2788) không ghi được (đã xác nhận), nhưng có thể cần ĐỌC nó một lần để
+                        // "đánh thức"/đồng bộ trạng thái phía xe trước khi nó chấp nhận ghi dữ liệu
+                        // (lần trước ghi thẳng dữ liệu bị xe từ chối: status=3, write not permitted).
+                        readDdtTrigger(g)
+                    } else {
+                        runNextWrite(g)
+                    }
+                }
+
+                override fun onCharacteristicRead(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+                    @Suppress("DEPRECATION") val v = characteristic.value ?: ByteArray(0)
+                    val hex = v.joinToString(" ") { String.format("%02X", it) }
+                    TripLog.ev("ccuBle", "ddtRead" to shortU(characteristic.uuid), "status" to status, "hex" to hex)
+                    authStage = "Đang gửi gói dữ liệu xác thực…"
                     runNextWrite(g)
                 }
 
@@ -366,6 +382,30 @@ object CcuBle {
             fail("Thiếu quyền kết nối Bluetooth")
         } catch (e: Exception) {
             fail(e.message ?: "Không mở được GATT")
+        }
+    }
+
+    private fun readDdtTrigger(g: BluetoothGatt) {
+        val service = g.getService(SERVICE_UUID)
+        val c = service?.getCharacteristic(DDT_UUID)
+        if (c == null) {
+            TripLog.ev("ccuBle", "ddtReadSkip" to "characteristic null")
+            authStage = "Đang gửi gói dữ liệu xác thực…"
+            runNextWrite(g)
+            return
+        }
+        authStage = "Đang đọc kênh DDT…"
+        try {
+            val ok = g.readCharacteristic(c)
+            if (!ok) {
+                TripLog.ev("ccuBle", "ddtReadSkip" to "readCharacteristic trả false")
+                authStage = "Đang gửi gói dữ liệu xác thực…"
+                runNextWrite(g)
+            }
+        } catch (e: Exception) {
+            TripLog.ev("ccuBle", "ddtReadSkip" to (e.message ?: "lỗi"))
+            authStage = "Đang gửi gói dữ liệu xác thực…"
+            runNextWrite(g)
         }
     }
 
