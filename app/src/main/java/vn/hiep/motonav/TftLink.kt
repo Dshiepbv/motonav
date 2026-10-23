@@ -240,6 +240,133 @@ object TftLink {
         return true
     }
 
+    // ---------- Khung bản đồ "sketch" thật: nét trắng trên nền đen, hướng lên = hướng đang đi ----------
+
+    /** Dữ liệu mới nhất để vẽ khung sketch — [updateSketch] ghi (gọi ~mỗi giây, rẻ), luồng nền
+     * riêng (tách khỏi kênh chữ) đọc ra vẽ + gửi theo nhịp chậm hơn, không chặn tftWatch. */
+    @Volatile private var skActive = false
+    @Volatile private var skRoute: Route? = null
+    @Volatile private var skLat = 0.0
+    @Volatile private var skLon = 0.0
+    @Volatile private var skHeadingDeg = -1.0
+    @Volatile private var skManLat = 0.0
+    @Volatile private var skManLon = 0.0
+    @Volatile private var skSign = 0
+    @Volatile private var skRoundabout = false
+
+    fun updateSketch(
+        active: Boolean,
+        route: Route?,
+        lat: Double,
+        lon: Double,
+        headingDeg: Double,
+        maneuverLat: Double,
+        maneuverLon: Double,
+        sign: Int,
+        roundabout: Boolean,
+    ) {
+        skActive = active
+        skRoute = route
+        skLat = lat
+        skLon = lon
+        skHeadingDeg = headingDeg
+        skManLat = maneuverLat
+        skManLon = maneuverLon
+        skSign = sign
+        skRoundabout = roundabout
+    }
+
+    /** Vẽ khung sketch: đường đi phía trước (~220m) thành nét trắng trên nền đen, xe luôn ở giữa
+     * dưới và hướng lên trên (heading-up), chấm tại điểm rẽ. Tối giản tối đa cho nhẹ băng thông —
+     * không tô màu, không bo nét dày, JPEG chất lượng thấp (nội dung gần như đen/trắng nên nén rất
+     * nhỏ dù chất lượng thấp). */
+    private fun buildSketchFrame(): ByteArray {
+        val w = screenW
+        val h = screenH
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
+        val c = Canvas(bmp)
+        c.drawColor(Color.BLACK)
+        val route = skRoute
+        val anchorX = w / 2f
+        val anchorY = h * 0.82f
+        if (route == null || route.lats.size < 2) {
+            val p = Paint().apply { color = Color.WHITE; textSize = h * 0.22f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+            c.drawText("MotoNav", w / 2f, h / 2f, p)
+        } else {
+            val proj = LocalProjection(skLat, skLon)
+            // Tìm điểm gần vị trí hiện tại nhất trên tuyến.
+            var idx0 = 0
+            var best = Double.MAX_VALUE
+            for (i in route.lats.indices) {
+                val d = Geo.distance(skLat, skLon, route.lats[i], route.lons[i])
+                if (d < best) { best = d; idx0 = i }
+            }
+            val cum0 = route.cum[idx0]
+            val maxAhead = 220.0
+            val hRad = Math.toRadians(if (skHeadingDeg >= 0) skHeadingDeg else 0.0)
+            val cosH = Math.cos(hRad); val sinH = Math.sin(hRad)
+            // px trên mét — chỉnh theo đoạn xa nhất sẽ vẽ, để luôn vừa khung hình.
+            val scale = (h * 0.68f) / maxAhead.toFloat()
+            val path = android.graphics.Path()
+            var started = false
+            var i = idx0
+            while (i < route.lats.size && route.cum[i] - cum0 <= maxAhead) {
+                val dx = proj.x(route.lons[i])
+                val dy = proj.y(route.lats[i])
+                val rx = dx * cosH - dy * sinH
+                val ry = dx * sinH + dy * cosH
+                val sx = anchorX + (rx * scale).toFloat()
+                val sy = anchorY - (ry * scale).toFloat()
+                if (!started) { path.moveTo(sx, sy); started = true } else path.lineTo(sx, sy)
+                i++
+            }
+            val linePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+            c.drawPath(path, linePaint)
+            // Chấm tại điểm rẽ sắp tới.
+            val mdx = proj.x(skManLon); val mdy = proj.y(skManLat)
+            val mrx = mdx * cosH - mdy * sinH; val mry = mdx * sinH + mdy * cosH
+            val mx = anchorX + (mrx * scale).toFloat(); val my = anchorY - (mry * scale).toFloat()
+            val manPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+            if (skRoundabout) {
+                val ringPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f; isAntiAlias = true }
+                c.drawCircle(mx, my, h * 0.09f, ringPaint)
+            } else {
+                c.drawCircle(mx, my, h * 0.035f, manPaint)
+            }
+        }
+        // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up).
+        val carPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+        val carR = h * 0.06f
+        val carPath = android.graphics.Path().apply {
+            moveTo(anchorX, anchorY - carR)
+            lineTo(anchorX - carR * 0.7f, anchorY + carR * 0.6f)
+            lineTo(anchorX + carR * 0.7f, anchorY + carR * 0.6f)
+            close()
+        }
+        c.drawPath(carPath, carPaint)
+        val out = ByteArrayOutputStream()
+        bmp.compress(Bitmap.CompressFormat.JPEG, 35, out)
+        bmp.recycle()
+        return out.toByteArray()
+    }
+
+    /** Luồng nền riêng gửi khung sketch — tách khỏi [update] (kênh chữ, gọi mỗi giây từ ngoài) để
+     * việc chờ ACK (có thể mất vài giây nếu xe đang nghẽn) không làm chậm kênh chữ. Tự nhịp chậm lại
+     * khi xe không ACK kịp. */
+    private fun sketchLoop() {
+        while (running.get() && connected) {
+            if (authed && skActive && skRoute != null) {
+                try {
+                    sendFrame(buildSketchFrame())
+                } catch (_: Exception) {
+                }
+                sleepQuiet(1500)
+            } else {
+                sleepQuiet(400)
+            }
+        }
+    }
+
     /** Ảnh test đơn giản (chữ + khung viền) để kiểm tra riêng kênh ảnh có khiến xe hiện icon bản
      * đồ hay không, trước khi làm khung bản đồ sketch thật. */
     fun buildTestFrame(label: String = "MOTONAV TEST"): ByteArray {
@@ -259,7 +386,7 @@ object TftLink {
         }
         c.drawText(label, w / 2f, h / 2f + textPaint.textSize / 3f, textPaint)
         val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, 70, out)
+        bmp.compress(Bitmap.CompressFormat.JPEG, 35, out)
         bmp.recycle()
         return out.toByteArray()
     }
@@ -277,7 +404,7 @@ object TftLink {
                 i++
                 val jpeg = buildTestFrame("TEST #$i")
                 if (sendFrame(jpeg)) n++
-                sleepQuiet(1000)
+                sleepQuiet(1500)
             }
             testFramesRunning = false
         }, "tft-test-frames").apply { isDaemon = true; start() }
@@ -532,6 +659,7 @@ object TftLink {
         lastFrameAckMs = -1
         synchronized(ackLock) { ackedFrame = -1 }
         Thread({ readLoop(input, socket) }, "tft-reader").apply { isDaemon = true; start() }
+        Thread({ sketchLoop() }, "tft-sketch").apply { isDaemon = true; start() }
     }
 
     /** Đọc gói tin từ xe, chạy máy trạng thái bắt tay 3 bước rồi mới cho phép gửi kênh chữ. */

@@ -437,22 +437,22 @@ class SettingsActivity : Activity() {
                 note = "Chạm để xem lại trạng thái mới nhất. Cần bật \"Theo dõi tốc độ & camera\" (hoặc đang dẫn đường) để app chạy nền và thử kết nối.",
             ) { build() }
 
-            // ---- Giai đoạn 2: thử kênh ảnh (khung test) — xem xe có hiện icon bản đồ không ----
+            // ---- Giai đoạn 2: kênh ảnh (sketch tuyến đường thật khi đang dẫn đường + nút test) ----
             val frameStatus = when {
                 !TftLink.authed -> "Cần bắt tay xong (dòng trên) trước đã"
                 TftLink.lastFrameError != null && TftLink.frameTxCount == 0 -> "⚠️ ${TftLink.lastFrameError}"
                 TftLink.frameTxCount > 0 -> {
                     val ackMs = TftLink.lastFrameAckMs
                     val ackTxt = if (ackMs >= 0) "ACK sau ${ackMs}ms" else "chưa có ACK lần nào"
-                    "✅ Đã gửi ${TftLink.frameTxCount} khung ảnh test (${TftLink.screenW}x${TftLink.screenH}) — $ackTxt" +
+                    "✅ Đã gửi ${TftLink.frameTxCount} khung ảnh (${TftLink.screenW}x${TftLink.screenH}) — $ackTxt" +
                         (TftLink.lastFrameError?.let { " · $it" } ?: "")
                 }
-                else -> "Chưa gửi khung nào — chạm để gửi thử 20 khung (1 khung/giây)"
+                else -> "Chưa gửi khung nào — tự gửi khi đang dẫn đường thật, hoặc chạm để gửi thử 20 khung chữ"
             }
             action(
-                "Thử nghiệm: gửi ảnh test lên màn xe (giai đoạn 2)",
+                "Kênh ảnh (giai đoạn 2) — khung bản đồ sketch",
                 frameStatus,
-                note = "Gửi 20 khung ảnh JPEG đen trắng ghi chữ \"TEST #n\" qua đúng kênh ảnh mà NConnect/Garmin dùng — mục đích chỉ để xem xe có ACK và có hiện icon bản đồ lên không, trước khi làm khung bản đồ sketch thật. Chạm để gửi lại.",
+                note = "Khi đang dẫn đường thật, app tự vẽ khung nét trắng trên nền đen (hình dạng đoạn đường + điểm rẽ sắp tới, xe luôn hướng lên) và gửi lên màn xe mỗi ~1,5 giây — tách riêng khỏi kênh chữ nên không làm chậm kênh chữ. Chạm nút này để gửi thử 20 khung chữ \"TEST #n\" (không cần đang dẫn đường) — dùng để kiểm tra riêng kênh ảnh.",
             ) {
                 if (TftLink.authed) {
                     TftLink.stopTestFrames()

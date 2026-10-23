@@ -287,13 +287,25 @@ class DriveService : Service(), LocationListener {
                 if (on) TftLink.start(this@DriveService, prefs.tftDevice) else TftLink.stop()
             }
             if (on) {
+                val navOn = Live.ownNav && Live.navActive && !Live.offRoute
                 TftLink.update(
-                    active = Live.ownNav && Live.navActive && !Live.offRoute,
+                    active = navOn,
                     sign = Live.maneuverSign,
                     roundabout = Live.maneuverSign == 6,
                     distanceM = if (Live.navMeters >= 0) Live.navMeters else 0,
                     road = Live.navInstruction ?: Live.maneuverLabel ?: "",
                     etaMinutes = (Live.etaMs / 60000L).toInt(),
+                )
+                TftLink.updateSketch(
+                    active = navOn,
+                    route = Live.route,
+                    lat = Live.lat,
+                    lon = Live.lon,
+                    headingDeg = Live.heading,
+                    maneuverLat = Live.maneuverLat,
+                    maneuverLon = Live.maneuverLon,
+                    sign = Live.maneuverSign,
+                    roundabout = Live.maneuverSign == 6,
                 )
             }
             handler.postDelayed(this, 1000)
