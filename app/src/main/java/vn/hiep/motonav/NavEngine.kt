@@ -245,9 +245,11 @@ class NavEngine(
 
         // Đang lệch tuyến: không hiện mũi tên/chỉ dẫn rẽ của tuyến CŨ nữa — tuyến đó có thể chỉ
         // ngược về phía sau xe (chỗ vừa đi lệch khỏi), nhìn vào dễ hiểu lầm là app chỉ sai hướng.
-        // Chờ tìm lại tuyến mới xong rồi hiện lại.
+        // Chờ tìm lại tuyến mới xong rồi hiện lại. LƯU Ý: không tắt Live.navActive ở đây — cờ đó
+        // nghĩa là "đang có chuyến đi" dùng ở nhiều nơi khác (ô nổi, màn chính…), tắt nhầm lúc chỉ
+        // lệch tuyến thoáng qua (ví dụ GPS nhiễu lúc đứng yên) làm toàn bộ các nơi đó tắt theo.
+        // Màn TFT tự xét thêm Live.offRoute để không gửi mũi tên cũ lúc đang lệch.
         if (off) {
-            Live.navActive = false
             Live.maneuverLabel = null
             Live.maneuverStreet = null
             Live.nextLeg = null

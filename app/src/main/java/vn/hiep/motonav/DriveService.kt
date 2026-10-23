@@ -288,7 +288,7 @@ class DriveService : Service(), LocationListener {
             }
             if (on) {
                 TftLink.update(
-                    active = Live.ownNav && Live.navActive,
+                    active = Live.ownNav && Live.navActive && !Live.offRoute,
                     sign = Live.maneuverSign,
                     roundabout = Live.maneuverSign == 6,
                     distanceM = if (Live.navMeters >= 0) Live.navMeters else 0,

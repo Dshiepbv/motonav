@@ -411,6 +411,7 @@ class SettingsActivity : Activity() {
                 TftLink.authed -> {
                     val n = TftLink.txCount
                     val txDetail = when {
+                        n <= 0 && Live.ownNav && Live.offRoute -> " — chưa gửi (đang lệch tuyến, chờ bắt lại)"
                         n <= 0 -> " — chưa gửi gói dẫn đường nào (chưa dẫn đường thật/chưa có tuyến)"
                         else -> {
                             val agoS = (System.currentTimeMillis() - TftLink.lastTxAt) / 1000
