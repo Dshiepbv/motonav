@@ -90,7 +90,7 @@ object CcuBle {
 
     private fun shortU(u: UUID): String = u.toString().substring(0, 8)
 
-    fun connectOnce(ctx: Context, ccuCode: String?, passkey: String?) {
+    fun connectOnce(ctx: Context, deviceAddr: String, ccuCode: String?, passkey: String?) {
         if (ccuCode.isNullOrBlank() || passkey.isNullOrBlank()) {
             error = "Chưa có mã CCU/passkey — bấm bước 1 trước"
             return
@@ -155,7 +155,18 @@ object CcuBle {
             handler.postDelayed({
                 if (found.compareAndSet(false, true)) {
                     try { scanner.stopScan(cb) } catch (_: Exception) {}
-                    fail("Không tìm thấy \"$targetName\" qua BLE sau 10 giây (xe đã bật, trong tầm sóng?)")
+                    // Không thấy quảng bá BLE theo tên (hay gặp do throttle quét nền/ROM, hoặc địa chỉ BLE
+                    // dùng dạng ngẫu nhiên khác gói quảng bá) — app gốc cũng có đường dự phòng này (hàm
+                    // d() dùng thẳng địa chỉ Bluetooth cổ điển đã ghép đôi khi không quét được): thử kết
+                    // nối GATT trực tiếp bằng địa chỉ MAC đã biết thay vì chịu thua.
+                    TripLog.ev("ccuBle", "scanTimeoutFallbackDirect" to deviceAddr)
+                    try {
+                        val dev = a.getRemoteDevice(deviceAddr)
+                        stage = "Không thấy qua quét — đang thử kết nối thẳng theo địa chỉ đã ghép đôi…"
+                        connectGatt(ctx, dev)
+                    } catch (e: Exception) {
+                        fail("Không tìm thấy \"$targetName\" qua BLE sau 10 giây, và không kết nối thẳng được (${e.message})")
+                    }
                 }
             }, 10_000)
         } catch (e: SecurityException) {

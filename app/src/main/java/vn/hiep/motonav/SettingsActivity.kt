@@ -471,7 +471,7 @@ class SettingsActivity : Activity() {
                 if (!hasBleScanPermission() || !hasBtPermission()) {
                     requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), REQ_BLE_PERM)
                 } else {
-                    CcuBle.connectOnce(this, CcuAuth.ccuCode, CcuAuth.passkey)
+                    CcuBle.connectOnce(this, prefs.tftDevice, CcuAuth.ccuCode, CcuAuth.passkey)
                 }
                 build()
             }
@@ -561,7 +561,7 @@ class SettingsActivity : Activity() {
             build()
         }
         if (requestCode == REQ_BLE_PERM && hasBtPermission() && hasBleScanPermission()) {
-            CcuBle.connectOnce(this, CcuAuth.ccuCode, CcuAuth.passkey)
+            CcuBle.connectOnce(this, prefs.tftDevice, CcuAuth.ccuCode, CcuAuth.passkey)
             build()
         }
     }
