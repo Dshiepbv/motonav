@@ -54,6 +54,7 @@ object CcuBle {
     private val busy = AtomicBoolean(false)
     @Volatile private var gatt: BluetoothGatt? = null
     private val descQueue = ArrayDeque<BluetoothGattDescriptor>()
+    @Volatile private var attempt = 0 // 0, 1, 2 — xe gốc cũng thử tối đa 3 lần mới bỏ cuộc
 
     fun connectOnce(ctx: Context, ccuCode: String?, passkey: String?) {
         if (ccuCode.isNullOrBlank()) {
@@ -64,6 +65,7 @@ object CcuBle {
         running = true
         error = null
         subscribedCount = 0
+        attempt = 0
         stage = "Đang quét BLE tìm xe…"
         val targetName = "YCCU_$ccuCode"
         try {
@@ -118,17 +120,27 @@ object CcuBle {
     }
 
     private fun connectGatt(ctx: Context, device: BluetoothDevice) {
-        stage = "Đang mở kết nối GATT…"
+        // Autoconnect=true ở lần thử thứ 3 (giống app gốc: "cách i2+1/3", lần cuối tự kết nối nền)
+        val autoConnect = attempt == 2
+        stage = if (attempt == 0) "Đang mở kết nối GATT…" else "Đang mở kết nối GATT (lần thử ${attempt + 1}/3)…"
         try {
-            val g = device.connectGatt(ctx, false, object : BluetoothGattCallback() {
+            try { gatt?.close() } catch (_: Exception) {}
+            val g = device.connectGatt(ctx, autoConnect, object : BluetoothGattCallback() {
                 override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
                         stage = "Đã nối GATT, đang dò dịch vụ…"
                         try { g.discoverServices() } catch (_: Exception) {}
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                        if (running) fail("Mất kết nối GATT (status=$status)")
                         try { g.close() } catch (_: Exception) {}
                         gatt = null
+                        if (!running) return
+                        if (attempt < 2) {
+                            attempt++
+                            TripLog.ev("ccuBle", "retry" to attempt, "status" to status)
+                            handler.postDelayed({ if (running) connectGatt(ctx, device) }, 1500)
+                        } else {
+                            fail("Mất kết nối GATT sau 3 lần thử (status=$status)")
+                        }
                     }
                 }
 
