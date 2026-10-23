@@ -170,12 +170,22 @@ class NavActivity : Activity() {
         return Color.rgb(mix(r), mix(g), mix(b))
     }
 
-    /** Hình tròn bóng nổi kiểu nút game: gradient sáng→tối trên xuống + viền sáng mảnh, cho cảm giác nút nổi lên mặt kính. */
-    private fun glossyOval(base: Int): GradientDrawable =
-        GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(shade(base, 0.45f), base, shade(base, -0.22f))).apply {
-            shape = GradientDrawable.OVAL
-            setStroke(dp(1f), Color.argb(80, 255, 255, 255))
+    /**
+     * Hình chữ nhật bo góc mềm (kiểu icon app iPhone, không vuông, không tròn xoe), nền hơi
+     * trong suốt + gradient sáng→tối + viền sáng mảnh, cho cảm giác kính mờ (iOS "Liquid Glass")
+     * thay vì một khối đặc màu đen như trước.
+     */
+    private fun glassSquircle(base: Int, radiusDp: Float, alpha: Int = 195): GradientDrawable {
+        fun a(c: Int) = Color.argb(alpha, Color.red(c), Color.green(c), Color.blue(c))
+        return GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(a(shade(base, 0.40f)), a(base), a(shade(base, -0.18f))),
+        ).apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(radiusDp).toFloat()
+            setStroke(dp(1f), Color.argb(110, 255, 255, 255))
         }
+    }
 
     private fun tv(size: Float, color: Int = Color.WHITE, bold: Boolean = false) = TextView(this).apply {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, size * uiScale)
@@ -365,7 +375,7 @@ class NavActivity : Activity() {
             setPadding(0, 0, 0, 0)
             minWidth = 0
             minimumWidth = 0
-            background = glossyOval(color)
+            background = glassSquircle(color, 14f)
             stateListAnimator = null
             elevation = dp(5f).toFloat()
             setOnClickListener { onClick() }
@@ -396,7 +406,7 @@ class NavActivity : Activity() {
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
-            background = glossyOval(Color.parseColor("#232A33"))
+            background = glassSquircle(Color.parseColor("#232A33"), 16f)
             elevation = dp(5f).toFloat()
             setOnClickListener { showMenu() }
         }
