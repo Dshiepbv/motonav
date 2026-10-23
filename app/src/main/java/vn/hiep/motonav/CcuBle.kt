@@ -79,6 +79,14 @@ object CcuBle {
     @Volatile private var authCcuCode: String? = null
     @Volatile private var authPasskey: String? = null
 
+    // Liên kết BLE này hay nghẽn/rớt ngay cả với app gốc (xác nhận thực tế: phải tắt/bật Bluetooth
+    // hoặc bấm thử lại nhiều lần mới vào được) — nên tự lặp lại CẢ vòng quét+kết nối vài lần thay vì
+    // bắt người dùng phải tự bấm lại, giống kiểu "bấm qua bấm lại" mà các app khác cũng cần.
+    private const val MAX_ROUNDS = 4
+    @Volatile private var round = 0
+    @Volatile private var savedCtx: Context? = null
+    @Volatile private var savedDeviceAddr: String? = null
+
     private class WriteOp(val uuid: UUID, val value: ByteArray)
     private val writeQueue = ArrayDeque<WriteOp>()
 
@@ -117,9 +125,17 @@ object CcuBle {
         missingChars = null
         missingUuids.clear()
         attempt = 0
+        round = 0
         authCcuCode = ccuCode
         authPasskey = passkey
-        stage = "Đang quét BLE tìm xe…"
+        val appCtx = ctx.applicationContext ?: ctx
+        savedCtx = appCtx
+        savedDeviceAddr = deviceAddr
+        startRound(appCtx, deviceAddr, ccuCode)
+    }
+
+    private fun startRound(ctx: Context, deviceAddr: String, ccuCode: String) {
+        stage = if (round == 0) "Đang quét BLE tìm xe…" else "Đang quét BLE tìm xe… (vòng ${round + 1}/$MAX_ROUNDS)"
         val targetName = "YCCU_$ccuCode"
         try {
             val a = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
@@ -143,7 +159,7 @@ object CcuBle {
                     }
                 }
                 override fun onScanFailed(errorCode: Int) {
-                    fail("Quét BLE lỗi (mã $errorCode)")
+                    retryRoundOrFail(ctx, deviceAddr, ccuCode, "Quét BLE lỗi (mã $errorCode)")
                 }
             }
             try {
@@ -165,14 +181,33 @@ object CcuBle {
                         stage = "Không thấy qua quét — đang thử kết nối thẳng theo địa chỉ đã ghép đôi…"
                         connectGatt(ctx, dev)
                     } catch (e: Exception) {
-                        fail("Không tìm thấy \"$targetName\" qua BLE sau 10 giây, và không kết nối thẳng được (${e.message})")
+                        retryRoundOrFail(ctx, deviceAddr, ccuCode, "Không tìm thấy \"$targetName\" qua BLE, và không kết nối thẳng được (${e.message})")
                     }
                 }
             }, 10_000)
         } catch (e: SecurityException) {
             fail("Thiếu quyền Bluetooth")
         } catch (e: Exception) {
-            fail(e.message ?: "Lỗi không rõ")
+            retryRoundOrFail(ctx, deviceAddr, ccuCode, e.message ?: "Lỗi không rõ")
+        }
+    }
+
+    // Liên kết BLE này hay nghẽn ngay cả với app gốc trên xe này (xác nhận thực tế) — thay vì báo lỗi
+    // ngay, tự thử lại CẢ vòng (quét lại từ đầu) vài lần trước khi thật sự chịu thua.
+    private fun retryRoundOrFail(ctx: Context, deviceAddr: String, ccuCode: String, msg: String) {
+        if (!running) return
+        try { gatt?.disconnect() } catch (_: Exception) {}
+        try { gatt?.close() } catch (_: Exception) {}
+        gatt = null
+        connGen++
+        attempt = 0
+        if (round < MAX_ROUNDS - 1) {
+            round++
+            TripLog.ev("ccuBle", "roundRetry" to round, "reason" to msg)
+            stage = "Chưa được ($msg) — thử lại cả vòng (${round + 1}/$MAX_ROUNDS) sau 2 giây…"
+            handler.postDelayed({ if (running) startRound(ctx, deviceAddr, ccuCode) }, 2_000)
+        } else {
+            fail("$msg (đã thử $MAX_ROUNDS vòng — thử tắt/bật Bluetooth trên máy rồi bấm lại)")
         }
     }
 
@@ -207,7 +242,7 @@ object CcuBle {
                     attempt++
                     connectGatt(ctx, device)
                 } else {
-                    fail("Kết nối GATT không phản hồi sau 3 lần thử (hết giờ)")
+                    retryRoundOrFail(ctx, savedDeviceAddr ?: "", authCcuCode ?: "", "Kết nối GATT không phản hồi sau 3 lần thử (hết giờ)")
                 }
             }
         }, if (autoConnect) 45_000 else 35_000)
@@ -229,19 +264,20 @@ object CcuBle {
                             TripLog.ev("ccuBle", "retry" to attempt, "status" to status)
                             handler.postDelayed({ if (running) connectGatt(ctx, device) }, 1500)
                         } else {
-                            fail("Mất kết nối GATT sau 3 lần thử (status=$status)")
+                            retryRoundOrFail(ctx, savedDeviceAddr ?: "", authCcuCode ?: "", "Mất kết nối GATT sau 3 lần thử (status=$status)")
                         }
                     }
                 }
 
                 override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+                    connGen++ // huỷ timeout đang chờ của lượt này (đã có phản hồi, dù thành hay bại)
                     if (status != BluetoothGatt.GATT_SUCCESS) {
-                        fail("Dò dịch vụ GATT lỗi (status=$status)")
+                        retryRoundOrFail(ctx, savedDeviceAddr ?: "", authCcuCode ?: "", "Dò dịch vụ GATT lỗi (status=$status)")
                         return
                     }
                     val service = g.getService(SERVICE_UUID)
                     if (service == null) {
-                        fail("Không thấy dịch vụ ${SERVICE_UUID} trên xe")
+                        retryRoundOrFail(ctx, savedDeviceAddr ?: "", authCcuCode ?: "", "Không thấy dịch vụ ${SERVICE_UUID} trên xe")
                         return
                     }
                     stage = "Đã thấy dịch vụ, đang đăng ký nhận dữ liệu…"
