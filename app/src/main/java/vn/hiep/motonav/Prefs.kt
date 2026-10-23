@@ -51,6 +51,11 @@ class Prefs(ctx: Context) {
         get() = sp.getString("vmkey", "") ?: ""
         set(v) = sp.edit().putString("vmkey", v.trim()).apply()
 
+    /** Đang "ghi vùng tốc độ cố định" theo đoạn đường thực tế? -1 = không ghi, khác = mức km/h đang gán. */
+    var recordZoneKmh: Int
+        get() = sp.getInt("recordZoneKmh", -1)
+        set(v) = sp.edit().putInt("recordZoneKmh", v).apply()
+
     /** Mã của "Tilemap consumer" trên VietMap (để hiện bản đồ); trống thì dùng mã API. */
     var vietmapTileKey: String
         get() = sp.getString("vmtile", "") ?: ""
@@ -215,51 +220,53 @@ object CameraStore {
 }
 
 /**
- * Vùng tốc độ cố định do người dùng tự đặt (ví dụ cả khu công nghệ cao quy định chung 50 km/h cho
- * xe máy, không theo từng đoạn đường/làn trên OSM) — đè lên kết quả tính theo thẻ OSM khi ở trong vùng.
+ * Tốc độ cố định do người dùng tự gán cho TỪNG ĐOẠN ĐƯỜNG (theo way id của OSM) — không đoán theo
+ * bán kính/hình tròn. Dùng khi chạy "ghi vùng": đang chạy qua đoạn nào thì đoạn đó (way id) được gán
+ * thẳng mức tốc độ đã chọn, đúng hình dạng mạng lưới đường thật, không lòi ra đường ngoài khu.
  */
-object SpeedZones {
-    class Zone(val id: String, val lat: Double, val lon: Double, val radius: Double, val kmh: Int)
-
+object WayLimits {
     @Volatile
-    private var cache: List<Zone>? = null
+    private var cache: HashMap<Long, Int>? = null
 
-    fun all(ctx: Context): List<Zone> {
+    private fun map(ctx: Context): HashMap<Long, Int> {
         cache?.let { return it }
         val sp = ctx.applicationContext.getSharedPreferences("motonav", Context.MODE_PRIVATE)
-        val list = ArrayList<Zone>()
+        val m = HashMap<Long, Int>()
         try {
-            val arr = JSONArray(sp.getString("speed_zones", "[]"))
+            val arr = JSONArray(sp.getString("way_limits", "[]"))
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
-                list.add(Zone(o.getString("id"), o.getDouble("lat"), o.getDouble("lon"), o.getDouble("r"), o.getInt("kmh")))
+                m[o.getLong("w")] = o.getInt("kmh")
             }
         } catch (_: Exception) {
         }
-        cache = list
-        return list
+        cache = m
+        return m
     }
 
-    private fun save(ctx: Context, list: List<Zone>) {
+    private fun save(ctx: Context, m: HashMap<Long, Int>) {
         val arr = JSONArray()
-        for (z in list) arr.put(JSONObject().put("id", z.id).put("lat", z.lat).put("lon", z.lon).put("r", z.radius).put("kmh", z.kmh))
+        for ((w, kmh) in m) arr.put(JSONObject().put("w", w).put("kmh", kmh))
         ctx.applicationContext.getSharedPreferences("motonav", Context.MODE_PRIVATE)
-            .edit().putString("speed_zones", arr.toString()).apply()
-        cache = list
+            .edit().putString("way_limits", arr.toString()).apply()
     }
 
-    fun add(ctx: Context, lat: Double, lon: Double, radius: Double, kmh: Int) {
-        val list = ArrayList(all(ctx))
-        list.removeAll { Geo.distance(it.lat, it.lon, lat, lon) < radius }
-        list.add(Zone("z" + System.currentTimeMillis(), lat, lon, radius, kmh))
-        save(ctx, list)
+    /** Gán đoạn đường [wayId] này mức [kmh] cố định, nếu chưa có hoặc khác giá trị cũ. */
+    fun add(ctx: Context, wayId: Long, kmh: Int) {
+        val m = map(ctx)
+        if (m[wayId] == kmh) return
+        m[wayId] = kmh
+        save(ctx, m)
     }
 
-    /** Tốc độ cố định tại vị trí này, nếu nằm trong một vùng đã đặt. */
-    fun kmhAt(ctx: Context, lat: Double, lon: Double): Int? =
-        all(ctx).firstOrNull { Geo.distance(lat, lon, it.lat, it.lon) <= it.radius }?.kmh
+    fun kmhAt(ctx: Context, wayId: Long): Int? = map(ctx)[wayId]
 
-    fun clear(ctx: Context) = save(ctx, emptyList())
+    fun count(ctx: Context): Int = map(ctx).size
+
+    fun clear(ctx: Context) {
+        cache = HashMap()
+        save(ctx, HashMap())
+    }
 }
 
 /** Vị trí người dùng tự báo "đường bị chặn/cấm" (dữ liệu bản đồ cũ), lưu trong máy, dùng để né khi tìm đường. */

@@ -623,10 +623,11 @@ class NavActivity : Activity() {
     }
 
     private fun showMenu() {
+        val recording = prefs.recordZoneKmh > 0
         val items = arrayOf(
             "📝   Ghi chú sự cố (vào nhật ký)",
             "🚧   Báo đường đang đứng bị chặn",
-            "5️⃣0️⃣   Đặt vùng tốc độ cố định quanh đây",
+            if (recording) "⏹   Dừng ghi vùng tốc độ (đang gán ${prefs.recordZoneKmh} km/h)" else "🛣️   Ghi vùng tốc độ cố định theo đường đang chạy",
             "⚙   Cài đặt",
             "🗺   Mở Google Maps",
             "⏱   Màn hình tốc độ lớn",
@@ -638,7 +639,7 @@ class NavActivity : Activity() {
                 when (which) {
                     0 -> noteDialog()
                     1 -> reportBlocked()
-                    2 -> speedZoneDialog()
+                    2 -> if (recording) stopZoneRecording() else zoneRecordDialog()
                     3 -> startActivity(Intent(this, SettingsActivity::class.java))
                     4 -> AppActions.openGoogleMaps(this, prefs)
                     5 -> startActivity(Intent(this, MainActivity::class.java))
@@ -667,36 +668,27 @@ class NavActivity : Activity() {
     }
 
     /**
-     * Đặt một vùng tròn quanh vị trí hiện tại có tốc độ giới hạn cố định cho xe máy, dùng khi cả khu
-     * vực quy định chung một mức (ví dụ khu công nghệ cao) chứ không theo từng đoạn đường/làn như dữ
-     * liệu OSM, để khỏi bị nhảy số do khớp lẫn giữa các đoạn/làn gần nhau.
-     * Cho chọn bán kính (không cố định 1,5 km) vì nếu đặt gần rìa khu, vòng tròn to có thể lòi ra
-     * ngoài và báo sai cho cả đường không thuộc khu — nên đặt bán kính nhỏ, có thể đặt nhiều vùng nối
-     * nhau để ôm theo đúng hình dạng khu thay vì một vòng tròn to.
+     * Ghi vùng tốc độ cố định THEO ĐOẠN ĐƯỜNG THỰC TẾ: bấm bắt đầu, chọn mức km/h, rồi chạy qua hết
+     * các đường trong khu vực (ví dụ cả khu công nghệ cao) — mỗi đoạn đường (way id) xe thực sự đi
+     * qua sẽ được gán thẳng mức km/h đó, đúng hình dạng mạng lưới đường thật. Không đoán theo bán
+     * kính/hình tròn nên không lòi ra đường ngoài khu. Bấm dừng khi đã chạy hết các đường cần gán.
      */
-    private fun speedZoneDialog() {
-        if (!Live.gpsOk) {
-            toast("Chưa có GPS, thử lại sau")
-            return
-        }
-        val radii = arrayOf("300 m" to 300.0, "500 m" to 500.0, "1 km" to 1000.0, "2 km" to 2000.0)
+    private fun zoneRecordDialog() {
+        val kmhs = arrayOf("30", "40", "50", "60", "70")
         AlertDialog.Builder(this)
-            .setTitle("Bán kính vùng (nên chọn nhỏ, tránh lòi ra ngoài khu)")
-            .setItems(radii.map { it.first }.toTypedArray()) { _, ri ->
-                val radius = radii[ri].second
-                val kmhs = arrayOf("30", "40", "50", "60", "70")
-                AlertDialog.Builder(this)
-                    .setTitle("Tốc độ xe máy cố định trong bán kính ${radii[ri].first} quanh đây")
-                    .setItems(kmhs) { _, i ->
-                        val kmh = kmhs[i].toInt()
-                        SpeedZones.add(this, Live.lat, Live.lon, radius, kmh)
-                        toast("Đã đặt: trong bán kính ${radii[ri].first} quanh đây, xe máy tối đa $kmh km/h")
-                    }
-                    .setNegativeButton("Huỷ", null)
-                    .show()
+            .setTitle("Chạy qua đường nào gán đường đó mức tốc độ xe máy:")
+            .setItems(kmhs) { _, i ->
+                val kmh = kmhs[i].toInt()
+                prefs.recordZoneKmh = kmh
+                toast("Đang ghi $kmh km/h — chạy qua hết các đường cần gán rồi vào ☰ bấm Dừng ghi")
             }
             .setNegativeButton("Huỷ", null)
             .show()
+    }
+
+    private fun stopZoneRecording() {
+        prefs.recordZoneKmh = -1
+        toast("Đã dừng ghi — đã gán ${WayLimits.count(this)} đoạn đường tổng cộng")
     }
 
     private fun buildUi(): View {

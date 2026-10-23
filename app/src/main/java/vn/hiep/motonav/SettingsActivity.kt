@@ -308,12 +308,12 @@ class SettingsActivity : Activity() {
                 .setNegativeButton("Huỷ", null)
                 .show()
         }
-        val zn = SpeedZones.all(this).size
+        val zn = WayLimits.count(this)
         if (zn > 0) {
-            action("Xoá các vùng tốc độ cố định đã đặt ($zn)", "Đặt trong menu ☰ khi đang dẫn đường", Color.parseColor("#FF6B60")) {
+            action("Xoá các đoạn đường đã gán tốc độ cố định ($zn)", "Ghi trong menu ☰ khi đang dẫn đường", Color.parseColor("#FF6B60")) {
                 AlertDialog.Builder(this)
-                    .setMessage("Xoá tất cả $zn vùng tốc độ cố định đã đặt?")
-                    .setPositiveButton("Xoá") { _, _ -> SpeedZones.clear(this); build() }
+                    .setMessage("Xoá tốc độ cố định đã gán cho $zn đoạn đường?")
+                    .setPositiveButton("Xoá") { _, _ -> WayLimits.clear(this); build() }
                     .setNegativeButton("Huỷ", null)
                     .show()
             }
