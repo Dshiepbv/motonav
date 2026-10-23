@@ -163,6 +163,20 @@ class NavActivity : Activity() {
         cornerRadius = dp(r).toFloat()
     }
 
+    private fun shade(c: Int, f: Float): Int {
+        // f > 0: sáng lên về phía trắng; f < 0: tối xuống về phía đen
+        val r = Color.red(c); val g = Color.green(c); val b = Color.blue(c)
+        fun mix(ch: Int) = if (f >= 0) (ch + (255 - ch) * f).toInt().coerceIn(0, 255) else (ch * (1 + f)).toInt().coerceIn(0, 255)
+        return Color.rgb(mix(r), mix(g), mix(b))
+    }
+
+    /** Hình tròn bóng nổi kiểu nút game: gradient sáng→tối trên xuống + viền sáng mảnh, cho cảm giác nút nổi lên mặt kính. */
+    private fun glossyOval(base: Int): GradientDrawable =
+        GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(shade(base, 0.45f), base, shade(base, -0.22f))).apply {
+            shape = GradientDrawable.OVAL
+            setStroke(dp(1f), Color.argb(80, 255, 255, 255))
+        }
+
     private fun tv(size: Float, color: Int = Color.WHITE, bold: Boolean = false) = TextView(this).apply {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, size * uiScale)
         setTextColor(color)
@@ -351,7 +365,9 @@ class NavActivity : Activity() {
             setPadding(0, 0, 0, 0)
             minWidth = 0
             minimumWidth = 0
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color) }
+            background = glossyOval(color)
+            stateListAnimator = null
+            elevation = dp(5f).toFloat()
             setOnClickListener { onClick() }
         }
         val lp = { LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { setMargins(dp(8f), dp(6f), 0, 0) } }
@@ -380,12 +396,8 @@ class NavActivity : Activity() {
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.argb(235, 22, 26, 32))
-                setStroke(dp(1f), Color.parseColor("#3A424C"))
-            }
-            elevation = dp(4f).toFloat()
+            background = glossyOval(Color.parseColor("#232A33"))
+            elevation = dp(5f).toFloat()
             setOnClickListener { showMenu() }
         }
 
@@ -406,6 +418,42 @@ class NavActivity : Activity() {
     private lateinit var altBtn: Button
     private var shownChoices = -1
 
+    /** Tên đường mỗi tuyến đi qua, gộp các bước liên tiếp cùng tên, kèm tổng quãng đường đi trên tên đó. */
+    private fun namedSegments(r: Route): List<Pair<String, Double>> {
+        val out = ArrayList<Pair<String, Double>>()
+        for (s in r.steps) {
+            val n = s.street.trim()
+            if (n.isEmpty()) continue
+            if (out.isNotEmpty() && out.last().first == n) {
+                out[out.size - 1] = n to (out.last().second + s.distance)
+            } else {
+                out.add(n to s.distance)
+            }
+            if (out.size >= 10) break
+        }
+        return out
+    }
+
+    /**
+     * So các tuyến với nhau: bỏ đoạn đầu/cuối giống hệt nhau (đi chung), chỉ giữ lại đoạn
+     * khác biệt ở giữa, rồi chọn ra tên đường đi nhiều nhất trong đoạn đó — đây là đường
+     * đáng nhắc tới nhất khi mô tả vì sao tuyến này khác tuyến kia (ví dụ "Qua Quốc lộ 1A"
+     * thay vì liệt kê hết từng con hẻm nhỏ dẫn vào).
+     */
+    private fun highlightRoad(segs: List<List<Pair<String, Double>>>): List<String?> {
+        val names = segs.map { s -> s.map { it.first } }
+        val minLen = names.minOfOrNull { it.size } ?: 0
+        if (minLen == 0) return segs.map { null }
+        var prefix = 0
+        while (prefix < minLen && names.all { it[prefix] == names[0][prefix] }) prefix++
+        var suffix = 0
+        while (suffix < minLen - prefix && names.all { it[it.size - 1 - suffix] == names[0][names[0].size - 1 - suffix] }) suffix++
+        return segs.map { s ->
+            val end = s.size - suffix
+            if (end <= prefix) null else s.subList(prefix, end).maxByOrNull { it.second }?.first
+        }
+    }
+
     /** Bảng chọn tuyến: mỗi dòng một tuyến (thời gian, quãng đường), chạm để đổi. */
     private fun renderChoices() {
         if (shownChoices == Live.choicesVersion) return
@@ -419,16 +467,8 @@ class NavActivity : Activity() {
         choicesPanel.visibility = View.VISIBLE
         choicesPanel.addView(tv(12f, muted).apply { text = "Chọn tuyến (chạm để đổi):" })
         val fastest = list.minOf { it.timeMs }
-        // Tên đường mỗi tuyến đi qua (vài đường chính đầu tiên) để so sánh, chọn tuyến khác nhau ở đâu
-        val streetsOf = list.map { r ->
-            val names = ArrayList<String>()
-            for (s in r.steps) {
-                val n = s.street.trim()
-                if (n.isNotEmpty() && (names.isEmpty() || names.last() != n)) names.add(n)
-                if (names.size >= 4) break
-            }
-            names
-        }
+        val segsOf = list.map { namedSegments(it) }
+        val highlights = highlightRoad(segsOf)
         list.forEachIndexed { i, r ->
             val sel = i == Live.choiceSelected
             val mins = (r.timeMs / 60000).coerceAtLeast(1)
@@ -442,10 +482,12 @@ class NavActivity : Activity() {
             col.addView(tv(13f, Color.WHITE, sel).apply {
                 text = (if (sel) "● " else "○ ") + "Tuyến ${i + 1}: $mins phút · ${NavEngine.fmtDist(r.distance)}$extra"
             })
-            val names = streetsOf[i]
-            if (names.isNotEmpty()) {
+            // Chỉ nhắc đoạn khác biệt so với các tuyến còn lại, tránh lặp y hệt nhau không cần thiết.
+            val h = highlights[i]
+            val sub = h ?: segsOf[i].take(3).joinToString(" → ") { it.first }.ifBlank { null }
+            if (sub != null) {
                 col.addView(tv(11f, if (sel) Color.parseColor("#D9F2E6") else muted).apply {
-                    text = "Qua: " + names.joinToString(" → ")
+                    text = "Qua: $sub"
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 })
