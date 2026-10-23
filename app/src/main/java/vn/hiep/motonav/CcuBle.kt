@@ -167,6 +167,11 @@ object CcuBle {
     }
 
     private fun startRound(ctx: Context, deviceAddr: String, ccuCode: String) {
+        // Mỗi vòng dò dịch vụ lại từ đầu — reset đếm/diagnostics để khỏi cộng dồn qua các vòng (trước
+        // đây "10/7" là do cộng dồn số characteristic đăng ký được qua nhiều vòng reconnect).
+        subscribedCount = 0
+        missingUuids.clear()
+        missingChars = null
         stage = if (round == 0) "Đang quét BLE tìm xe…" else "Đang quét BLE tìm xe… (vòng ${round + 1}/$MAX_ROUNDS)"
         val targetName = "YCCU_$ccuCode"
         try {
@@ -351,11 +356,13 @@ object CcuBle {
                         return
                     }
                     if (characteristic.uuid == HELLO_UUID) {
-                        // Gửi "hello" xong — thử đọc kênh DDT trước khi gửi dữ liệu xác thực: DDT
-                        // (75ab2788) không ghi được (đã xác nhận), nhưng có thể cần ĐỌC nó một lần để
-                        // "đánh thức"/đồng bộ trạng thái phía xe trước khi nó chấp nhận ghi dữ liệu
-                        // (lần trước ghi thẳng dữ liệu bị xe từ chối: status=3, write not permitted).
-                        readDdtTrigger(g)
+                        // Gửi "hello" xong — KHÔNG gửi thẳng dữ liệu xác thực nữa (đã thử đọc kênh DDT
+                        // trước đó, xe vẫn từ chối ghi dữ liệu: status=3). DDT (75ab2788) cũng là một
+                        // kênh app gốc ĐĂNG KÝ NHẬN NOTIFY — nhiều khả năng chuỗi lệnh gửi
+                        // AuthenticationV2 trong mã gốc được một NOTIFY từ xe trên kênh này kích hoạt
+                        // (xe báo "sẵn sàng nhận"), chứ không phải điện thoại tự ý gửi luôn sau hello.
+                        // Giờ chờ notify đó tối đa vài giây rồi mới gửi, thay vì gửi ngay.
+                        awaitDdtNotifyThenSendAuth(g)
                     } else {
                         runNextWrite(g)
                     }
@@ -365,8 +372,6 @@ object CcuBle {
                     @Suppress("DEPRECATION") val v = characteristic.value ?: ByteArray(0)
                     val hex = v.joinToString(" ") { String.format("%02X", it) }
                     TripLog.ev("ccuBle", "ddtRead" to shortU(characteristic.uuid), "status" to status, "hex" to hex)
-                    authStage = "Đang gửi gói dữ liệu xác thực…"
-                    runNextWrite(g)
                 }
 
                 @Suppress("DEPRECATION")
@@ -375,6 +380,10 @@ object CcuBle {
                     val hex = v.joinToString(" ") { String.format("%02X", it) }
                     lastNotify = "${shortU(characteristic.uuid)}: $hex"
                     TripLog.ev("ccuBle", "notify" to shortU(characteristic.uuid), "hex" to hex)
+                    if (awaitingDdtNotify) {
+                        awaitingDdtNotify = false
+                        sendAuthChunks(g)
+                    }
                 }
             }, BluetoothDevice.TRANSPORT_LE)
             gatt = g
@@ -385,28 +394,27 @@ object CcuBle {
         }
     }
 
-    private fun readDdtTrigger(g: BluetoothGatt) {
-        val service = g.getService(SERVICE_UUID)
-        val c = service?.getCharacteristic(DDT_UUID)
-        if (c == null) {
-            TripLog.ev("ccuBle", "ddtReadSkip" to "characteristic null")
-            authStage = "Đang gửi gói dữ liệu xác thực…"
-            runNextWrite(g)
-            return
-        }
-        authStage = "Đang đọc kênh DDT…"
+    @Volatile private var awaitingDdtNotify = false
+    @Volatile private var authGen = 0
+
+    private fun awaitDdtNotifyThenSendAuth(g: BluetoothGatt) {
+        val myGen = ++authGen
+        awaitingDdtNotify = true
+        authStage = "Đã gửi hello, đang chờ xe báo sẵn sàng…"
+        // Cũng thử đọc kênh DDT một lần (có thể tự nó không kích hoạt gì, chỉ để log chẩn đoán) —
+        // không chờ kết quả đọc, chỉ chờ notify hoặc hết giờ.
         try {
-            val ok = g.readCharacteristic(c)
-            if (!ok) {
-                TripLog.ev("ccuBle", "ddtReadSkip" to "readCharacteristic trả false")
-                authStage = "Đang gửi gói dữ liệu xác thực…"
-                runNextWrite(g)
+            val service = g.getService(SERVICE_UUID)
+            val c = service?.getCharacteristic(DDT_UUID)
+            if (c != null) g.readCharacteristic(c)
+        } catch (_: Exception) {}
+        handler.postDelayed({
+            if (awaitingDdtNotify && authGen == myGen) {
+                TripLog.ev("ccuBle", "ddtNotifyTimeout" to true)
+                awaitingDdtNotify = false
+                sendAuthChunks(g)
             }
-        } catch (e: Exception) {
-            TripLog.ev("ccuBle", "ddtReadSkip" to (e.message ?: "lỗi"))
-            authStage = "Đang gửi gói dữ liệu xác thực…"
-            runNextWrite(g)
-        }
+        }, 4_000)
     }
 
     private fun BluetoothGattDescriptor.setIndicateOrNotify(indicate: Boolean) {
@@ -435,12 +443,11 @@ object CcuBle {
 
     // Bước 3 (dò theo n3.j.java case 3 + default, n3.o.java m()/f()/g()):
     //   1) "hello" cmd=2 → kênh f8736L: [0x00,0x02, seq,0,0,0x12,0x34]
-    //   2) AuthenticationV2 → đóng gói [1,1] + mã CCU (14B) + passkey (6B), gửi từng đoạn tới kênh
-    //      f8740P. Trước đây đoán có thêm một gói "khởi đầu" ghi vào kênh DDT (f8738N, hàm f() gốc,
-    //      op "E1(gatt,13,characteristic)") — test thật cho thấy characteristic đó KHÔNG ghi được
-    //      (writeCharacteristic trả false ngay, tức sai kiểu ghi hoặc không có quyền ghi): nhiều khả
-    //      năng "E1" không phải một lệnh ghi dữ liệu mà chỉ là thao tác đăng ký lại notify cho DDT
-    //      (đã làm ở bước 2 rồi) — nên bỏ bước ghi riêng này, đi thẳng vào gửi từng đoạn dữ liệu.
+    //   2) Chờ xe báo sẵn sàng (notify trên kênh DDT 75ab2788 — đã đăng ký notify từ bước 2) rồi mới
+    //      gửi AuthenticationV2: đóng gói [1,1] + mã CCU (14B) + passkey (6B), gửi từng đoạn tới kênh
+    //      f8740P. (Đã thử ghi thẳng ngay sau hello — xe từ chối status=3 "write not permitted"; đã
+    //      thử đọc DDT trước khi ghi — vẫn bị từ chối. Giờ thử chờ NOTIFY từ xe trước khi gửi, vì DDT
+    //      cũng là kênh app gốc đăng ký nhận notify, rất có thể chính xe chủ động báo khi sẵn sàng.)
     private fun startAuth(g: BluetoothGatt) {
         val code = authCcuCode
         val pass = authPasskey
@@ -451,10 +458,20 @@ object CcuBle {
         writeQueue.clear()
         val seqHello = nextSeq()
         writeQueue.addLast(WriteOp(HELLO_UUID, byteArrayOf(0x00, 0x02, seqHello.toByte(), 0, 0, 0x12, 0x34)))
+        authStage = "Đang gửi hello…"
+        runNextWrite(g)
+    }
 
+    private fun sendAuthChunks(g: BluetoothGatt) {
+        val code = authCcuCode
+        val pass = authPasskey
+        if (code == null || pass == null) {
+            failAuth("Thiếu mã CCU/passkey")
+            return
+        }
+        writeQueue.clear()
         val authPayload = byteArrayOf(1, 1) + code.toByteArray(Charsets.US_ASCII) + pass.toByteArray(Charsets.US_ASCII)
         val seqAuth = nextSeq()
-
         var offset = 0
         val chunkSize = 20 // giống g() gốc: max(20, min(180, mtu-4)) với mtu mặc định 23
         while (offset < authPayload.size) {
@@ -463,7 +480,7 @@ object CcuBle {
             writeQueue.addLast(WriteOp(DATA_UUID, header + authPayload.copyOfRange(offset, end)))
             offset = end
         }
-        authStage = "Đang gửi hello…"
+        authStage = "Đang gửi gói dữ liệu xác thực…"
         runNextWrite(g)
     }
 
