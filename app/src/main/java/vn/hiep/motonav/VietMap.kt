@@ -151,7 +151,11 @@ object VietMap {
             )
         }
         if (la.size < 2) throw RuntimeException("Tuyến đường rỗng")
-        straightenDetours(la, lo)
+        // Không bao giờ "làm thẳng" đi ngang qua điểm rẽ thật (from/to của các bước) — chỉ gọn các
+        // đoạn lố nằm giữa hai điểm rẽ, tránh làm sai lệch hướng rẽ hiển thị
+        val protectedIdx = HashSet<Int>()
+        for (s in steps) { protectedIdx.add(s.from); protectedIdx.add(s.to) }
+        straightenDetours(la, lo, protectedIdx)
         val cong = try { parseCongestion(p) } catch (_: Exception) { emptyList() }
         return Route(la, lo, steps, p.optDouble("distance", 0.0), p.optLong("time", 0L), cong)
     }
@@ -162,17 +166,19 @@ object VietMap {
      * Giữ nguyên số điểm và chỉ số bước (step.from/to vẫn đúng chỗ), chỉ kéo toạ độ các điểm bị
      * lố về gần đường thẳng nối hai đầu đoạn lố.
      */
-    private fun straightenDetours(lats: DoubleArray, lons: DoubleArray) {
+    private fun straightenDetours(lats: DoubleArray, lons: DoubleArray, protectedIdx: Set<Int>) {
         val n = lats.size
         if (n < 4) return
         var i = 0
         while (i < n - 2) {
             var k = i + 1
             var along = 0.0
-            while (k < n - 1 && along < 220.0) {
+            // Không gộp qua điểm rẽ thật (from/to của bước) — dừng cửa sổ ngay trước điểm đó
+            while (k < n - 1 && along < 220.0 && k !in protectedIdx) {
                 along += Geo.distance(lats[k], lons[k], lats[k + 1], lons[k + 1])
                 k++
             }
+            if (k in protectedIdx) k-- // lùi lại 1 để không đụng tới chính điểm rẽ
             if (k <= i + 2 || k >= n) { i++; continue }
             val proj = LocalProjection(lats[i], lons[i])
             val cx = proj.x(lons[k]); val cy = proj.y(lats[k])
@@ -188,7 +194,7 @@ object VietMap {
             }
             var alongDist = 0.0
             for (j in i until k) alongDist += Geo.distance(lats[j], lons[j], lats[j + 1], lons[j + 1])
-            if (maxPerp > 10.0 && clen < alongDist * 0.6 && alongDist in 20.0..220.0) {
+            if (maxPerp > 14.0 && clen < alongDist * 0.5 && alongDist in 20.0..220.0) {
                 var s = 0.0
                 for (j in i + 1 until k) {
                     s += Geo.distance(lats[j - 1], lons[j - 1], lats[j], lons[j])
