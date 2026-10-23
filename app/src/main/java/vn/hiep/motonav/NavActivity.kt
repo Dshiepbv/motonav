@@ -588,6 +588,7 @@ class NavActivity : Activity() {
     private fun showMenu() {
         val items = arrayOf(
             "📝   Ghi chú sự cố (vào nhật ký)",
+            "🚧   Báo đường đang đứng bị chặn",
             "⚙   Cài đặt",
             "🗺   Mở Google Maps",
             "⏱   Màn hình tốc độ lớn",
@@ -598,10 +599,11 @@ class NavActivity : Activity() {
             .setItems(items) { _, which ->
                 when (which) {
                     0 -> noteDialog()
-                    1 -> startActivity(Intent(this, SettingsActivity::class.java))
-                    2 -> AppActions.openGoogleMaps(this, prefs)
-                    3 -> startActivity(Intent(this, MainActivity::class.java))
-                    4 -> if (Live.serviceRunning) {
+                    1 -> reportBlocked()
+                    2 -> startActivity(Intent(this, SettingsActivity::class.java))
+                    3 -> AppActions.openGoogleMaps(this, prefs)
+                    4 -> startActivity(Intent(this, MainActivity::class.java))
+                    5 -> if (Live.serviceRunning) {
                         Live.userStopped = true
                         DriveService.stop(this)
                     } else {
@@ -611,6 +613,18 @@ class NavActivity : Activity() {
                 }
             }
             .show()
+    }
+
+    /** Đánh dấu vị trí hiện tại là "đường bị chặn" để lần sau app tự né khi tìm đường. */
+    private fun reportBlocked() {
+        if (!Live.gpsOk) {
+            toast("Chưa có GPS, thử lại sau")
+            return
+        }
+        BlockedRoads.add(this, Live.lat, Live.lon)
+        TripLog.ev("note", "text" to "Đường bị chặn (người dùng báo)", "lat" to Live.lat, "lon" to Live.lon,
+            "street" to Live.street, "nav" to Live.ownNav)
+        toast("Đã ghi nhận: đường bị chặn ở đây, lần sau sẽ né")
     }
 
     private fun buildUi(): View {

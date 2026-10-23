@@ -95,6 +95,7 @@ class DriveService : Service(), LocationListener {
     private var currentWay: Way? = null
     private var currentWayForward: Boolean = true
     private var warnedMotorway: Long? = null
+    private var warnedNoMoto: Long? = null
     private val matcher = MapMatcher()
     private var noMatchCount = 0
     private var logMatchKey = ""
@@ -116,7 +117,7 @@ class DriveService : Service(), LocationListener {
         try { TripLog.start(this) } catch (_: Exception) {}
         voice = Voice(this)
         overlay = Overlay(this, prefs)
-        nav = NavEngine(prefs, navExecutor) { text, speech, urgent -> alert(text, speech, urgent = urgent) }
+        nav = NavEngine(this, prefs, navExecutor) { text, speech, urgent -> alert(text, speech, urgent = urgent) }
         Live.addListener(overlayListener)
         lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         thread = HandlerThread("drive").also { it.start() }
@@ -383,6 +384,11 @@ class DriveService : Service(), LocationListener {
                     warnedMotorway = m.way.id
                     alert("CẢNH BÁO: đây là đường cao tốc, xe máy không được đi!", "Cảnh báo, xe máy không được đi đường cao tốc", urgent = true, showMs = 10000)
                 }
+                val noMotoHere = m.way.tags["motorcycle"] == "no" || m.way.tags["motor_vehicle"] == "no"
+                if (noMotoHere && m.way.id != warnedNoMoto && speedMps > 3) {
+                    warnedNoMoto = m.way.id
+                    alert("CẢNH BÁO: đang đi vào làn/đường cấm xe máy!", "Cảnh báo, đang đi vào đường cấm xe máy", urgent = true, showMs = 10000)
+                }
                 val res = SpeedRules.resolve(m.way, m.forward, prefs, snap.urbanArea)
                 val key = res?.let { "${it.kmh}/${it.estimated}" } ?: "none"
                 if (key == pendingKey) pendingCount++ else {
@@ -508,7 +514,16 @@ class DriveService : Service(), LocationListener {
                     if (cand == v) {
                         confirm++
                     } else {
-                        cand = v; candEst = res.estimated; candDist = d; candLat = la; candLon = lo; confirm = 1
+                        // Neo biển vào đúng đầu mút đoạn đường (điểm cố định) thay vì điểm nội suy
+                        // theo quãng đường đã đi — tránh biển bị "kéo/nhoè" khi tiến độ tuyến thay đổi
+                        val dEnd = Geo.distance(la, lo, m.way.lats.last(), m.way.lons.last())
+                        val dStart = Geo.distance(la, lo, m.way.lats.first(), m.way.lons.first())
+                        val anchored = when {
+                            dEnd <= dStart && dEnd < 60 -> m.way.lats.last() to m.way.lons.last()
+                            dStart < 60 -> m.way.lats.first() to m.way.lons.first()
+                            else -> la to lo
+                        }
+                        cand = v; candEst = res.estimated; candDist = d; candLat = anchored.first; candLon = anchored.second; confirm = 1
                     }
                     if (confirm >= 2) break
                 } else if (cand != null) {
@@ -629,6 +644,7 @@ class DriveService : Service(), LocationListener {
     // ---------- Biển báo phía trước ----------
 
     private val announcedSigns = HashSet<String>()
+    private val activeSigns = HashSet<String>()
 
     private var signHdg = -1.0
 
@@ -647,17 +663,29 @@ class DriveService : Service(), LocationListener {
             val found = ArrayList<Pair<RoadSign, Double>>()
             // Chỉ xét đường đang đi + các đoạn nối tiếp phía trước đúng chiều (không lấy nhánh/đường cắt ngang)
             val corridor = if (way != null) corridorWays(snap, way, currentWayForward, hdg) else emptyList()
+            val corridorIds = corridor.map { it.id }.toHashSet()
             for (sg in snap.signs) {
                 if (sg.type == SignType.SPEED) continue // giới hạn tốc độ đã có ô riêng
                 val d = Geo.distance(lat, lon, sg.lat, sg.lon)
                 if (d > 300) {
-                    if (d > 500) announcedSigns.remove(sg.id)
+                    if (d > 500) { announcedSigns.remove(sg.id); activeSigns.remove(sg.id) }
                     continue
                 }
                 if (sg.heading >= 0 && Geo.angleDiff(sg.heading, hdg) > 60) continue
-                if (corridor.isEmpty()) continue
-                val onCorridor = corridor.any { distToWay(it, sg.lat, sg.lon) < 20 }
-                if (onCorridor) found.add(Pair(sg, d))
+                if (corridor.isEmpty()) { activeSigns.remove(sg.id); continue }
+                // Đường THỰC SỰ gần biển nhất phải là đường đang đi (phân biệt 2 đường song song,
+                // ví dụ làn xe máy/ô tô tách riêng) — không chỉ "đủ gần" tuyến đang đi
+                var nearestWay: Way? = null
+                var nearestD = Double.MAX_VALUE
+                for (w in snap.ways) {
+                    val dd = distToWay(w, sg.lat, sg.lon)
+                    if (dd < nearestD) { nearestD = dd; nearestWay = w }
+                }
+                val onCorridorWay = nearestWay != null && nearestWay.id in corridorIds
+                // Độ trễ (hysteresis): biển đã hiện thì giữ thêm biên độ để không nhấp nháy khi ở ranh giới
+                val thresh = if (sg.id in activeSigns) 32.0 else 20.0
+                val onCorridor = onCorridorWay && nearestD < thresh
+                if (onCorridor) { found.add(Pair(sg, d)); activeSigns.add(sg.id) } else activeSigns.remove(sg.id)
             }
             // Đường phía trước: vòng xuyến, cấm xe máy (từ thẻ của đường trên OSM) — chỉ trong tuyến đang đi
             for (w in corridor) {

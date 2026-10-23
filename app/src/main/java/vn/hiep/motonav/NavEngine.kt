@@ -1,5 +1,6 @@
 package vn.hiep.motonav
 
+import android.content.Context
 import android.os.SystemClock
 import java.util.concurrent.ExecutorService
 import kotlin.math.max
@@ -12,6 +13,7 @@ import kotlin.math.sqrt
  * đọc + hiện chỉ dẫn, tự tìm lại tuyến khi đi lệch.
  */
 class NavEngine(
+    private val ctx: Context,
     private val prefs: Prefs,
     private val executor: ExecutorService,
     private val alert: (text: String, speech: String, urgent: Boolean) -> Unit,
@@ -109,6 +111,10 @@ class NavEngine(
             try {
                 // Luôn lấy vài tuyến để tự chọn tuyến tốt nhất (tránh kẹt xe / ngắn nhất)
                 var list = VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, true)
+                // Né các đoạn người dùng tự báo "đường bị chặn" (dữ liệu bản đồ cũ): bỏ bớt tuyến
+                // đi ngang điểm đó nếu còn tuyến khác không dính
+                val clean = list.filter { !BlockedRoads.blocksPath(ctx, it.lats, it.lons) }
+                if (clean.isNotEmpty() && clean.size < list.size) list = clean
                 list = RoutePick.rank(list, heading, forwardFirst = heading != null)
                 // Quẹo nhầm / lệch tuyến: không bắt quay đầu – ép đi tiếp qua một điểm phía trước
                 if (heading != null && (reroute || Live.speedKmh > 8) && RoutePick.isBackward(list.first(), heading)) {

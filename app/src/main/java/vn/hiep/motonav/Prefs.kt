@@ -213,3 +213,60 @@ object CameraStore {
 
     fun clear(ctx: Context) = save(ctx, emptyList())
 }
+
+/** Vị trí người dùng tự báo "đường bị chặn/cấm" (dữ liệu bản đồ cũ), lưu trong máy, dùng để né khi tìm đường. */
+object BlockedRoads {
+    class Blocked(val id: String, val lat: Double, val lon: Double, val addedAt: Long)
+
+    @Volatile
+    private var cache: List<Blocked>? = null
+    private const val MAX_AGE_MS = 60L * 24 * 3600_000L // tự hết hạn sau 60 ngày (có thể dữ liệu đã được sửa)
+
+    fun all(ctx: Context): List<Blocked> {
+        cache?.let { return it }
+        val sp = ctx.applicationContext.getSharedPreferences("motonav", Context.MODE_PRIVATE)
+        val list = ArrayList<Blocked>()
+        try {
+            val arr = JSONArray(sp.getString("blocked_roads", "[]"))
+            val cutoff = System.currentTimeMillis() - MAX_AGE_MS
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val at = o.optLong("at", 0L)
+                if (at in 1 until cutoff) continue
+                list.add(Blocked(o.getString("id"), o.getDouble("lat"), o.getDouble("lon"), at))
+            }
+        } catch (_: Exception) {
+        }
+        cache = list
+        return list
+    }
+
+    private fun save(ctx: Context, list: List<Blocked>) {
+        val arr = JSONArray()
+        for (b in list) arr.put(JSONObject().put("id", b.id).put("lat", b.lat).put("lon", b.lon).put("at", b.addedAt))
+        ctx.applicationContext.getSharedPreferences("motonav", Context.MODE_PRIVATE)
+            .edit().putString("blocked_roads", arr.toString()).apply()
+        cache = list
+    }
+
+    fun add(ctx: Context, lat: Double, lon: Double) {
+        val list = ArrayList(all(ctx))
+        if (list.any { Geo.distance(it.lat, it.lon, lat, lon) < 25 }) return
+        list.add(Blocked("b" + System.currentTimeMillis(), lat, lon, System.currentTimeMillis()))
+        save(ctx, list)
+    }
+
+    /** Có điểm bị chặn nào cách đoạn đường [lats]/[lons] trong [radius] m không. */
+    fun blocksPath(ctx: Context, lats: DoubleArray, lons: DoubleArray, radius: Double = 25.0): Boolean {
+        val list = all(ctx)
+        if (list.isEmpty()) return false
+        for (i in lats.indices) {
+            for (b in list) {
+                if (Geo.distance(lats[i], lons[i], b.lat, b.lon) < radius) return true
+            }
+        }
+        return false
+    }
+
+    fun clear(ctx: Context) = save(ctx, emptyList())
+}

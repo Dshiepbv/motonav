@@ -17,10 +17,10 @@ import kotlin.math.sin
  */
 object Text3D {
     private const val LIFT = 1.5        // chữ cách mặt đất 1,5 m
-    private const val MAX_HEIGHT = 8.0  // chiều cao chữ tối đa (m)
-    private const val MIN_CELL = 0.28   // kích thước ô nhỏ nhất (m)
+    private const val MAX_HEIGHT = 10.0 // chiều cao chữ tối đa (m)
+    private const val MIN_CELL = 0.34   // kích thước ô nhỏ nhất (m) — to hơn để đọc được không cần zoom
     private const val MAX_LEN = 55.0    // chiều dài tối đa cả tên (m)
-    private const val START = 10.0      // bắt đầu cách ngã rẽ 10 m
+    private const val START = 4.0       // bắt đầu ngay sát ngã rẽ
     private const val THICK = 1.4       // độ dày chữ (m)
     private const val SMALL = 0.72      // tỉ lệ cỡ chữ các đường khác (không phải đường rẽ)
 
