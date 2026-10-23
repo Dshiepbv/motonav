@@ -1436,14 +1436,11 @@ class NavActivity : Activity() {
         )
         shownText3d = -1
 
-        // Thời tiết dọc tuyến: bong bóng nắng/mưa đặt cạnh tuyến.
-        // Bộ icon chỉ phụ thuộc (nhóm thời tiết × ngày/đêm) = 12 ảnh cố định, tạo 1 lần ở đây.
-        // (Trước đây số/% được vẽ chìm vào tên ảnh -> mỗi điểm một ảnh riêng, liên tục addImage
-        // giữa lúc chạy khiến khung hình bị giật mỗi khi thời tiết cập nhật. Nay số hiển thị bằng
-        // text-field riêng, không còn addImage khi đang chạy nữa.)
-        for (cat in 0..5) for (night in 0..1) {
-            s.addImage("wx-$cat-$night", wxIcon(cat, night == 1))
-        }
+        // Thời tiết dọc tuyến: bong bóng nắng/mưa đặt cạnh tuyến (số/% vẽ thẳng vào ảnh —
+        // đáng tin cậy hơn text-field riêng, vì style bản đồ này không chắc có sẵn glyph để
+        // vẽ chữ cho layer tự thêm). Số điểm mỗi tuyến rất ít (RouteWeather chỉ tạo mốc khi
+        // đổi thời tiết hoặc cách nhau ≥12km) nên số ảnh mới thực tế chỉ vài cái mỗi khi thời
+        // tiết cập nhật (tối đa 20 phút/lần), không addImage liên tục khi đang chạy.
         s.addSource(GeoJsonSource("mn-wx", emptyFc))
         s.addLayer(
             SymbolLayer("mn-wx-icon", "mn-wx").withProperties(
@@ -1454,22 +1451,7 @@ class NavActivity : Activity() {
                 PropertyFactory.iconOffset(arrayOf(10f, -4f)),
                 PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
                 PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
-                PropertyFactory.textField(Expression.get("l")),
-                PropertyFactory.textSize(13f),
-                PropertyFactory.textColor(
-                    Expression.switchCase(
-                        Expression.gte(Expression.toNumber(Expression.get("c")), Expression.literal(WxCat.CHANCE.toFloat())),
-                        Expression.color(Color.WHITE),
-                        Expression.color(Color.parseColor("#1B2027")),
-                    ),
-                ),
-                PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM_LEFT),
-                PropertyFactory.textOffset(arrayOf(1.65f, -1.35f)),
-                PropertyFactory.textAllowOverlap(true),
-                PropertyFactory.textIgnorePlacement(true),
-                PropertyFactory.textPitchAlignment(Property.TEXT_PITCH_ALIGNMENT_VIEWPORT),
-                PropertyFactory.textRotationAlignment(Property.TEXT_ROTATION_ALIGNMENT_VIEWPORT),
-            ).apply { labelFont?.let { setProperties(PropertyFactory.textFont(it)) } },
+            ),
         )
         shownWx = -1
 
@@ -1529,11 +1511,8 @@ class NavActivity : Activity() {
     private var shownWx = -1
     private var shownText3d = -1
 
-    /**
-     * Bong bóng thời tiết: biểu tượng nền + emoji. Số/% không vẽ ở đây nữa (xem ghi chú ở nơi
-     * gọi addImage) — chỉ 12 ảnh cố định (6 nhóm thời tiết × ngày/đêm), tạo 1 lần khi nạp style.
-     */
-    private fun wxIcon(cat: Int, night: Boolean): android.graphics.Bitmap {
+    /** Bong bóng thời tiết: biểu tượng + nhiệt độ hoặc % mưa, vẽ thẳng vào ảnh (chắc hiện). */
+    private fun wxIcon(cat: Int, night: Boolean, label: String): android.graphics.Bitmap {
         val w = dp(74f)
         val h = dp(38f)
         val b = android.graphics.Bitmap.createBitmap(w, h + dp(6f), android.graphics.Bitmap.Config.ARGB_8888)
@@ -1552,6 +1531,10 @@ class NavActivity : Activity() {
         c.drawPath(tail, p)
         val t = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = h * 0.55f }
         c.drawText(WxCat.emoji(cat, night), dp(6f).toFloat(), h * 0.7f, t)
+        t.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        t.textSize = h * 0.42f
+        t.color = if (cat >= WxCat.CHANCE) Color.WHITE else Color.parseColor("#1B2027")
+        c.drawText(label, dp(36f).toFloat(), h * 0.66f, t)
         return b
     }
     private var shownChoicesMap = -1
@@ -1690,9 +1673,22 @@ class NavActivity : Activity() {
         }
         if (shownWx != Live.wxVersion) {
             shownWx = Live.wxVersion
-            // Ảnh wx-* đã tạo sẵn đủ 12 cái lúc nạp style — ở đây chỉ đổi dữ liệu điểm, không
-            // addImage nữa nên không còn giật hình khi thời tiết cập nhật giữa lúc chạy.
-            src("mn-wx")?.setGeoJson(Live.wxJson ?: emptyFc)
+            val js = Live.wxJson
+            if (js != null) {
+                try {
+                    val st = style
+                    if (st != null && st.isFullyLoaded) {
+                        Regex(""""img":"(wx-(\d+)-(\d)-([^"]*))"""").findAll(js).forEach { m ->
+                            val id = m.groupValues[1]
+                            if (st.getImage(id) == null) {
+                                st.addImage(id, wxIcon(m.groupValues[2].toInt(), m.groupValues[3] == "1", m.groupValues[4]))
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+            src("mn-wx")?.setGeoJson(js ?: emptyFc)
         }
         if (shownSignsMap != Live.signsVersion) {
             shownSignsMap = Live.signsVersion
