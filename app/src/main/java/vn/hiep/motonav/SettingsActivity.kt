@@ -308,6 +308,16 @@ class SettingsActivity : Activity() {
                 .setNegativeButton("Huỷ", null)
                 .show()
         }
+        val zn = SpeedZones.all(this).size
+        if (zn > 0) {
+            action("Xoá các vùng tốc độ cố định đã đặt ($zn)", "Đặt trong menu ☰ khi đang dẫn đường", Color.parseColor("#FF6B60")) {
+                AlertDialog.Builder(this)
+                    .setMessage("Xoá tất cả $zn vùng tốc độ cố định đã đặt?")
+                    .setPositiveButton("Xoá") { _, _ -> SpeedZones.clear(this); build() }
+                    .setNegativeButton("Huỷ", null)
+                    .show()
+            }
+        }
 
         header("Hệ thống")
         val packOk = try { OfflinePack.open(this) } catch (_: Exception) { false }

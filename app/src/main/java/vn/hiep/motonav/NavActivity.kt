@@ -667,22 +667,33 @@ class NavActivity : Activity() {
     }
 
     /**
-     * Đặt một vùng (bán kính ~1,5 km quanh vị trí hiện tại) có tốc độ giới hạn cố định cho xe máy,
-     * dùng khi cả khu vực quy định chung một mức (ví dụ khu công nghệ cao) chứ không theo từng đoạn
-     * đường/làn như dữ liệu OSM, để khỏi bị nhảy số do khớp lẫn giữa các đoạn/làn gần nhau.
+     * Đặt một vùng tròn quanh vị trí hiện tại có tốc độ giới hạn cố định cho xe máy, dùng khi cả khu
+     * vực quy định chung một mức (ví dụ khu công nghệ cao) chứ không theo từng đoạn đường/làn như dữ
+     * liệu OSM, để khỏi bị nhảy số do khớp lẫn giữa các đoạn/làn gần nhau.
+     * Cho chọn bán kính (không cố định 1,5 km) vì nếu đặt gần rìa khu, vòng tròn to có thể lòi ra
+     * ngoài và báo sai cho cả đường không thuộc khu — nên đặt bán kính nhỏ, có thể đặt nhiều vùng nối
+     * nhau để ôm theo đúng hình dạng khu thay vì một vòng tròn to.
      */
     private fun speedZoneDialog() {
         if (!Live.gpsOk) {
             toast("Chưa có GPS, thử lại sau")
             return
         }
-        val kmhs = arrayOf("30", "40", "50", "60", "70")
+        val radii = arrayOf("300 m" to 300.0, "500 m" to 500.0, "1 km" to 1000.0, "2 km" to 2000.0)
         AlertDialog.Builder(this)
-            .setTitle("Tốc độ xe máy cố định ở khu vực này (bán kính ~1,5 km)")
-            .setItems(kmhs) { _, i ->
-                val kmh = kmhs[i].toInt()
-                SpeedZones.add(this, Live.lat, Live.lon, 1500.0, kmh)
-                toast("Đã đặt: trong bán kính 1,5 km quanh đây, xe máy tối đa $kmh km/h")
+            .setTitle("Bán kính vùng (nên chọn nhỏ, tránh lòi ra ngoài khu)")
+            .setItems(radii.map { it.first }.toTypedArray()) { _, ri ->
+                val radius = radii[ri].second
+                val kmhs = arrayOf("30", "40", "50", "60", "70")
+                AlertDialog.Builder(this)
+                    .setTitle("Tốc độ xe máy cố định trong bán kính ${radii[ri].first} quanh đây")
+                    .setItems(kmhs) { _, i ->
+                        val kmh = kmhs[i].toInt()
+                        SpeedZones.add(this, Live.lat, Live.lon, radius, kmh)
+                        toast("Đã đặt: trong bán kính ${radii[ri].first} quanh đây, xe máy tối đa $kmh km/h")
+                    }
+                    .setNegativeButton("Huỷ", null)
+                    .show()
             }
             .setNegativeButton("Huỷ", null)
             .show()
