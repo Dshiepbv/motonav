@@ -437,6 +437,33 @@ class SettingsActivity : Activity() {
                 note = "Chạm để xem lại trạng thái mới nhất. Cần bật \"Theo dõi tốc độ & camera\" (hoặc đang dẫn đường) để app chạy nền và thử kết nối.",
             ) { build() }
 
+            // ---- Giai đoạn 2: thử kênh ảnh (khung test) — xem xe có hiện icon bản đồ không ----
+            val frameStatus = when {
+                !TftLink.authed -> "Cần bắt tay xong (dòng trên) trước đã"
+                TftLink.lastFrameError != null && TftLink.frameTxCount == 0 -> "⚠️ ${TftLink.lastFrameError}"
+                TftLink.frameTxCount > 0 -> {
+                    val ackMs = TftLink.lastFrameAckMs
+                    val ackTxt = if (ackMs >= 0) "ACK sau ${ackMs}ms" else "chưa có ACK lần nào"
+                    "✅ Đã gửi ${TftLink.frameTxCount} khung ảnh test (${TftLink.screenW}x${TftLink.screenH}) — $ackTxt" +
+                        (TftLink.lastFrameError?.let { " · $it" } ?: "")
+                }
+                else -> "Chưa gửi khung nào — chạm để gửi thử 20 khung (1 khung/giây)"
+            }
+            action(
+                "Thử nghiệm: gửi ảnh test lên màn xe (giai đoạn 2)",
+                frameStatus,
+                note = "Gửi 20 khung ảnh JPEG đen trắng ghi chữ \"TEST #n\" qua đúng kênh ảnh mà NConnect/Garmin dùng — mục đích chỉ để xem xe có ACK và có hiện icon bản đồ lên không, trước khi làm khung bản đồ sketch thật. Chạm để gửi lại.",
+            ) {
+                if (TftLink.authed) {
+                    TftLink.stopTestFrames()
+                    TftLink.sendTestFrames(20)
+                    toast("Đang gửi 20 khung ảnh test…")
+                } else {
+                    toast("Chưa bắt tay xong với xe")
+                }
+                build()
+            }
+
             // ---- Chẩn đoán bước 1/3 của "bắt cặp BLE" (thử nghiệm, chưa phải tính năng chính) ----
             val ccuStatus = when {
                 CcuAuth.running -> "🔄 Đang hỏi xe…"

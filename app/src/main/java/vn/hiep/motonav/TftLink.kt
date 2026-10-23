@@ -5,6 +5,11 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothServerSocket
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.IOException
@@ -168,6 +173,120 @@ object TftLink {
         return pack(byteArrayOf(m.toByte(), (m shr 8).toByte(), 0, 0), 1, 1)
     }
 
+    // ---------- Giai đoạn 2: kênh ảnh (khung bản đồ sketch) — gửi cmd 0/sub 1, có ACK ----------
+
+    /** Độ phân giải màn hình thật của xe, dò được ở bước bắt tay 2/3 (cmd 0x53). Mặc định
+     * 480x234 (model không phải "006-B4160") cho tới khi dò ra chính xác. */
+    @Volatile var screenW: Int = 480
+        private set
+    @Volatile var screenH: Int = 234
+        private set
+
+    @Volatile private var frameSeq: Int = 0
+    @Volatile private var ackedFrame: Int = -1
+    private val ackLock = Object()
+
+    @Volatile var frameTxCount: Int = 0
+        private set
+    @Volatile var lastFrameError: String? = null
+        private set
+    @Volatile var lastFrameAckMs: Long = -1
+        private set
+
+    /**
+     * Gửi một khung ảnh JPEG lên màn xe (cmd 0 / sub 1 — dò được từ NConnect: payload =
+     * [loại khung][số thứ tự LE16][ảnh JPEG, đệm tối thiểu 2050 byte]). Chờ xe trả ACK (cmd 0x50)
+     * đúng số thứ tự này tối đa 6 giây (giống app gốc) — quá 2 giây thì coi là chậm nhưng vẫn chờ
+     * tiếp, quá 6 giây thì bỏ qua khung này (coi như gửi xong, không chặn khung sau).
+     * CHỈ gọi khi [authed] — chưa bắt tay xong thì xe sẽ không hiểu/ACK.
+     */
+    fun sendFrame(jpeg: ByteArray): Boolean {
+        if (!authed) return false
+        val seq = (frameSeq + 1) and 0xFFFF
+        frameSeq = seq
+        var body = jpeg
+        if (body.size <= 2048) body = body.copyOf(2050)
+        val payload = ByteArray(body.size + 3)
+        payload[0] = 3 // loại khung — 3 = bình thường (giống app gốc lúc không tạm dừng)
+        payload[1] = (seq and 0xFF).toByte()
+        payload[2] = ((seq ushr 8) and 0xFF).toByte()
+        System.arraycopy(body, 0, payload, 3, body.size)
+        val sentAt = System.currentTimeMillis()
+        if (!send(pack(payload, 0, 1))) {
+            lastFrameError = "Gửi khung lỗi (mất kết nối)"
+            return false
+        }
+        val deadline2s = sentAt + 2000
+        val deadline6s = sentAt + 6000
+        synchronized(ackLock) {
+            while (running.get() && connected && ackedFrame != seq) {
+                val now = System.currentTimeMillis()
+                if (now >= deadline6s) {
+                    lastFrameError = "Khung #$seq không được ACK sau 6 giây"
+                    return true // giống app gốc: hết giờ vẫn coi là xong, không chặn khung sau
+                }
+                val waitMs = if (now < deadline2s) deadline2s - now else deadline6s - now
+                try {
+                    (ackLock as Object).wait(waitMs.coerceAtLeast(1))
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+            }
+        }
+        lastFrameAckMs = System.currentTimeMillis() - sentAt
+        lastFrameError = null
+        frameTxCount++
+        return true
+    }
+
+    /** Ảnh test đơn giản (chữ + khung viền) để kiểm tra riêng kênh ảnh có khiến xe hiện icon bản
+     * đồ hay không, trước khi làm khung bản đồ sketch thật. */
+    fun buildTestFrame(label: String = "MOTONAV TEST"): ByteArray {
+        val w = screenW
+        val h = screenH
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
+        val c = Canvas(bmp)
+        c.drawColor(Color.BLACK)
+        val border = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f }
+        c.drawRect(4f, 4f, (w - 4).toFloat(), (h - 4).toFloat(), border)
+        val textPaint = Paint().apply {
+            color = Color.WHITE
+            textSize = (h / 5f)
+            typeface = Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+            isAntiAlias = true
+        }
+        c.drawText(label, w / 2f, h / 2f + textPaint.textSize / 3f, textPaint)
+        val out = ByteArrayOutputStream()
+        bmp.compress(Bitmap.CompressFormat.JPEG, 70, out)
+        bmp.recycle()
+        return out.toByteArray()
+    }
+
+    /** Gửi liên tục vài khung ảnh test (cách nhau 1 giây) để xem xe có phản ứng gì không — chạy
+     * nền, không chặn luồng gọi. [count] = 0 nghĩa là gửi liên tục cho tới khi [stopTestFrames]. */
+    @Volatile private var testFramesRunning = false
+    fun sendTestFrames(count: Int = 20) {
+        if (testFramesRunning) return
+        testFramesRunning = true
+        Thread({
+            var n = 0
+            var i = 0
+            while (testFramesRunning && running.get() && (count == 0 || i < count)) {
+                i++
+                val jpeg = buildTestFrame("TEST #$i")
+                if (sendFrame(jpeg)) n++
+                sleepQuiet(1000)
+            }
+            testFramesRunning = false
+        }, "tft-test-frames").apply { isDaemon = true; start() }
+    }
+
+    fun stopTestFrames() {
+        testFramesRunning = false
+    }
+
     /**
      * Mã mũi tên rẽ: từ mã "sign" chuẩn GraphHopper mà MotoNav đang dùng (xem [Maneuver]) sang mã
      * số bên xe hiểu. CHƯA XÁC NHẬN — đoán theo nhóm rẽ phổ biến, cần chạy thử thực tế trên xe rồi
@@ -317,6 +436,8 @@ object TftLink {
         lastCmdSeen = -1
         txCount = 0
         lastTxAt = 0
+        testFramesRunning = false
+        synchronized(ackLock) { ackedFrame = -1; (ackLock as Object).notifyAll() }
     }
 
     private fun serverLoop(a: BluetoothAdapter) {
@@ -405,6 +526,11 @@ object TftLink {
         lastCmdSeen = -1
         txCount = 0
         lastTxAt = 0
+        frameSeq = 0
+        frameTxCount = 0
+        lastFrameError = null
+        lastFrameAckMs = -1
+        synchronized(ackLock) { ackedFrame = -1 }
         Thread({ readLoop(input, socket) }, "tft-reader").apply { isDaemon = true; start() }
     }
 
@@ -431,8 +557,16 @@ object TftLink {
                             send(pack(byteArrayOf(1, 0), 0x51, 0))
                             send(pack(byteArrayOf(0x7c, 6, 0, 1, 0, 0, 0, 0), 0x21, 1))
                         }
-                        0x53 -> { // 2/3: xe gửi mã phần mềm + khoá → trả lại đúng khoá
-                            val key = if (payload.size > 12) payload.copyOfRange(12, payload.size) else ByteArray(0)
+                        0x53 -> { // 2/3: xe gửi mã phần mềm + khoá (toàn bộ payload XOR với 10) → trả
+                            // lại đúng khoá (đã XOR) qua 0x54; 12 byte đầu sau khi XOR là mã phần mềm
+                            // ASCII, dùng để biết đúng độ phân giải màn hình (dò từ NConnect — thiếu
+                            // bước XOR này trước đây khiến khoá trả lại sai và chưa từng dò được W/H).
+                            val dec = ByteArray(payload.size) { i -> (payload[i].toInt() xor 10).toByte() }
+                            val codeLen = minOf(12, dec.size)
+                            val code = String(dec, 0, codeLen, ascii).substringBefore(' ')
+                            screenW = 480
+                            screenH = if (code.startsWith("006-B4160")) 240 else 234
+                            val key = if (dec.size > 12) dec.copyOfRange(12, dec.size) else ByteArray(0)
                             send(pack(key, 0x54, 1))
                             step2Done = true
                             if (handshakeStep < 2) handshakeStep = 2
@@ -442,6 +576,15 @@ object TftLink {
                             if (v == 1) {
                                 step3Done = true
                                 if (handshakeStep < 3) handshakeStep = 3
+                            }
+                        }
+                        0x50 -> { // ACK khung ảnh: payload 2 byte LE = số thứ tự khung xe vừa nhận
+                            val seq = if (payload.size >= 2) {
+                                (payload[0].toInt() and 0xFF) or ((payload[1].toInt() and 0xFF) shl 8)
+                            } else if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else 0
+                            synchronized(ackLock) {
+                                ackedFrame = seq
+                                (ackLock as Object).notifyAll()
                             }
                         }
                     }
@@ -462,6 +605,8 @@ object TftLink {
             connected = false
             authed = false
             busy.set(false)
+            testFramesRunning = false
+            synchronized(ackLock) { (ackLock as Object).notifyAll() }
         }
     }
 
