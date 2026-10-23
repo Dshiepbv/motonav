@@ -224,6 +224,16 @@ class NavActivity : Activity() {
         }
         turnCard.addView(thenText)
 
+        // Tên đường đang đi, luôn hiện để xác nhận đã rẽ đúng đường
+        streetNowText = tv(13f, Color.WHITE, true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(Color.argb(210, 22, 26, 32), 14f)
+            setPadding(dp(10f), dp(5f), dp(10f), dp(5f))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            visibility = View.GONE
+        }
+
         alertBanner = tv(18f, Color.BLACK, true).apply {
             gravity = Gravity.CENTER
             setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
@@ -330,32 +340,37 @@ class NavActivity : Activity() {
         bottomBar.addView(etaText)
         statusText = tv(13f, muted).apply { maxLines = if (ls) 2 else 3 }
         bottomBar.addView(statusText)
-        val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        fun btn(t: String, color: Int, onClick: () -> Unit) = Button(this).apply {
+        // Nút tròn nhỏ dạng biểu tượng (thay vì nút chữ dài chiếm hết bề ngang)
+        val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
+        fun btn(t: String, color: Int, desc: String, onClick: () -> Unit) = Button(this).apply {
             text = t
+            contentDescription = desc
             isAllCaps = false
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            background = rounded(color, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setPadding(0, 0, 0, 0)
+            minWidth = 0
+            minimumWidth = 0
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color) }
             setOnClickListener { onClick() }
         }
-        val lp = { LinearLayout.LayoutParams(0, dp(48f), 1f).apply { setMargins(dp(4f), dp(6f), dp(4f), 0) } }
-        recenterBtn = btn("◎ Về vị trí", Color.parseColor("#1565C0")) {
+        val lp = { LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { setMargins(dp(8f), dp(6f), 0, 0) } }
+        recenterBtn = btn("◎", Color.parseColor("#1565C0"), "Về vị trí") {
             follow = true
             recenterBtn.visibility = View.GONE
             render()
         }
         recenterBtn.visibility = View.GONE
         btns.addView(recenterBtn, lp())
-        endBtn = btn("Kết thúc", danger) {
+        altBtn = btn("↺", Color.parseColor("#2C343E"), "Tuyến khác") {
+            DriveService.send(this, DriveService.ACTION_NAV_ALTS)
+        }
+        btns.addView(altBtn, lp())
+        endBtn = btn("⏹", danger, "Kết thúc") {
             DriveService.stopNav(this)
             follow = true
         }
         btns.addView(endBtn, lp())
-        altBtn = btn("↺ Tuyến khác", Color.parseColor("#2C343E")) {
-            DriveService.send(this, DriveService.ACTION_NAV_ALTS)
-        }
-        btns.addView(altBtn, 1, lp())
         bottomBar.addView(btns)
         btnRow = btns
 
@@ -385,6 +400,7 @@ class NavActivity : Activity() {
         }
     }
 
+    private lateinit var streetNowText: TextView
     private lateinit var menuBtn: TextView
     private lateinit var choicesPanel: LinearLayout
     private lateinit var altBtn: Button
@@ -401,27 +417,48 @@ class NavActivity : Activity() {
             return
         }
         choicesPanel.visibility = View.VISIBLE
-        choicesPanel.addView(tv(14f, muted).apply { text = "Chọn tuyến (chạm để đổi):" })
+        choicesPanel.addView(tv(12f, muted).apply { text = "Chọn tuyến (chạm để đổi):" })
         val fastest = list.minOf { it.timeMs }
+        // Tên đường mỗi tuyến đi qua (vài đường chính đầu tiên) để so sánh, chọn tuyến khác nhau ở đâu
+        val streetsOf = list.map { r ->
+            val names = ArrayList<String>()
+            for (s in r.steps) {
+                val n = s.street.trim()
+                if (n.isNotEmpty() && (names.isEmpty() || names.last() != n)) names.add(n)
+                if (names.size >= 4) break
+            }
+            names
+        }
         list.forEachIndexed { i, r ->
             val sel = i == Live.choiceSelected
             val mins = (r.timeMs / 60000).coerceAtLeast(1)
             val extra = if (r.timeMs == fastest) " · nhanh nhất" else " · +${((r.timeMs - fastest) / 60000).coerceAtLeast(1)} phút"
-            val row = tv(17f, Color.WHITE, sel).apply {
-                text = (if (sel) "● " else "○ ") + "Tuyến ${i + 1}: $mins phút · ${NavEngine.fmtDist(r.distance)}$extra"
+            val col = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
                 background = rounded(if (sel) green else Color.parseColor("#2C343E"), 10f)
-                setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+                setPadding(dp(10f), dp(6f), dp(10f), dp(6f))
                 setOnClickListener { DriveService.send(this@NavActivity, DriveService.ACTION_NAV_CHOOSE, i) }
             }
-            choicesPanel.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
+            col.addView(tv(13f, Color.WHITE, sel).apply {
+                text = (if (sel) "● " else "○ ") + "Tuyến ${i + 1}: $mins phút · ${NavEngine.fmtDist(r.distance)}$extra"
+            })
+            val names = streetsOf[i]
+            if (names.isNotEmpty()) {
+                col.addView(tv(11f, if (sel) Color.parseColor("#D9F2E6") else muted).apply {
+                    text = "Qua: " + names.joinToString(" → ")
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                })
+            }
+            choicesPanel.addView(col, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4f) })
         }
-        choicesPanel.addView(tv(16f, Color.WHITE, true).apply {
+        choicesPanel.addView(tv(13f, Color.WHITE, true).apply {
             text = "✓ Đi tuyến đã chọn"
             gravity = Gravity.CENTER
             background = rounded(Color.parseColor("#1565C0"), 10f)
-            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+            setPadding(dp(10f), dp(7f), dp(10f), dp(7f))
             setOnClickListener { DriveService.send(this@NavActivity, DriveService.ACTION_NAV_CHOICES_DONE) }
-        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) })
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
     }
     private lateinit var nextBox: LinearLayout
     private lateinit var signsBox: LinearLayout
@@ -650,6 +687,7 @@ class NavActivity : Activity() {
             }
             val top = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             top.addView(turnCard, LinearLayout.LayoutParams(-1, -2))
+            top.addView(streetNowText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6f); gravity = Gravity.CENTER_HORIZONTAL })
             top.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             top.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             topRow.addView(top, LinearLayout.LayoutParams(0, -2, 1f))
@@ -697,6 +735,7 @@ class NavActivity : Activity() {
             val scroll = ScrollView(this).apply { isFillViewport = true }
             val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             inner.addView(turnCard, LinearLayout.LayoutParams(-1, -2))
+            inner.addView(streetNowText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6f); gravity = Gravity.CENTER_HORIZONTAL })
             inner.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             inner.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             inner.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
@@ -1792,6 +1831,14 @@ class NavActivity : Activity() {
             }
         } else {
             turnCard.visibility = View.GONE
+        }
+        // Tên đường đang đi: luôn hiện khi có GPS để xác nhận đã rẽ đúng đường
+        val st = Live.street
+        if (Live.gpsOk && !st.isNullOrBlank()) {
+            streetNowText.visibility = View.VISIBLE
+            streetNowText.text = st
+        } else {
+            streetNowText.visibility = View.GONE
         }
         searchBox.visibility = if (nav) View.GONE else View.VISIBLE
         endBtn.visibility = if (nav) View.VISIBLE else View.GONE
