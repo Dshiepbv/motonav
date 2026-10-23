@@ -409,6 +409,13 @@ class SettingsActivity : Activity() {
             if (prefs.tftDevice.isNotBlank()) "Đang chọn: ${prefs.tftDeviceName.ifBlank { prefs.tftDevice }}" else "Ghép đôi (pair) với màn xe trong Cài đặt Bluetooth của máy trước, rồi chọn ở đây",
             note = "Danh sách lấy từ các thiết bị Bluetooth đã ghép đôi (pair) với điện thoại.",
         ) { pickTftDevice() }
+        if (prefs.tftLink) {
+            action(
+                "Kiểm tra trạng thái kết nối",
+                if (TftLink.connected) "✅ Đã kết nối với xe" else "⚠️ Chưa kết nối" + (TftLink.lastError?.let { " – $it" } ?: ""),
+                note = "Chạm để xem lại trạng thái mới nhất. Cần bật \"Theo dõi tốc độ & camera\" (hoặc đang dẫn đường) để app chạy nền và thử kết nối.",
+            ) { build() }
+        }
 
         header("⚙️", "Hệ thống")
         val packOk = try { OfflinePack.open(this) } catch (_: Exception) { false }
