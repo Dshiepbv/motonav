@@ -449,6 +449,26 @@ class SettingsActivity : Activity() {
                 ccuStatus,
                 note = "Bước đầu để làm hiện icon dẫn đường trên màn xe (khác kênh dữ liệu ở trên) — đang thử nghiệm, chạm để dò lại.",
             ) { CcuAuth.queryOnce(this, prefs.tftDevice); build() }
+
+            // ---- Chẩn đoán bước 2/3: quét + kết nối BLE, đăng ký nhận dữ liệu (chưa xác thực) ----
+            val bleStatus = when {
+                CcuBle.running -> "🔄 ${CcuBle.stage}"
+                CcuBle.subscribedCount > 0 -> "✅ ${CcuBle.stage} — đăng ký được ${CcuBle.subscribedCount}/${CcuBle.expectedCount} characteristic"
+                CcuBle.error != null -> "⚠️ ${CcuBle.error}"
+                else -> "Chưa thử"
+            }
+            action(
+                "Thử nghiệm: quét + kết nối BLE (bước 2)",
+                bleStatus,
+                note = "Cần bấm bước 1 lấy mã CCU trước. Quét Bluetooth năng lượng thấp tìm đúng màn xe rồi kết nối GATT — chạm để thử lại.",
+            ) {
+                if (!hasBleScanPermission() || !hasBtPermission()) {
+                    requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), REQ_BLE_PERM)
+                } else {
+                    CcuBle.connectOnce(this, CcuAuth.ccuCode, CcuAuth.passkey)
+                }
+                build()
+            }
         }
 
         header("⚙️", "Hệ thống")
@@ -524,10 +544,18 @@ class SettingsActivity : Activity() {
         android.os.Build.VERSION.SDK_INT < 31 ||
             checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
 
+    private fun hasBleScanPermission(): Boolean =
+        android.os.Build.VERSION.SDK_INT < 31 ||
+            checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_BT_PERM && hasBtPermission()) {
             prefs.tftLink = true
+            build()
+        }
+        if (requestCode == REQ_BLE_PERM && hasBtPermission() && hasBleScanPermission()) {
+            CcuBle.connectOnce(this, CcuAuth.ccuCode, CcuAuth.passkey)
             build()
         }
     }
@@ -598,5 +626,6 @@ class SettingsActivity : Activity() {
         private const val REQ_IMPORT = 51
         private const val REQ_EXPORT = 52
         private const val REQ_BT_PERM = 53
+        private const val REQ_BLE_PERM = 54
     }
 }
