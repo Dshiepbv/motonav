@@ -90,6 +90,7 @@ object CcuBle {
     @Volatile private var savedCtx: Context? = null
     @Volatile private var savedDeviceAddr: String? = null
     @Volatile private var btReceiver: BroadcastReceiver? = null
+    @Volatile private var bondReceiver: BroadcastReceiver? = null
 
     private class WriteOp(val uuid: UUID, val value: ByteArray)
     private val writeQueue = ArrayDeque<WriteOp>()
@@ -118,6 +119,7 @@ object CcuBle {
             descQueue.clear()
             writeQueue.clear()
             unregisterBtReceiver()
+            unregisterBondReceiver()
             busy.set(false)
             if (!busy.compareAndSet(false, true)) return
         }
@@ -254,10 +256,12 @@ object CcuBle {
         running = false
         busy.set(false)
         unregisterBtReceiver()
+        unregisterBondReceiver()
     }
 
     private fun failAuth(msg: String) {
         unregisterBtReceiver()
+        unregisterBondReceiver()
         authError = msg
         authStage = "Lỗi"
         running = false
@@ -291,8 +295,7 @@ object CcuBle {
                 override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
                         connGen++ // huỷ timeout đang chờ của lượt này
-                        stage = "Đã nối GATT, đang dò dịch vụ…"
-                        try { g.discoverServices() } catch (_: Exception) {}
+                        ensureBondedThenDiscover(ctx, g, device)
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                         try { g.close() } catch (_: Exception) {}
                         gatt = null
@@ -391,6 +394,64 @@ object CcuBle {
             fail("Thiếu quyền kết nối Bluetooth")
         } catch (e: Exception) {
             fail(e.message ?: "Không mở được GATT")
+        }
+    }
+
+    // Gói dữ liệu xác thực luôn bị xe từ chối (status=3 "write not permitted") dù thử nhiều thứ tự
+    // gửi khác nhau (gửi ngay, đọc DDT trước, chờ notify trước...) — nghi vấn mới: xe cần liên kết
+    // BLE được GHÉP ĐÔI/MÃ HOÁ (Bluetooth bonding) thật sự trước khi cho ghi, không chỉ kết nối GATT
+    // trần. Nếu chưa ghép đôi thì chủ động xin ghép đôi (hệ thống sẽ hiện hộp thoại nếu cần) rồi mới
+    // dò dịch vụ.
+    private fun ensureBondedThenDiscover(ctx: Context, g: BluetoothGatt, device: BluetoothDevice) {
+        val bondState = try { device.bondState } catch (_: SecurityException) { BluetoothDevice.BOND_NONE }
+        TripLog.ev("ccuBle", "bondState" to bondState)
+        if (bondState == BluetoothDevice.BOND_BONDED) {
+            stage = "Đã nối GATT (đã ghép đôi), đang dò dịch vụ…"
+            try { g.discoverServices() } catch (_: Exception) {}
+            return
+        }
+        stage = "Đang ghép đôi Bluetooth (BLE) với xe…"
+        unregisterBondReceiver()
+        val recv = object : BroadcastReceiver() {
+            @Suppress("DEPRECATION")
+            override fun onReceive(c: Context, intent: Intent) {
+                val dev: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                if (dev == null || dev.address != device.address) return
+                val newBond = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, -1)
+                TripLog.ev("ccuBle", "bondChanged" to newBond)
+                if (newBond == BluetoothDevice.BOND_BONDED) {
+                    unregisterBondReceiver()
+                    stage = "Đã ghép đôi — đang dò dịch vụ…"
+                    try { g.discoverServices() } catch (_: Exception) {}
+                } else if (newBond == BluetoothDevice.BOND_NONE) {
+                    unregisterBondReceiver()
+                    TripLog.ev("ccuBle", "bondFailed" to true)
+                    stage = "Ghép đôi BLE không được — vẫn thử dò dịch vụ…"
+                    try { g.discoverServices() } catch (_: Exception) {}
+                }
+            }
+        }
+        bondReceiver = recv
+        try { ctx.registerReceiver(recv, IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)) } catch (_: Exception) {}
+        if (bondState == BluetoothDevice.BOND_NONE) {
+            try { device.createBond() } catch (e: Exception) { TripLog.ev("ccuBle", "createBondErr" to (e.message ?: "")) }
+        }
+        // Hết giờ dự phòng — đừng để kẹt mãi nếu không có sự kiện ghép đôi nào bắn về
+        handler.postDelayed({
+            if (bondReceiver === recv) {
+                unregisterBondReceiver()
+                TripLog.ev("ccuBle", "bondTimeout" to true)
+                stage = "Ghép đôi BLE hết giờ — vẫn thử dò dịch vụ…"
+                try { g.discoverServices() } catch (_: Exception) {}
+            }
+        }, 20_000)
+    }
+
+    private fun unregisterBondReceiver() {
+        val r = bondReceiver
+        if (r != null) {
+            try { savedCtx?.unregisterReceiver(r) } catch (_: Exception) {}
+            bondReceiver = null
         }
     }
 
