@@ -603,21 +603,41 @@ object TftLink {
         }
         while (running.get()) {
             if (!busy.get()) {
+                // QUAN TRỌNG: mỗi lần connect() lỗi mà KHÔNG đóng socket vừa tạo sẽ rò tài nguyên
+                // Bluetooth gốc (native fd) — gọi connect() thất bại liên tục (vài chục lần) sẽ làm
+                // adapter kẹt dần, phải buộc tắt app (process chết, tài nguyên native mới được dọn)
+                // mới gọi lại được. Lỗi thực tế đã gặp: "gọi liên tục nhưng không bao giờ bắt tay
+                // được, phải tắt app mở lại mới nhận". Luôn đóng mọi socket tạo hụt trước khi thử
+                // tiếp hoặc bỏ cuộc vòng này.
+                var secureSock: android.bluetooth.BluetoothSocket? = null
+                var insecureSock: android.bluetooth.BluetoothSocket? = null
                 try {
                     try {
                         a.cancelDiscovery()
                     } catch (_: Exception) {
                     }
                     val sock = try {
-                        device.createRfcommSocketToServiceRecord(SERVICE_UUID).also { it.connect() }
+                        secureSock = device.createRfcommSocketToServiceRecord(SERVICE_UUID)
+                        secureSock.connect()
+                        secureSock
                     } catch (_: IOException) {
-                        device.createInsecureRfcommSocketToServiceRecord(SERVICE_UUID).also { it.connect() }
+                        try {
+                            secureSock?.close()
+                        } catch (_: Exception) {
+                        }
+                        insecureSock = device.createInsecureRfcommSocketToServiceRecord(SERVICE_UUID)
+                        insecureSock.connect()
+                        insecureSock
                     }
                     onConnected(sock, sock.inputStream, sock.outputStream)
                 } catch (e: SecurityException) {
+                    try { secureSock?.close() } catch (_: Exception) {}
+                    try { insecureSock?.close() } catch (_: Exception) {}
                     lastError = "Thiếu quyền Bluetooth"
                     sleepQuiet(10_000)
                 } catch (e: IOException) {
+                    try { secureSock?.close() } catch (_: Exception) {}
+                    try { insecureSock?.close() } catch (_: Exception) {}
                     failCount++
                     lastError = "Không gọi được tới xe (lần $failCount)"
                 }
