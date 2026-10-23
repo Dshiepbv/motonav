@@ -714,7 +714,16 @@ class DriveService : Service(), LocationListener {
                 // Độ trễ (hysteresis): biển đã hiện thì giữ thêm biên độ để không nhấp nháy khi ở ranh giới
                 val thresh = if (sg.id in activeSigns) 32.0 else 20.0
                 val onCorridor = onCorridorWay && nearestD < thresh
-                if (onCorridor) { found.add(Pair(sg, d)); activeSigns.add(sg.id) } else activeSigns.remove(sg.id)
+                // Đi qua biển rồi (phía sau xe hơn 10 m theo hướng đang chạy) → tắt biển, không tính nữa
+                val brgToSign = Geo.bearing(lat, lon, sg.lat, sg.lon)
+                val ahead = d * kotlin.math.cos(Math.toRadians(Geo.angleDiff(brgToSign, hdg)))
+                if (onCorridor && ahead >= -10.0) {
+                    found.add(Pair(sg, max(0.0, ahead)))
+                    activeSigns.add(sg.id)
+                } else {
+                    activeSigns.remove(sg.id)
+                    if (ahead < -10.0) announcedSigns.remove(sg.id)
+                }
             }
             // Đường phía trước: vòng xuyến, cấm xe máy (từ thẻ của đường trên OSM) — chỉ trong tuyến đang đi
             for (w in corridor) {
@@ -805,7 +814,6 @@ class DriveService : Service(), LocationListener {
     }
 
     private var lastJunctions = 0L
-    private var text3dKey = ""
 
     /** Nhãn tên các đường cắt ngang tuyến phía trước (cập nhật mỗi 2,5 giây). */
     private fun updateJunctions(lat: Double, lon: Double) {
@@ -825,19 +833,7 @@ class DriveService : Service(), LocationListener {
                 if (hit) it.withTurn(true) else it
             }
             Live.junctionHasTurn = marked.any { it.isTurn }
-            // Chữ khối 3D cho các ngã rẽ gần (tối đa 8, trong 450 m); các nhãn còn lại giữ dạng chữ thường
-            val view = if (Live.roadBearing >= 0) Live.roadBearing else if (Live.heading >= 0) Live.heading else 0.0
-            // Tất cả tên đường nhánh phía trước đều dựng chữ khối 3D (không còn kiểu chữ phẳng dễ nhoè khi bản đồ nghiêng/xoay)
-            val solid = if (prefs.text3d && !prefs.batterySaver) marked.filter { it.outBearing >= 0 && it.ahead <= 450 }.sortedBy { it.ahead }.take(10) else emptyList()
-            val key = solid.joinToString("|") {
-                val fwd = Text3D.forward(it, view)
-                "${it.name}@${"%.4f".format(it.jLat)},${"%.4f".format(it.jLon)}/${it.isTurn}/$fwd"
-            }
-            if (key != text3dKey) {
-                text3dKey = key
-                Live.text3dJson = if (solid.isEmpty()) null else Text3D.build(solid, view)
-                Live.text3dVersion++
-            }
+            // Hiệu ứng chữ khối 3D dựng tại ngã rẽ đã bỏ (gây nháy, không giải quyết được) — không còn tạo mn-text3d nữa.
             // Nhãn chữ phẳng (trắng viền) không dùng nữa — hay nhoè khi bản đồ nghiêng/xoay
             Live.junctionJson = null
             Live.junctionVersion++

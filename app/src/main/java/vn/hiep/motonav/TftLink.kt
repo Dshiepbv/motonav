@@ -207,6 +207,20 @@ object TftLink {
     @Volatile private var lastSentKey: String = ""
     @Volatile private var failCount = 0
 
+    // ---------- Chẩn đoán (xem ở màn Cài đặt khi chưa bắt tay xong được) ----------
+    /** Tổng số byte đã đọc được từ socket — 0 nghĩa là xe chưa gửi gì cả (kể cả rác). */
+    @Volatile var rxBytes: Long = 0
+        private set
+
+    /** Bước bắt tay xa nhất đã nhận được từ xe: 0=chưa có gì, 1=đã nhận cmd 0x42 (serial),
+     * 2=đã nhận cmd 0x53 (mã phần mềm+khoá), 3=đã nhận cmd 0x52 xác nhận (value=1). */
+    @Volatile var handshakeStep: Int = 0
+        private set
+
+    /** cmd của gói tin gần nhất nhận được (để biết xe có gửi cmd lạ nào khác không). */
+    @Volatile var lastCmdSeen: Int = -1
+        private set
+
     /** Gom các byte đọc được từ socket thành từng gói tin hoàn chỉnh theo khuôn [magic]...[payload]. */
     private class FrameReader {
         private var buf = ByteArray(0)
@@ -288,6 +302,9 @@ object TftLink {
         connected = false
         authed = false
         lastSentKey = ""
+        rxBytes = 0
+        handshakeStep = 0
+        lastCmdSeen = -1
     }
 
     private fun serverLoop(a: BluetoothAdapter) {
@@ -371,6 +388,9 @@ object TftLink {
         lastError = null
         failCount = 0
         lastSentKey = ""
+        rxBytes = 0
+        handshakeStep = 0
+        lastCmdSeen = -1
         Thread({ readLoop(input, socket) }, "tft-reader").apply { isDaemon = true; start() }
     }
 
@@ -384,11 +404,14 @@ object TftLink {
             while (running.get()) {
                 val n = input.read(buf)
                 if (n < 0) break
+                rxBytes += n
                 for ((cmd, sub, payload) in fb.feed(buf, n)) {
+                    lastCmdSeen = cmd
                     when (cmd) {
                         0x42 -> { // 1/3: xe gửi serial → trả khả năng hỗ trợ
                             step2Done = false
                             step3Done = false
+                            if (handshakeStep < 1) handshakeStep = 1
                             send(pack(byteArrayOf(1, 0), 0x51, 0))
                             send(pack(byteArrayOf(0x7c, 6, 0, 1, 0, 0, 0, 0), 0x21, 1))
                         }
@@ -397,10 +420,14 @@ object TftLink {
                             send(pack(key, 0x54, 1))
                             step2Done = true
                             step3Done = false
+                            if (handshakeStep < 2) handshakeStep = 2
                         }
                         0x52 -> { // 3/3: xe xác nhận (payload[0] == 1)
                             val v = if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else 0
-                            if (v == 1) step3Done = true
+                            if (v == 1) {
+                                step3Done = true
+                                if (handshakeStep < 3) handshakeStep = 3
+                            }
                         }
                     }
                     if (step2Done && step3Done && !authed) {

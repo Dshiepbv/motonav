@@ -229,15 +229,30 @@ class NavEngine(
         val moving = speedMps > 2.0 && Geo.distance(lat, lon, rrLat, rrLon) >= 25
         if (off && moving) offCount++ else offCount = 0
         val now = SystemClock.elapsedRealtime()
-        // Tìm lại liên tục nhiều lần (≥ 3 lần trong 2 phút) → giãn ra 60 giây cho đỡ tốn lượt VietMap
+        // Tìm lại liên tục nhiều lần (≥ 3 lần trong 2 phút) → giãn ra 60 giây cho đỡ tốn lượt VietMap.
+        // Nhưng nếu đã đi lệch QUÁ XA (≥ 60 m) thì luôn tìm lại nhanh (5 giây) — ưu tiên bắt theo
+        // hướng xe đang chạy tới ngay, không để xe chạy xa cả trăm mét mà app vẫn chỉ tuyến cũ phía sau.
         rerouteTimes.removeAll { now - it > 120_000 }
-        val gap = if (rerouteTimes.size >= 3) 60_000 else 8_000
-        if (moving && (offCount >= 2 || bestD > 40) && !routing && now - lastReroute > gap) {
+        val urgent = bestD > 60
+        val gap = if (urgent) 5_000 else if (rerouteTimes.size >= 3) 60_000 else 8_000
+        if (moving && (offCount >= 2 || bestD > 40 || urgent) && !routing && now - lastReroute > gap) {
             rerouteTimes.add(now)
             TripLog.ev("reroute", "d" to bestD, "n" to offCount, "spd" to speedMps, "hdg" to heading)
             rrLat = lat; rrLon = lon
             alert("Đi lệch tuyến, đang tìm đường mới", "Đang tìm đường mới", false)
             requestRoute(lat, lon, heading)
+        }
+
+        // Đang lệch tuyến: không hiện mũi tên/chỉ dẫn rẽ của tuyến CŨ nữa — tuyến đó có thể chỉ
+        // ngược về phía sau xe (chỗ vừa đi lệch khỏi), nhìn vào dễ hiểu lầm là app chỉ sai hướng.
+        // Chờ tìm lại tuyến mới xong rồi hiện lại.
+        if (off) {
+            Live.navActive = false
+            Live.maneuverLabel = null
+            Live.maneuverStreet = null
+            Live.nextLeg = null
+            Live.thenText = null
+            return
         }
 
         // Chỗ rẽ tiếp theo: bước đầu tiên có điểm bắt đầu nằm phía trước

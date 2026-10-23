@@ -285,9 +285,6 @@ class SettingsActivity : Activity() {
         choice("Nền bản đồ", null, listOf("Tự động", "Sáng", "Tối"), prefs.mapTheme, note = "Tự động: nền tối từ 18h đến 6h sáng") {
             prefs.mapTheme = it
         }
-        toggle("Tên đường chữ nổi 3D tại ngã rẽ", null, prefs.text3d, note = "Tên các đường ở ngã rẽ phía trước dựng thành chữ khối đứng dọc theo đường") {
-            prefs.text3d = it
-        }
         toggle("Thời tiết dọc tuyến", null, prefs.weather, note = "Biểu tượng nắng/mưa tại chỗ đổi thời tiết, theo giờ anh tới. Dữ liệu Open-Meteo.com (CC BY 4.0)") {
             prefs.weather = it
         }
@@ -412,7 +409,15 @@ class SettingsActivity : Activity() {
         if (prefs.tftLink) {
             val tftStatus = when {
                 TftLink.authed -> "✅ Đã bắt tay xong, đang gửi dữ liệu"
-                TftLink.connected -> "🔄 Đã nối Bluetooth, đang bắt tay với xe…"
+                TftLink.connected -> {
+                    val step = TftLink.handshakeStep
+                    val detail = if (TftLink.rxBytes <= 0L) {
+                        " (chưa nhận được gì từ xe — 0 byte)"
+                    } else {
+                        " (đã nhận ${TftLink.rxBytes} byte, bước $step/3, cmd gần nhất 0x${TftLink.lastCmdSeen.toString(16)})"
+                    }
+                    "🔄 Đã nối Bluetooth, đang bắt tay với xe…$detail"
+                }
                 else -> "⚠️ Chưa kết nối" + (TftLink.lastError?.let { " – $it" } ?: "")
             }
             action(
