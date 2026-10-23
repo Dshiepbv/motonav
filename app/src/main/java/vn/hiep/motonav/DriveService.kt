@@ -93,6 +93,7 @@ class DriveService : Service(), LocationListener {
 
     private var currentWayId: Long? = null
     private var currentWay: Way? = null
+    private var currentWayForward: Boolean = true
     private var warnedMotorway: Long? = null
     private val matcher = MapMatcher()
     private var noMatchCount = 0
@@ -373,6 +374,7 @@ class DriveService : Service(), LocationListener {
                 noMatchCount = 0
                 currentWayId = m.way.id
                 currentWay = m.way
+                currentWayForward = m.forward
                 Live.street = m.way.name ?: roadTypeName(m.way.highway)
                 // Không dẫn đường: xoay bản đồ theo hướng đoạn đường đang đi
                 if (!Live.ownNav && m.bearing >= 0) Live.roadBearing = m.bearing
@@ -643,6 +645,8 @@ class DriveService : Service(), LocationListener {
         }
         if (snap != null && hdg != null) {
             val found = ArrayList<Pair<RoadSign, Double>>()
+            // Chỉ xét đường đang đi + các đoạn nối tiếp phía trước đúng chiều (không lấy nhánh/đường cắt ngang)
+            val corridor = if (way != null) corridorWays(snap, way, currentWayForward, hdg) else emptyList()
             for (sg in snap.signs) {
                 if (sg.type == SignType.SPEED) continue // giới hạn tốc độ đã có ô riêng
                 val d = Geo.distance(lat, lon, sg.lat, sg.lon)
@@ -651,17 +655,12 @@ class DriveService : Service(), LocationListener {
                     continue
                 }
                 if (sg.heading >= 0 && Geo.angleDiff(sg.heading, hdg) > 60) continue
-                val diff = Geo.angleDiff(hdg, Geo.bearing(lat, lon, sg.lat, sg.lon))
-                val near = way != null && distToWay(way, Camera(sg.id, sg.lat, sg.lon, 0, -1.0, false)) < 25
-                val ahead = when {
-                    d < 25 -> diff < 100
-                    near -> diff < 70
-                    else -> diff < 15
-                }
-                if (ahead) found.add(Pair(sg, d))
+                if (corridor.isEmpty()) continue
+                val onCorridor = corridor.any { distToWay(it, sg.lat, sg.lon) < 20 }
+                if (onCorridor) found.add(Pair(sg, d))
             }
-            // Đường phía trước: vòng xuyến, cấm xe máy (từ thẻ của đường trên OSM)
-            for (w in snap.ways) {
+            // Đường phía trước: vòng xuyến, cấm xe máy (từ thẻ của đường trên OSM) — chỉ trong tuyến đang đi
+            for (w in corridor) {
                 val ra = w.tags["junction"] == "roundabout" || w.tags["junction"] == "circular"
                 val noMoto = w.tags["motorcycle"] == "no" || w.tags["motor_vehicle"] == "no"
                 if (!ra && !noMoto) continue
@@ -672,8 +671,7 @@ class DriveService : Service(), LocationListener {
                     val d = Geo.distance(lat, lon, w.lats[i], w.lons[i])
                     if (d < bd) { bd = d; bi = i }
                 }
-                if (bi < 0 || bd > 250 || bd < 8) continue
-                if (Geo.angleDiff(hdg, Geo.bearing(lat, lon, w.lats[bi], w.lons[bi])) > 25) continue
+                if (bi < 0 || bd > 250) continue
                 val t = if (noMoto) SignType.NO_MOTO else SignType.ROUNDABOUT
                 found.add(Pair(RoadSign("w${w.id}", w.lats[bi], w.lons[bi], t, 0, -1.0), bd))
             }
@@ -772,8 +770,8 @@ class DriveService : Service(), LocationListener {
             Live.junctionHasTurn = marked.any { it.isTurn }
             // Chữ khối 3D cho các ngã rẽ gần (tối đa 8, trong 450 m); các nhãn còn lại giữ dạng chữ thường
             val view = if (Live.roadBearing >= 0) Live.roadBearing else if (Live.heading >= 0) Live.heading else 0.0
-            // Chữ khối 3D cho các ngã rẽ gần (tối đa 8, trong 450 m); các nhãn còn lại giữ dạng chữ thường
-            val solid = if (prefs.text3d && !prefs.batterySaver) marked.filter { it.outBearing >= 0 && it.ahead <= 450 }.sortedBy { it.ahead }.take(8) else emptyList()
+            // Tất cả tên đường nhánh phía trước đều dựng chữ khối 3D (không còn kiểu chữ phẳng dễ nhoè khi bản đồ nghiêng/xoay)
+            val solid = if (prefs.text3d && !prefs.batterySaver) marked.filter { it.outBearing >= 0 && it.ahead <= 450 }.sortedBy { it.ahead }.take(10) else emptyList()
             val key = solid.joinToString("|") {
                 val fwd = Text3D.forward(it, view)
                 "${it.name}@${"%.4f".format(it.jLat)},${"%.4f".format(it.jLon)}/${it.isTurn}/$fwd"
@@ -783,7 +781,8 @@ class DriveService : Service(), LocationListener {
                 Live.text3dJson = if (solid.isEmpty()) null else Text3D.build(solid, view)
                 Live.text3dVersion++
             }
-            Live.junctionJson = Junctions.toGeoJson(marked.filter { it !in solid })
+            // Nhãn chữ phẳng (trắng viền) không dùng nữa — hay nhoè khi bản đồ nghiêng/xoay
+            Live.junctionJson = null
             Live.junctionVersion++
         } catch (_: Exception) {
         }
@@ -830,9 +829,9 @@ class DriveService : Service(), LocationListener {
     private val camAlerts = HashMap<String, CamAlert>()
     private var lastCamOverAlert = 0L
 
-    /** Khoảng cách (m) từ camera tới đoạn đường đang đi. */
-    private fun distToWay(w: Way, c: Camera): Double {
-        val proj = LocalProjection(c.lat, c.lon)
+    /** Khoảng cách (m) từ một điểm tới đoạn đường w. */
+    private fun distToWay(w: Way, lat: Double, lon: Double): Double {
+        val proj = LocalProjection(lat, lon)
         var best = Double.MAX_VALUE
         for (i in 0 until w.lats.size - 1) {
             val ax = proj.x(w.lons[i]); val ay = proj.y(w.lats[i])
@@ -844,6 +843,47 @@ class DriveService : Service(), LocationListener {
             best = min(best, sqrt(px * px + py * py))
         }
         return best
+    }
+
+    private fun distToWay(w: Way, c: Camera): Double = distToWay(w, c.lat, c.lon)
+
+    /**
+     * Danh sách đường nối tiếp phía trước xe (theo đúng chiều di chuyển, kể cả một chiều),
+     * dùng để chỉ lấy biển báo nằm trên tuyến đang đi, không lấy biển ở nhánh/đường cắt ngang.
+     */
+    private fun corridorWays(snap: OsmSnapshot, way: Way, forward: Boolean, hdg: Double, maxWays: Int = 3): List<Way> {
+        val out = ArrayList<Way>()
+        out.add(way)
+        var cur = way
+        var curForward = forward
+        var guard = 0
+        while (out.size < maxWays && guard < 6) {
+            guard++
+            val ex = if (curForward) cur.lats.last() else cur.lats.first()
+            val ey = if (curForward) cur.lons.last() else cur.lons.first()
+            var best: Way? = null
+            var bestForward = true
+            var bestDiff = 40.0
+            for (w in snap.ways) {
+                if (w === cur || out.contains(w)) continue
+                val dStart = Geo.distance(ex, ey, w.lats.first(), w.lons.first())
+                val dEnd = Geo.distance(ex, ey, w.lats.last(), w.lons.last())
+                val connIdx = if (dStart < 15 && dStart <= dEnd) 0 else if (dEnd < 15) 1 else -1
+                if (connIdx < 0) continue
+                val nf = connIdx == 0 // nối vào đầu way kế tiếp => đi theo chiều vẽ của nó
+                if (w.oneway == 1 && !nf) continue
+                if (w.oneway == -1 && nf) continue
+                val bIdx = if (nf) min(1, w.lats.size - 1) else max(0, w.lats.size - 2)
+                val segBrg = Geo.bearing(ex, ey, w.lats[bIdx], w.lons[bIdx])
+                val diff = Geo.angleDiff(hdg, segBrg)
+                if (diff < bestDiff) { bestDiff = diff; best = w; bestForward = nf }
+            }
+            if (best == null) break
+            out.add(best)
+            cur = best
+            curForward = bestForward
+        }
+        return out
     }
 
     private fun checkCameras(snap: OsmSnapshot?, lat: Double, lon: Double, speedMps: Double, hdg: Double?) {

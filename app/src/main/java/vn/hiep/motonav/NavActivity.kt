@@ -1432,17 +1432,10 @@ class NavActivity : Activity() {
                 src("mn-route")?.setGeoJson(if (prefs.traffic) r.toCongestionGeoJson() else r.toGeoJsonLine())
             }
             setOnce("mn-dest", point(Live.destLat, Live.destLon))
-            if (shownJunction != Live.junctionVersion) {
-                shownJunction = Live.junctionVersion
-                setOnce("mn-junction", Live.junctionJson ?: emptyFc)
-            }
-            setOnce("mn-next", Live.nextLeg ?: emptyFc)
-            val lab = if (Live.junctionHasTurn) "" else Live.maneuverLabel
-            if (lab != null && Live.navMeters in 0..1500) {
-                setOnce("mn-turn", point(Live.maneuverLat, Live.maneuverLon, lab))
-            } else {
-                setOnce("mn-turn", emptyFc)
-            }
+            // Tên đường tại ngã rẽ nay chỉ dựng chữ khối 3D (mn-text3d) — bỏ nhãn chữ phẳng và chấm/đoạn vàng (hay nhoè khi bản đồ nghiêng/xoay)
+            setOnce("mn-junction", emptyFc)
+            setOnce("mn-next", emptyFc)
+            setOnce("mn-turn", emptyFc)
         } else if (shownRouteVersion != -2) {
             shownRouteVersion = -2
             src("mn-route")?.setGeoJson(emptyFc)

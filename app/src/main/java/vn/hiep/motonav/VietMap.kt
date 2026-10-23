@@ -6,6 +6,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.Locale
+import kotlin.math.sqrt
 
 class Suggestion(val refId: String, val name: String, val address: String)
 
@@ -150,8 +151,56 @@ object VietMap {
             )
         }
         if (la.size < 2) throw RuntimeException("Tuyến đường rỗng")
+        straightenDetours(la, lo)
         val cong = try { parseCongestion(p) } catch (_: Exception) { emptyList() }
         return Route(la, lo, steps, p.optDouble("distance", 0.0), p.optLong("time", 0L), cong)
+    }
+
+    /**
+     * Làm thẳng các đoạn tuyến "lố ra rồi quay lại" trong phạm vi ngắn — ví dụ dữ liệu đường bị
+     * lệch sang làn ô tô rồi tạt lại làn xe máy ngay trước điểm rẽ (vòng vèo không cần thiết).
+     * Giữ nguyên số điểm và chỉ số bước (step.from/to vẫn đúng chỗ), chỉ kéo toạ độ các điểm bị
+     * lố về gần đường thẳng nối hai đầu đoạn lố.
+     */
+    private fun straightenDetours(lats: DoubleArray, lons: DoubleArray) {
+        val n = lats.size
+        if (n < 4) return
+        var i = 0
+        while (i < n - 2) {
+            var k = i + 1
+            var along = 0.0
+            while (k < n - 1 && along < 220.0) {
+                along += Geo.distance(lats[k], lons[k], lats[k + 1], lons[k + 1])
+                k++
+            }
+            if (k <= i + 2 || k >= n) { i++; continue }
+            val proj = LocalProjection(lats[i], lons[i])
+            val cx = proj.x(lons[k]); val cy = proj.y(lats[k])
+            val clen = sqrt(cx * cx + cy * cy)
+            if (clen < 3.0) { i++; continue }
+            var maxPerp = 0.0
+            for (j in i + 1 until k) {
+                val px = proj.x(lons[j]); val py = proj.y(lats[j])
+                val t = (px * cx + py * cy) / (clen * clen)
+                val dx = px - cx * t; val dy = py - cy * t
+                val perp = sqrt(dx * dx + dy * dy)
+                if (perp > maxPerp) maxPerp = perp
+            }
+            var alongDist = 0.0
+            for (j in i until k) alongDist += Geo.distance(lats[j], lons[j], lats[j + 1], lons[j + 1])
+            if (maxPerp > 10.0 && clen < alongDist * 0.6 && alongDist in 20.0..220.0) {
+                var s = 0.0
+                for (j in i + 1 until k) {
+                    s += Geo.distance(lats[j - 1], lons[j - 1], lats[j], lons[j])
+                    val t = (s / alongDist).coerceIn(0.0, 1.0)
+                    lats[j] = lats[i] + (lats[k] - lats[i]) * t
+                    lons[j] = lons[i] + (lons[k] - lons[i]) * t
+                }
+                i = k
+            } else {
+                i++
+            }
+        }
     }
 
     /** Dự phòng khi points không mã hoá: [[lon,lat],...] hoặc {"coordinates":[...]} */
