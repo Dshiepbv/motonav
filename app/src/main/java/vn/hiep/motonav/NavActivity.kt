@@ -172,9 +172,9 @@ class NavActivity : Activity() {
     }
 
     /**
-     * Hình chữ nhật bo góc mềm (kiểu icon app iPhone, không vuông, không tròn xoe), nền hơi
-     * trong suốt + gradient sáng→tối + viền sáng mảnh, cho cảm giác kính mờ (iOS "Liquid Glass")
-     * thay vì một khối đặc màu đen như trước.
+     * Hình chữ nhật bo góc mềm (kiểu khung màn hình thiết bị: viền sáng rõ bao quanh khối màu
+     * tối bên trong), nền hơi trong suốt + gradient sáng→tối, cho cảm giác kính mờ (iOS
+     * "Liquid Glass") — dùng chung một kiểu khung cho mọi nút biểu tượng nổi.
      */
     private fun glassSquircle(base: Int, radiusDp: Float, alpha: Int = 195): GradientDrawable {
         fun a(c: Int) = Color.argb(alpha, Color.red(c), Color.green(c), Color.blue(c))
@@ -184,7 +184,7 @@ class NavActivity : Activity() {
         ).apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(radiusDp).toFloat()
-            setStroke(dp(1f), Color.argb(110, 255, 255, 255))
+            setStroke(dp(2f), Color.argb(175, 210, 216, 224))
         }
     }
 
@@ -451,16 +451,20 @@ class NavActivity : Activity() {
     private lateinit var altBtn: Button
     private var shownChoices = -1
 
-    /** Tên đường mỗi tuyến đi qua, gộp các bước liên tiếp cùng tên, kèm tổng quãng đường đi trên tên đó. */
-    private fun namedSegments(r: Route): List<Pair<String, Double>> {
-        val out = ArrayList<Pair<String, Double>>()
+    /** Một đoạn tên đường gộp từ các bước liên tiếp cùng tên, kèm quãng đường và khoảng chỉ số điểm [fromIdx..toIdx] trên r.lats/r.lons để tra mốc gần đó. */
+    private class NamedSeg(val name: String, var distance: Double, val fromIdx: Int, var toIdx: Int)
+
+    private fun namedSegments(r: Route): List<NamedSeg> {
+        val out = ArrayList<NamedSeg>()
         for (s in r.steps) {
             val n = s.street.trim()
             if (n.isEmpty()) continue
-            if (out.isNotEmpty() && out.last().first == n) {
-                out[out.size - 1] = n to (out.last().second + s.distance)
+            val last = out.lastOrNull()
+            if (last != null && last.name == n) {
+                last.distance += s.distance
+                last.toIdx = s.to
             } else {
-                out.add(n to s.distance)
+                out.add(NamedSeg(n, s.distance, s.from, s.to))
             }
             if (out.size >= 10) break
         }
@@ -473,8 +477,8 @@ class NavActivity : Activity() {
      * đáng nhắc tới nhất khi mô tả vì sao tuyến này khác tuyến kia (ví dụ "Qua Quốc lộ 1A"
      * thay vì liệt kê hết từng con hẻm nhỏ dẫn vào).
      */
-    private fun highlightRoad(segs: List<List<Pair<String, Double>>>): List<String?> {
-        val names = segs.map { s -> s.map { it.first } }
+    private fun highlightRoad(segs: List<List<NamedSeg>>): List<NamedSeg?> {
+        val names = segs.map { s -> s.map { it.name } }
         val minLen = names.minOfOrNull { it.size } ?: 0
         if (minLen == 0) return segs.map { null }
         var prefix = 0
@@ -483,8 +487,27 @@ class NavActivity : Activity() {
         while (suffix < minLen - prefix && names.all { it[it.size - 1 - suffix] == names[0][names[0].size - 1 - suffix] }) suffix++
         return segs.map { s ->
             val end = s.size - suffix
-            if (end <= prefix) null else s.subList(prefix, end).maxByOrNull { it.second }?.first
+            if (end <= prefix) null else s.subList(prefix, end).maxByOrNull { it.distance }
         }
+    }
+
+    /** Mốc/địa danh nổi tiếng gần nhất nằm trên đoạn [fromIdx..toIdx] của tuyến [r] (null nếu không có mốc nào đủ gần). */
+    private fun landmarkOn(r: Route, fromIdx: Int, toIdx: Int): String? {
+        val lo = fromIdx.coerceIn(0, r.lats.size - 1)
+        val hi = toIdx.coerceIn(0, r.lats.size - 1)
+        if (hi <= lo) return null
+        var best: String? = null
+        var bestD = 450.0 // chỉ nhận mốc thật gần tuyến, tránh gán nhầm mốc ở xa
+        val stepI = maxOf(1, (hi - lo) / 40) // tuyến dài thì lấy mẫu thưa hơn, đỡ tốn
+        var i = lo
+        while (i <= hi) {
+            for (lm in Landmarks.ALL) {
+                val d = Geo.distance(r.lats[i], r.lons[i], lm.lat, lm.lon)
+                if (d < bestD) { bestD = d; best = lm.name }
+            }
+            i += stepI
+        }
+        return best
     }
 
     /** Bảng chọn tuyến: mỗi dòng một tuyến (thời gian, quãng đường), chạm để đổi. */
@@ -515,9 +538,12 @@ class NavActivity : Activity() {
             col.addView(tv(13f, Color.WHITE, sel).apply {
                 text = (if (sel) "● " else "○ ") + "Tuyến ${i + 1}: $mins phút · ${NavEngine.fmtDist(r.distance)}$extra"
             })
-            // Chỉ nhắc đoạn khác biệt so với các tuyến còn lại, tránh lặp y hệt nhau không cần thiết.
+            // Chỉ nhắc đoạn khác biệt so với các tuyến còn lại; ưu tiên mốc nổi tiếng gần đó
+            // (dễ hình dung hơn tên đường thuần tuý), rồi mới tới tên đường, rồi mới liệt kê.
             val h = highlights[i]
-            val sub = h ?: segsOf[i].take(3).joinToString(" → ") { it.first }.ifBlank { null }
+            val sub = h?.let { landmarkOn(r, it.fromIdx, it.toIdx) }
+                ?: h?.name
+                ?: segsOf[i].take(3).joinToString(" → ") { it.name }.ifBlank { null }
             if (sub != null) {
                 col.addView(tv(11f, if (sel) Color.parseColor("#D9F2E6") else muted).apply {
                     text = "Qua: $sub"
