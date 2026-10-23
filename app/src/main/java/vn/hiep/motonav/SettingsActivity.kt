@@ -410,9 +410,14 @@ class SettingsActivity : Activity() {
             note = "Danh sách lấy từ các thiết bị Bluetooth đã ghép đôi (pair) với điện thoại.",
         ) { pickTftDevice() }
         if (prefs.tftLink) {
+            val tftStatus = when {
+                TftLink.authed -> "✅ Đã bắt tay xong, đang gửi dữ liệu"
+                TftLink.connected -> "🔄 Đã nối Bluetooth, đang bắt tay với xe…"
+                else -> "⚠️ Chưa kết nối" + (TftLink.lastError?.let { " – $it" } ?: "")
+            }
             action(
                 "Kiểm tra trạng thái kết nối",
-                if (TftLink.connected) "✅ Đã kết nối với xe" else "⚠️ Chưa kết nối" + (TftLink.lastError?.let { " – $it" } ?: ""),
+                tftStatus,
                 note = "Chạm để xem lại trạng thái mới nhất. Cần bật \"Theo dõi tốc độ & camera\" (hoặc đang dẫn đường) để app chạy nền và thử kết nối.",
             ) { build() }
         }

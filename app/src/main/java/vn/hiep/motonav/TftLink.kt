@@ -25,9 +25,14 @@ import java.util.regex.Pattern
  * hình xe Yamaha đang hiểu — không sao chép mã nguồn hay tài sản nào của họ). Phần phía xe không
  * đổi, phần phía điện thoại là của MotoNav, dữ liệu lấy từ chính tuyến đường MotoNav đang dẫn.
  *
+ * Xe yêu cầu "bắt tay" 3 bước trước khi chịu nhận dữ liệu (dò được từ cùng APK):
+ *  1) Xe gửi số serial (cmd 0x42) → điện thoại trả cmd 0x51 + cmd 0x21 (báo khả năng hỗ trợ).
+ *  2) Xe gửi mã phần mềm + một "khoá" (cmd 0x53) → điện thoại trả lại đúng khoá đó qua cmd 0x54.
+ *  3) Xe xác nhận (cmd 0x52, giá trị 1) → điện thoại gửi một loạt gói cấu hình ban đầu (cmd 2, 31,
+ *     10, 14, 11, 13, 3, 17, 12) — xong bước này xe mới thực sự hiển thị/nhận dữ liệu dẫn đường.
+ *
  * CHƯA XÁC NHẬN với thiết bị thật, cần chạy thử trên xe:
  *  - [IconMap]: mã mũi tên rẽ bên xe hiểu cho từng loại rẽ (trái/phải/vòng xuyến/quay đầu…).
- *  - Có cần một bước "chào hỏi" riêng trước khi xe chấp nhận kênh chữ hay gửi thẳng là được.
  */
 object TftLink {
     private val SERVICE_UUID: UUID = UUID.fromString("00007220-0000-1000-8000-00805F9B34FB")
@@ -91,7 +96,50 @@ object TftLink {
         return b
     }
 
-    // ---------- Gói tin kênh chữ ----------
+    // ---------- Gói tin "bắt tay" + cấu hình ban đầu ----------
+
+    /** Như cách NConnect làm: payload 2 byte [value, 0], sub luôn = 0. */
+    private fun gPacket(cmd: Int, value: Int): ByteArray = pack(byteArrayOf(value.toByte(), 0), cmd, 0)
+
+    /** cmd 14 / sub 1: một chuỗi kiểu "mục menu" — [7,26,độ dài,0] + chữ ASCII. */
+    private fun menuStringPacket(s: String): ByteArray {
+        val bytes = asciiBytes(s, 144)
+        val out = ByteArrayOutputStream()
+        out.write(7); out.write(26); out.write(bytes.size); out.write(0)
+        out.write(bytes)
+        return pack(out.toByteArray(), 14, 1)
+    }
+
+    /** cmd 3 / sub 1: tên hiển thị (ví dụ tên người lái) — chữ ASCII, bỏ dấu. */
+    private fun namePacket(s: String): ByteArray = pack(asciiBytes(s, 64), 3, 1)
+
+    /** cmd 17 / sub 1: tốc độ + đơn vị — dùng trong gói cấu hình ban đầu (giá trị 0, chỉ để báo đơn vị). */
+    private fun speedPacket(speedKmh: Int, flags: Int): ByteArray {
+        val v = if (flags and 2 != 0) 0 else speedKmh
+        val unit = "km/h".toByteArray(ascii)
+        val out = ByteArrayOutputStream()
+        val bits = java.lang.Float.floatToIntBits(v.toFloat())
+        out.write(bits); out.write(bits ushr 8); out.write(bits ushr 16); out.write(bits ushr 24)
+        out.write(unit.size)
+        out.write(unit)
+        return pack(out.toByteArray(), 17, 1)
+    }
+
+    /** Sau khi bắt tay xong (bước 3), gửi một loạt gói cấu hình ban đầu — xe cần thấy đủ bộ này. */
+    private fun sendInitBurst() {
+        send(gPacket(2, 0))            // chưa dẫn đường
+        send(gPacket(31, 1))
+        send(gPacket(10, 0))           // chưa lưu "nhà"
+        send(menuStringPacket("300 m"))
+        send(gPacket(11, 0))           // chưa lưu "chỗ làm"
+        send(gPacket(13, 1))
+        send(namePacket("MotoNav"))
+        send(speedPacket(0, 3))
+        send(gPacket(12, 1))
+        lastSentKey = "" // để lần update() kế tiếp gửi lại đúng trạng thái dẫn đường hiện tại
+    }
+
+    // ---------- Gói tin kênh chữ (sau khi đã bắt tay xong) ----------
 
     /** cmd 2 / sub 0: báo đang/không dẫn đường. */
     private fun navActivePacket(active: Boolean): ByteArray = pack(byteArrayOf(if (active) 1 else 0), 2, 0)
@@ -150,10 +198,59 @@ object TftLink {
 
     @Volatile var connected: Boolean = false
         private set
+
+    /** Đã bắt tay xong (3 bước) — xe sẵn sàng hiển thị/nhận dữ liệu. Chỉ gửi kênh chữ khi true. */
+    @Volatile var authed: Boolean = false
+        private set
     @Volatile var lastError: String? = null
         private set
     @Volatile private var lastSentKey: String = ""
     @Volatile private var failCount = 0
+
+    /** Gom các byte đọc được từ socket thành từng gói tin hoàn chỉnh theo khuôn [magic]...[payload]. */
+    private class FrameReader {
+        private var buf = ByteArray(0)
+
+        fun feed(data: ByteArray, len: Int): List<Triple<Int, Int, ByteArray>> {
+            buf += data.copyOf(len)
+            val frames = ArrayList<Triple<Int, Int, ByteArray>>()
+            while (true) {
+                val m = indexOfMagic(buf)
+                if (m < 0) {
+                    if (buf.size > 3) buf = buf.copyOfRange(buf.size - 3, buf.size)
+                    break
+                }
+                if (m > 0) buf = buf.copyOfRange(m, buf.size)
+                if (buf.size < 16) break
+                val plen = readLe32(buf, 7)
+                if (plen < 0 || plen > 1_000_000) {
+                    buf = buf.copyOfRange(4, buf.size) // rác/lệch khung: bỏ qua, dò lại từ sau magic này
+                    continue
+                }
+                val total = 16 + plen
+                if (buf.size < total) break
+                val cmd = buf[6].toInt() and 0xFF
+                val sub = buf[11].toInt() and 0xFF
+                val payload = buf.copyOfRange(16, total)
+                frames.add(Triple(cmd, sub, payload))
+                buf = buf.copyOfRange(total, buf.size)
+            }
+            return frames
+        }
+
+        private fun indexOfMagic(b: ByteArray): Int {
+            if (b.size < 4) return -1
+            outer@ for (i in 0..b.size - 4) {
+                for (k in 0..3) if (b[i + k] != MAGIC[k]) continue@outer
+                return i
+            }
+            return -1
+        }
+
+        private fun readLe32(b: ByteArray, at: Int): Int =
+            (b[at].toInt() and 0xFF) or ((b[at + 1].toInt() and 0xFF) shl 8) or
+                ((b[at + 2].toInt() and 0xFF) shl 16) or ((b[at + 3].toInt() and 0xFF) shl 24)
+    }
 
     fun start(ctx: Context, deviceAddr: String?) {
         if (!running.compareAndSet(false, true)) return
@@ -189,6 +286,7 @@ object TftLink {
         activeSocket = null
         out = null
         connected = false
+        authed = false
         lastSentKey = ""
     }
 
@@ -269,19 +367,47 @@ object TftLink {
         activeSocket = socket
         out = output
         connected = true
+        authed = false
         lastError = null
         failCount = 0
         lastSentKey = ""
         Thread({ readLoop(input, socket) }, "tft-reader").apply { isDaemon = true; start() }
     }
 
-    /** Giai đoạn 1 chưa cần hiểu phản hồi của xe — chỉ đọc để phát hiện mất kết nối. */
+    /** Đọc gói tin từ xe, chạy máy trạng thái bắt tay 3 bước rồi mới cho phép gửi kênh chữ. */
     private fun readLoop(input: InputStream, socket: Closeable) {
+        val fb = FrameReader()
         val buf = ByteArray(2048)
+        var step2Done = false
+        var step3Done = false
         try {
             while (running.get()) {
                 val n = input.read(buf)
                 if (n < 0) break
+                for ((cmd, sub, payload) in fb.feed(buf, n)) {
+                    when (cmd) {
+                        0x42 -> { // 1/3: xe gửi serial → trả khả năng hỗ trợ
+                            step2Done = false
+                            step3Done = false
+                            send(pack(byteArrayOf(1, 0), 0x51, 0))
+                            send(pack(byteArrayOf(0x7c, 6, 0, 1, 0, 0, 0, 0), 0x21, 1))
+                        }
+                        0x53 -> { // 2/3: xe gửi mã phần mềm + khoá → trả lại đúng khoá
+                            val key = if (payload.size > 12) payload.copyOfRange(12, payload.size) else ByteArray(0)
+                            send(pack(key, 0x54, 1))
+                            step2Done = true
+                            step3Done = false
+                        }
+                        0x52 -> { // 3/3: xe xác nhận (payload[0] == 1)
+                            val v = if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else 0
+                            if (v == 1) step3Done = true
+                        }
+                    }
+                    if (step2Done && step3Done && !authed) {
+                        authed = true
+                        sendInitBurst()
+                    }
+                }
             }
         } catch (_: Exception) {
         } finally {
@@ -292,6 +418,7 @@ object TftLink {
             activeSocket = null
             out = null
             connected = false
+            authed = false
             busy.set(false)
         }
     }
@@ -318,7 +445,7 @@ object TftLink {
      * không gửi lại những gì chưa đổi — giữ đúng tinh thần "kênh chữ nhẹ" không nghẽn Bluetooth.
      */
     fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, etaMinutes: Int) {
-        if (!connected) return
+        if (!authed) return
         if (!active) {
             if (lastSentKey != "off") {
                 send(navActivePacket(false))
