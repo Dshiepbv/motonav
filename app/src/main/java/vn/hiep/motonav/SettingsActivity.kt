@@ -436,6 +436,19 @@ class SettingsActivity : Activity() {
                 tftStatus,
                 note = "Chạm để xem lại trạng thái mới nhất. Cần bật \"Theo dõi tốc độ & camera\" (hoặc đang dẫn đường) để app chạy nền và thử kết nối.",
             ) { build() }
+
+            // ---- Chẩn đoán bước 1/3 của "bắt cặp BLE" (thử nghiệm, chưa phải tính năng chính) ----
+            val ccuStatus = when {
+                CcuAuth.running -> "🔄 Đang hỏi xe…"
+                CcuAuth.ccuCode != null -> "✅ Mã CCU: \"${CcuAuth.ccuCode}\" · Passkey: \"${CcuAuth.passkey}\""
+                CcuAuth.error != null -> "⚠️ ${CcuAuth.error}"
+                else -> "Chưa thử"
+            }
+            action(
+                "Thử nghiệm: dò mã CCU + passkey (bước 1 BLE)",
+                ccuStatus,
+                note = "Bước đầu để làm hiện icon dẫn đường trên màn xe (khác kênh dữ liệu ở trên) — đang thử nghiệm, chạm để dò lại.",
+            ) { CcuAuth.queryOnce(this, prefs.tftDevice); build() }
         }
 
         header("⚙️", "Hệ thống")
