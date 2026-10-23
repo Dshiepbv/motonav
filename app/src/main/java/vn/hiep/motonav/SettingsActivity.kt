@@ -308,22 +308,15 @@ class SettingsActivity : Activity() {
                 .setNegativeButton("Huỷ", null)
                 .show()
         }
+        // Tính năng "vùng tốc độ cố định" (vẽ ranh giới / gán theo đoạn đường) đã tạm bỏ —
+        // chỉ còn dọn dữ liệu cũ nếu máy đã từng lưu lúc thử nghiệm trước đây.
         val zp = ZonePolygons.count(this)
-        if (zp > 0) {
-            action("Xoá các khu vực tốc độ cố định đã vẽ ($zp)", "Vẽ ranh giới trong menu ☰ khi đang dẫn đường", Color.parseColor("#FF6B60")) {
-                AlertDialog.Builder(this)
-                    .setMessage("Xoá $zp khu vực tốc độ cố định đã vẽ ranh giới?")
-                    .setPositiveButton("Xoá") { _, _ -> ZonePolygons.clear(this); build() }
-                    .setNegativeButton("Huỷ", null)
-                    .show()
-            }
-        }
         val zn = WayLimits.count(this)
-        if (zn > 0) {
-            action("Xoá các đoạn đường đã gán tốc độ cố định ($zn)", "Cách ghi cũ, không còn dùng", Color.parseColor("#FF6B60")) {
+        if (zp > 0 || zn > 0) {
+            action("Xoá dữ liệu vùng tốc độ cố định cũ (${zp + zn})", "Tính năng này đã tạm bỏ", Color.parseColor("#FF6B60")) {
                 AlertDialog.Builder(this)
-                    .setMessage("Xoá tốc độ cố định đã gán cho $zn đoạn đường?")
-                    .setPositiveButton("Xoá") { _, _ -> WayLimits.clear(this); build() }
+                    .setMessage("Xoá toàn bộ dữ liệu vùng/đoạn đường tốc độ cố định đã lưu trước đây?")
+                    .setPositiveButton("Xoá") { _, _ -> ZonePolygons.clear(this); WayLimits.clear(this); build() }
                     .setNegativeButton("Huỷ", null)
                     .show()
             }

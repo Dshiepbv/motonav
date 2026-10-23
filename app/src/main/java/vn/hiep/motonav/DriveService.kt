@@ -393,14 +393,7 @@ class DriveService : Service(), LocationListener {
                     warnedNoMoto = m.way.id
                     alert("CẢNH BÁO: đang đi vào làn/đường cấm xe máy!", "Cảnh báo, đang đi vào đường cấm xe máy", urgent = true, showMs = 10000)
                 }
-                // Đang "ghi vùng tốc độ cố định": gộp điểm vào đường viền khu vực đang vẽ
-                val recKmh = prefs.recordZoneKmh
-                if (recKmh > 0) ZoneRecorder.add(lat, lon)
-                // Tốc độ cố định người dùng đã đặt (theo đúng ranh giới khu vực đã vẽ, hoặc theo đoạn
-                // đường way id đã gán) ghi đè lên kết quả tính theo thẻ OSM — tránh nhảy số do khớp
-                // lẫn giữa các làn/đoạn gần nhau
-                val zoneKmh = ZonePolygons.kmhAt(this, lat, lon) ?: WayLimits.kmhAt(this, m.way.id)
-                val res = if (zoneKmh != null) LimitResult(zoneKmh, false) else SpeedRules.resolve(m.way, m.forward, prefs, snap.urbanArea)
+                val res = SpeedRules.resolve(m.way, m.forward, prefs, snap.urbanArea)
                 val key = res?.let { "${it.kmh}/${it.estimated}" } ?: "none"
                 if (key == pendingKey) pendingCount++ else {
                     pendingKey = key

@@ -623,11 +623,9 @@ class NavActivity : Activity() {
     }
 
     private fun showMenu() {
-        val recording = prefs.recordZoneKmh > 0
         val items = arrayOf(
             "📝   Ghi chú sự cố (vào nhật ký)",
             "🚧   Báo đường đang đứng bị chặn",
-            if (recording) "⏹   Dừng ghi ranh giới khu vực (đang gán ${prefs.recordZoneKmh} km/h, ${ZoneRecorder.size()} điểm)" else "🛣️   Vẽ ranh giới khu vực tốc độ cố định",
             "⚙   Cài đặt",
             "🗺   Mở Google Maps",
             "⏱   Màn hình tốc độ lớn",
@@ -639,11 +637,10 @@ class NavActivity : Activity() {
                 when (which) {
                     0 -> noteDialog()
                     1 -> reportBlocked()
-                    2 -> if (recording) stopZoneRecording() else zoneRecordDialog()
-                    3 -> startActivity(Intent(this, SettingsActivity::class.java))
-                    4 -> AppActions.openGoogleMaps(this, prefs)
-                    5 -> startActivity(Intent(this, MainActivity::class.java))
-                    6 -> if (Live.serviceRunning) {
+                    2 -> startActivity(Intent(this, SettingsActivity::class.java))
+                    3 -> AppActions.openGoogleMaps(this, prefs)
+                    4 -> startActivity(Intent(this, MainActivity::class.java))
+                    5 -> if (Live.serviceRunning) {
                         Live.userStopped = true
                         DriveService.stop(this)
                     } else {
@@ -673,31 +670,6 @@ class NavActivity : Activity() {
      * qua sẽ được gán thẳng mức km/h đó, đúng hình dạng mạng lưới đường thật. Không đoán theo bán
      * kính/hình tròn nên không lòi ra đường ngoài khu. Bấm dừng khi đã chạy hết các đường cần gán.
      */
-    private fun zoneRecordDialog() {
-        val kmhs = arrayOf("30", "40", "50", "60", "70")
-        AlertDialog.Builder(this)
-            .setTitle("Chạy một vòng theo đường biên (ranh giới) của khu vực, mức tốc độ xe máy áp dụng trong khu:")
-            .setItems(kmhs) { _, i ->
-                val kmh = kmhs[i].toInt()
-                ZoneRecorder.reset()
-                prefs.recordZoneKmh = kmh
-                toast("Đang ghi $kmh km/h — chạy một vòng theo đường biên ngoài cùng của khu vực (không cần chạy hết đường bên trong), xong vào ☰ bấm Dừng ghi để khép vùng")
-            }
-            .setNegativeButton("Huỷ", null)
-            .show()
-    }
-
-    private fun stopZoneRecording() {
-        val kmh = prefs.recordZoneKmh
-        prefs.recordZoneKmh = -1
-        val ok = ZoneRecorder.finish(this, kmh)
-        if (ok) {
-            toast("Đã khép vùng — tổng cộng ${ZonePolygons.count(this)} khu vực đang áp dụng tốc độ cố định")
-        } else {
-            toast("Chưa đủ điểm để khép vùng (cần chạy xa hơn dọc theo đường biên) — thử ghi lại")
-        }
-    }
-
     private fun buildUi(): View {
         // Bố cục theo tỉ lệ màn hình thật (16:9, 21:9, màn vuông máy gập, chia đôi màn hình…)
         val cfg = resources.configuration
