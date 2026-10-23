@@ -382,7 +382,7 @@ class NavActivity : Activity() {
             elevation = dp(5f).toFloat()
             setOnClickListener { onClick() }
         }
-        val rectLp = { LinearLayout.LayoutParams(dp(38f), dp(50f)).apply { setMargins(dp(8f), dp(6f), 0, 0) } }
+        val rectLp = { LinearLayout.LayoutParams(dp(56f), dp(36f)).apply { setMargins(dp(8f), dp(6f), 0, 0) } }
         // Tuyến khác (↺): vẫn nằm ở thanh dưới, cạnh bảng giờ đến
         val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
         altBtn = btn("↺", Color.parseColor("#2C343E"), "Tuyến khác") {
@@ -420,8 +420,8 @@ class NavActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
         }
-        recenterStack.addView(recenterBtn, LinearLayout.LayoutParams(dp(38f), dp(50f)))
-        recenterStack.addView(endBtn, LinearLayout.LayoutParams(dp(38f), dp(50f)).apply { topMargin = dp(8f) })
+        recenterStack.addView(recenterBtn, LinearLayout.LayoutParams(dp(56f), dp(36f)))
+        recenterStack.addView(endBtn, LinearLayout.LayoutParams(dp(56f), dp(36f)).apply { topMargin = dp(8f) })
 
         // Nút ☰ (menu) góc trên trái
         menuBtn = TextView(this).apply {
@@ -798,13 +798,13 @@ class NavActivity : Activity() {
             top.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             top.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             topRow.addView(top, LinearLayout.LayoutParams(0, -2, 1f))
-            topRow.addView(menuBtn, LinearLayout.LayoutParams(dp(50f), dp(50f)).apply { leftMargin = dp(8f) })
+            topRow.addView(menuBtn, LinearLayout.LayoutParams(dp(56f), dp(36f)).apply { leftMargin = dp(8f) })
             root.addView(topRow, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
             // Về vị trí + Kết thúc: ngay dưới nút ☰
             root.addView(
                 recenterStack,
                 FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
-                    topMargin = dp(10f + 50f + 8f)
+                    topMargin = dp(10f + 36f + 8f)
                     rightMargin = dp(16f)
                 },
             )
@@ -872,7 +872,7 @@ class NavActivity : Activity() {
             )
             mapBox.addView(
                 menuBtn,
-                FrameLayout.LayoutParams(dp(50f), dp(50f), Gravity.TOP or Gravity.END).apply {
+                FrameLayout.LayoutParams(dp(56f), dp(36f), Gravity.TOP or Gravity.END).apply {
                     rightMargin = dp(12f); topMargin = dp(12f)
                 },
             )
@@ -880,7 +880,7 @@ class NavActivity : Activity() {
             mapBox.addView(
                 recenterStack,
                 FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
-                    rightMargin = dp(18f); topMargin = dp(70f)
+                    rightMargin = dp(18f); topMargin = dp(58f)
                 },
             )
             mapBox.addView(
