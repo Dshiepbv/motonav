@@ -74,6 +74,7 @@ object CcuBle {
     private val descQueue = ArrayDeque<BluetoothGattDescriptor>()
     private val missingUuids = mutableListOf<String>()
     @Volatile private var attempt = 0 // 0, 1, 2 — xe gốc cũng thử tối đa 3 lần mới bỏ cuộc
+    @Volatile private var connGen = 0 // đổi mỗi lần bắt đầu/hết một lượt kết nối GATT, để huỷ timeout cũ
     @Volatile private var seqCounter = 0
     @Volatile private var authCcuCode: String? = null
     @Volatile private var authPasskey: String? = null
@@ -94,7 +95,19 @@ object CcuBle {
             error = "Chưa có mã CCU/passkey — bấm bước 1 trước"
             return
         }
-        if (!busy.compareAndSet(false, true)) return
+        if (!busy.compareAndSet(false, true)) {
+            // Đang chạy dở (có thể bị kẹt do GATT treo) — huỷ lượt cũ, bắt đầu lại từ đầu thay vì im lặng
+            TripLog.ev("ccuBle", "forceRestart" to true)
+            running = false
+            connGen++
+            try { gatt?.disconnect() } catch (_: Exception) {}
+            try { gatt?.close() } catch (_: Exception) {}
+            gatt = null
+            descQueue.clear()
+            writeQueue.clear()
+            busy.set(false)
+            if (!busy.compareAndSet(false, true)) return
+        }
         running = true
         error = null
         authError = null
@@ -170,17 +183,36 @@ object CcuBle {
         // Autoconnect=true ở lần thử thứ 3 (giống app gốc: "cách i2+1/3", lần cuối tự kết nối nền)
         val autoConnect = attempt == 2
         stage = if (attempt == 0) "Đang mở kết nối GATT…" else "Đang mở kết nối GATT (lần thử ${attempt + 1}/3)…"
+        val myGen = ++connGen
+        // autoConnect=true (lần thử cuối) có thể treo vô thời hạn nếu xe không quảng bá kết nối được —
+        // canh giờ như app gốc (d(): 35s bình thường / 45s khi autoConnect) để không bị kẹt mãi.
+        handler.postDelayed({
+            if (running && connGen == myGen) {
+                TripLog.ev("ccuBle", "connectTimeout" to attempt)
+                try { gatt?.disconnect() } catch (_: Exception) {}
+                try { gatt?.close() } catch (_: Exception) {}
+                gatt = null
+                if (attempt < 2) {
+                    attempt++
+                    connectGatt(ctx, device)
+                } else {
+                    fail("Kết nối GATT không phản hồi sau 3 lần thử (hết giờ)")
+                }
+            }
+        }, if (autoConnect) 45_000 else 35_000)
         try {
             try { gatt?.close() } catch (_: Exception) {}
             val g = device.connectGatt(ctx, autoConnect, object : BluetoothGattCallback() {
                 override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
+                        connGen++ // huỷ timeout đang chờ của lượt này
                         stage = "Đã nối GATT, đang dò dịch vụ…"
                         try { g.discoverServices() } catch (_: Exception) {}
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                         try { g.close() } catch (_: Exception) {}
                         gatt = null
-                        if (!running) return
+                        if (!running || connGen != myGen) return
+                        connGen++
                         if (attempt < 2) {
                             attempt++
                             TripLog.ev("ccuBle", "retry" to attempt, "status" to status)
