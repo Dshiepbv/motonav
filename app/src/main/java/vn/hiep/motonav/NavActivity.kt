@@ -86,8 +86,9 @@ class NavActivity : Activity() {
     private lateinit var camBox: TextView
     private lateinit var etaText: TextView
     private lateinit var statusText: TextView
-    private lateinit var endBtn: Button
+    private lateinit var endBtn: View
     private lateinit var recenterBtn: Button
+    private lateinit var recenterStack: LinearLayout
 
     private val listener: () -> Unit = { render() }
     private var styleError: String? = null
@@ -116,7 +117,7 @@ class NavActivity : Activity() {
                 if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
                     follow = false
                     recenterBtn.visibility = View.VISIBLE
-                    btnRow.visibility = View.VISIBLE
+                    recenterStack.visibility = View.VISIBLE
                     // Không chạm thêm 8 giây → tự quay lại bám theo xe
                     ui.removeCallbacks(autoFollow)
                     ui.postDelayed(autoFollow, 8000)
@@ -364,41 +365,63 @@ class NavActivity : Activity() {
         bottomBar.addView(etaText)
         statusText = tv(13f, muted).apply { maxLines = if (ls) 2 else 3 }
         bottomBar.addView(statusText)
-        // Nút tròn nhỏ dạng biểu tượng (thay vì nút chữ dài chiếm hết bề ngang)
-        val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
+        // Nút biểu tượng hình chữ nhật đứng (hẹp & cao hơn là vuông/tròn)
         fun btn(t: String, color: Int, desc: String, onClick: () -> Unit) = Button(this).apply {
             text = t
             contentDescription = desc
             isAllCaps = false
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             setPadding(0, 0, 0, 0)
             minWidth = 0
             minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
             background = glassSquircle(color, 14f)
             stateListAnimator = null
             elevation = dp(5f).toFloat()
             setOnClickListener { onClick() }
         }
-        val lp = { LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { setMargins(dp(8f), dp(6f), 0, 0) } }
+        val rectLp = { LinearLayout.LayoutParams(dp(38f), dp(50f)).apply { setMargins(dp(8f), dp(6f), 0, 0) } }
+        // Tuyến khác (↺): vẫn nằm ở thanh dưới, cạnh bảng giờ đến
+        val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
+        altBtn = btn("↺", Color.parseColor("#2C343E"), "Tuyến khác") {
+            DriveService.send(this, DriveService.ACTION_NAV_ALTS)
+        }
+        btns.addView(altBtn, rectLp())
+        bottomBar.addView(btns)
+        btnRow = btns
+
+        // Về vị trí (◎) + Kết thúc: gộp một cột ngay dưới nút ☰ (menu) cho gọn, dễ với tay
         recenterBtn = btn("◎", Color.parseColor("#1565C0"), "Về vị trí") {
             follow = true
             recenterBtn.visibility = View.GONE
             render()
         }
         recenterBtn.visibility = View.GONE
-        btns.addView(recenterBtn, lp())
-        altBtn = btn("↺", Color.parseColor("#2C343E"), "Tuyến khác") {
-            DriveService.send(this, DriveService.ACTION_NAV_ALTS)
+        // Kết thúc: một ô vuông đặc ở giữa, không viền khung — thay cho ký tự "⏹" có viền sẵn
+        val endBtnFrame = FrameLayout(this).apply {
+            contentDescription = "Kết thúc"
+            isClickable = true
+            isFocusable = true
+            background = glassSquircle(danger, 14f)
+            elevation = dp(5f).toFloat()
+            setOnClickListener {
+                DriveService.stopNav(this@NavActivity)
+                follow = true
+            }
         }
-        btns.addView(altBtn, lp())
-        endBtn = btn("⏹", danger, "Kết thúc") {
-            DriveService.stopNav(this)
-            follow = true
+        endBtnFrame.addView(
+            View(this).apply { background = rounded(Color.WHITE, 2.5f) },
+            FrameLayout.LayoutParams(dp(15f), dp(15f), Gravity.CENTER),
+        )
+        endBtn = endBtnFrame
+        recenterStack = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
         }
-        btns.addView(endBtn, lp())
-        bottomBar.addView(btns)
-        btnRow = btns
+        recenterStack.addView(recenterBtn, LinearLayout.LayoutParams(dp(38f), dp(50f)))
+        recenterStack.addView(endBtn, LinearLayout.LayoutParams(dp(38f), dp(50f)).apply { topMargin = dp(8f) })
 
         // Nút ☰ (menu) góc trên trái
         menuBtn = TextView(this).apply {
@@ -411,13 +434,13 @@ class NavActivity : Activity() {
             setOnClickListener { showMenu() }
         }
 
-        // Nút tam giác vàng nhạt báo cảnh báo, góc dưới phải (kiểu Waze)
+        // Biển khu dân cư / ngoài khu dân cư, và nút tam giác vàng nhạt báo cảnh báo (kiểu Waze)
         urbanSign = UrbanSignView(this).apply {
-            elevation = dp(4f).toFloat()
+            elevation = dp(5f).toFloat()
             visibility = View.GONE
         }
         reportBtn = WarnButton(this).apply {
-            elevation = dp(6f).toFloat()
+            elevation = dp(8f).toFloat()
             setOnClickListener { AppActions.markAlert(this@NavActivity) }
         }
     }
@@ -751,6 +774,14 @@ class NavActivity : Activity() {
             topRow.addView(top, LinearLayout.LayoutParams(0, -2, 1f))
             topRow.addView(menuBtn, LinearLayout.LayoutParams(dp(50f), dp(50f)).apply { leftMargin = dp(8f) })
             root.addView(topRow, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+            // Về vị trí + Kết thúc: ngay dưới nút ☰
+            root.addView(
+                recenterStack,
+                FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
+                    topMargin = dp(10f + 50f + 8f)
+                    rightMargin = dp(16f)
+                },
+            )
 
             bottomBar.background = rounded(Color.argb(242, 22, 26, 32), 0f)
             root.addView(bottomBar, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
@@ -767,8 +798,8 @@ class NavActivity : Activity() {
 
             // Nút "!" góc dưới phải, nằm trên thanh dưới
             root.addView(reportBtn, FrameLayout.LayoutParams(dp(68f), dp(62f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(14f) })
-            // Biển khu dân cư ngay trên nút tam giác
-            root.addView(urbanSign, FrameLayout.LayoutParams(dp(62f), dp(62f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(17f) })
+            // Biển khu dân cư ngay trên nút tam giác (nhỏ hơn 20% so với trước)
+            root.addView(urbanSign, FrameLayout.LayoutParams(dp(50f), dp(50f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(23f) })
             bottomBar.addOnLayoutChangeListener { _, _, top2, _, bottom2, _, _, _, _ ->
                 val lp = reportBtn.layoutParams as FrameLayout.LayoutParams
                 val m = (bottom2 - top2) + dp(14f)
@@ -776,7 +807,7 @@ class NavActivity : Activity() {
                     lp.bottomMargin = m
                     reportBtn.requestLayout()
                     val up = urbanSign.layoutParams as FrameLayout.LayoutParams
-                    up.bottomMargin = m + dp(62f) + dp(10f)
+                    up.bottomMargin = m + dp(50f) + dp(10f)
                     urbanSign.requestLayout()
                 }
             }
@@ -819,16 +850,24 @@ class NavActivity : Activity() {
                     rightMargin = dp(12f); topMargin = dp(12f)
                 },
             )
+            // Về vị trí + Kết thúc: ngay dưới nút ☰
+            mapBox.addView(
+                recenterStack,
+                FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
+                    rightMargin = dp(18f); topMargin = dp(70f)
+                },
+            )
             mapBox.addView(
                 reportBtn,
                 FrameLayout.LayoutParams(dp(64f), dp(58f), Gravity.BOTTOM or Gravity.END).apply {
                     rightMargin = dp(14f); bottomMargin = dp(14f)
                 },
             )
+            // Biển khu dân cư (nhỏ hơn 20% so với trước)
             mapBox.addView(
                 urbanSign,
-                FrameLayout.LayoutParams(dp(58f), dp(58f), Gravity.BOTTOM or Gravity.END).apply {
-                    rightMargin = dp(17f); bottomMargin = dp(14f + 58f + 10f)
+                FrameLayout.LayoutParams(dp(46f), dp(46f), Gravity.BOTTOM or Gravity.END).apply {
+                    rightMargin = dp(23f); bottomMargin = dp(14f + 58f + 10f)
                 },
             )
             row.addView(mapBox, LinearLayout.LayoutParams(0, -1, 1f))
@@ -848,13 +887,36 @@ class NavActivity : Activity() {
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun afterTextChanged(s: Editable?) {
                 ui.removeCallbacks(searchRunnable)
-                if ((s?.length ?: 0) >= 3) ui.postDelayed(searchRunnable, 700) else results.removeAllViews()
+                val len = s?.length ?: 0
+                when {
+                    len >= 3 -> ui.postDelayed(searchRunnable, 700)
+                    len == 0 -> showHistory()
+                    else -> results.removeAllViews()
+                }
             }
         })
+        searchInput.setOnFocusChangeListener { _, has -> if (has && searchInput.text.isEmpty()) showHistory() }
         searchInput.setOnEditorActionListener { _, _, _ ->
             ui.removeCallbacks(searchRunnable)
             doSearch(searchInput.text.toString())
             true
+        }
+    }
+
+    /** Vài điểm tìm gần đây (tối đa 5), chọn lại ngay không cần gõ hay chờ tìm. */
+    private fun showHistory() {
+        val hist = SearchHistory.all(this)
+        results.removeAllViews()
+        if (hist.isEmpty()) return
+        results.addView(tv(12f, muted).apply { text = "Tìm gần đây"; setPadding(0, dp(2f), 0, dp(4f)) })
+        for (h in hist) {
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, dp(8f), 0, dp(8f))
+                setOnClickListener { startNavTo(h.lat, h.lon, h.name) }
+            }
+            item.addView(tv(16f, Color.WHITE, true).apply { text = "🕑  ${h.name}" })
+            results.addView(item)
         }
     }
 
@@ -989,6 +1051,7 @@ class NavActivity : Activity() {
         hideKeyboard()
         follow = true
         shownRouteVersion = -1
+        if (!name.isNullOrBlank()) SearchHistory.add(this, name, lat, lon)
         DriveService.startNav(this, lat, lon, name)
     }
 
@@ -1901,7 +1964,8 @@ class NavActivity : Activity() {
         searchBox.visibility = if (nav) View.GONE else View.VISIBLE
         endBtn.visibility = if (nav) View.VISIBLE else View.GONE
         altBtn.visibility = if (nav && Live.route != null && Live.routeChoices.isEmpty()) View.VISIBLE else View.GONE
-        btnRow.visibility = if (endBtn.visibility == View.VISIBLE || recenterBtn.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+        btnRow.visibility = altBtn.visibility
+        recenterStack.visibility = if (endBtn.visibility == View.VISIBLE || recenterBtn.visibility == View.VISIBLE) View.VISIBLE else View.GONE
         renderChoices()
 
         // Cảnh báo chữ

@@ -426,3 +426,47 @@ object BlockedRoads {
 
     fun clear(ctx: Context) = save(ctx, emptyList())
 }
+
+/** Vài điểm đến tìm gần đây nhất, để chọn lại nhanh không cần gõ lại. */
+object SearchHistory {
+    class Entry(val name: String, val lat: Double, val lon: Double, val at: Long)
+
+    private const val MAX = 5
+
+    @Volatile
+    private var cache: List<Entry>? = null
+
+    fun all(ctx: Context): List<Entry> {
+        cache?.let { return it }
+        val sp = ctx.applicationContext.getSharedPreferences("motonav", Context.MODE_PRIVATE)
+        val list = ArrayList<Entry>()
+        try {
+            val arr = JSONArray(sp.getString("search_history", "[]"))
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                list.add(Entry(o.getString("name"), o.getDouble("lat"), o.getDouble("lon"), o.optLong("at", 0L)))
+            }
+        } catch (_: Exception) {
+        }
+        cache = list
+        return list
+    }
+
+    private fun save(ctx: Context, list: List<Entry>) {
+        val arr = JSONArray()
+        for (e in list) arr.put(JSONObject().put("name", e.name).put("lat", e.lat).put("lon", e.lon).put("at", e.at))
+        ctx.applicationContext.getSharedPreferences("motonav", Context.MODE_PRIVATE)
+            .edit().putString("search_history", arr.toString()).apply()
+        cache = list
+    }
+
+    /** Thêm điểm vừa đi tới đầu danh sách; bỏ bản cũ trùng tên, giữ tối đa [MAX] điểm. */
+    fun add(ctx: Context, name: String, lat: Double, lon: Double) {
+        if (name.isBlank()) return
+        val list = ArrayList(all(ctx).filterNot { it.name == name })
+        list.add(0, Entry(name, lat, lon, System.currentTimeMillis()))
+        save(ctx, list.take(MAX))
+    }
+
+    fun clear(ctx: Context) = save(ctx, emptyList())
+}
