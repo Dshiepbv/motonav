@@ -447,8 +447,14 @@ class SettingsActivity : Activity() {
             action(
                 "Thử nghiệm: dò mã CCU + passkey (bước 1 BLE)",
                 ccuStatus,
-                note = "Bước đầu để làm hiện icon dẫn đường trên màn xe (khác kênh dữ liệu ở trên) — đang thử nghiệm, chạm để dò lại.",
-            ) { CcuAuth.queryOnce(this, prefs.tftDevice); build() }
+                note = "Bước đầu để làm hiện icon dẫn đường trên màn xe (khác kênh dữ liệu ở trên) — xong sẽ tự chuyển sang bước 2+3 luôn (giống app gốc, không chờ bấm nút riêng). Chạm để dò lại.",
+            ) {
+                if (!hasBleScanPermission() || !hasBtPermission()) {
+                    requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), REQ_BLE_PERM)
+                }
+                CcuAuth.queryOnce(this, prefs.tftDevice)
+                build()
+            }
 
             // ---- Chẩn đoán bước 2+3: quét + kết nối BLE, đăng ký nhận dữ liệu, gửi hello + xác thực ----
             val bleStatus = when {

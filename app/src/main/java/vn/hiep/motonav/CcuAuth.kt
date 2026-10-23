@@ -37,12 +37,26 @@ object CcuAuth {
     @Volatile var lastTriedAt: Long = 0
         private set
 
-    fun queryOnce(ctx: Context, deviceAddr: String) {
+    // App gốc KHÔNG đóng socket SPP này sau khi lấy được mã CCU/passkey — nó giữ mở (luồng nền
+    // "ccu-spp-keep") rồi lập tức bắt đầu quét/kết nối BLE ngay trên cùng phiên đó. Nghi vấn chính
+    // khiến bước BLE của ta không bao giờ thấy quảng bá: ta đóng socket này ngay lập tức, có thể
+    // khiến xe coi phiên "đang ghép đôi" đã kết thúc và tắt cửa sổ quảng bá BLE đặc biệt đó.
+    @Volatile private var keepSocket: BluetoothSocket? = null
+    @Volatile private var keepThread: Thread? = null
+
+    fun closeKeepAlive() {
+        keepThread = null
+        try { keepSocket?.close() } catch (_: Exception) {}
+        keepSocket = null
+    }
+
+    fun queryOnce(ctx: Context, deviceAddr: String, autoChainBle: Boolean = true) {
         if (running) return
         if (deviceAddr.isBlank()) {
             error = "Chưa chọn thiết bị màn xe"
             return
         }
+        closeKeepAlive()
         running = true
         error = null
         lastTriedAt = System.currentTimeMillis()
@@ -60,6 +74,7 @@ object CcuAuth {
                     val attempts = listOf(Triple(UUID_CCU, false, "CCU secure"), Triple(UUID_CCU, true, "CCU insecure"), Triple(UUID_SPP, true, "SPP insecure"))
                     for ((uuid, insecure, label) in attempts) {
                         var sock: BluetoothSocket? = null
+                        var keepOpen = false
                         try {
                             TripLog.ev("ccuAuth", "try" to label)
                             sock = if (insecure) device.createInsecureRfcommSocketToServiceRecord(uuid) else device.createRfcommSocketToServiceRecord(uuid)
@@ -72,7 +87,22 @@ object CcuAuth {
                                 ccuCode = result.first
                                 passkey = result.second
                                 ok = true
+                                keepOpen = true
                                 TripLog.ev("ccuAuth", "ok" to label, "code" to result.first)
+                                // Giữ socket mở (giống app gốc) thay vì đóng ngay — luồng này chỉ chặn đọc
+                                // thêm (nếu có) để giữ kết nối sống cho đến khi bước BLE xong hoặc bị huỷ.
+                                keepSocket = sock
+                                val kt = Thread({
+                                    try { while (keepThread == Thread.currentThread()) sock.inputStream.read() } catch (_: Exception) {}
+                                }, "ccu-spp-keep")
+                                keepThread = kt
+                                kt.isDaemon = true
+                                kt.start()
+                                if (autoChainBle) {
+                                    // Giống hệt app gốc: thành công bước 1 thì NGAY LẬP TỨC bắt đầu bước 2
+                                    // (quét BLE) trong cùng cửa sổ thời gian, không chờ người bấm nút riêng.
+                                    CcuBle.connectOnce(ctx, deviceAddr, result.first, result.second)
+                                }
                                 break
                             } else {
                                 lastErr = "Không có phản hồi hợp lệ ($label)"
@@ -80,7 +110,7 @@ object CcuAuth {
                         } catch (e: Exception) {
                             lastErr = "${e.javaClass.simpleName}: ${e.message} ($label)"
                         } finally {
-                            try { sock?.close() } catch (_: Exception) {}
+                            if (!keepOpen) try { sock?.close() } catch (_: Exception) {}
                         }
                     }
                     if (!ok && lastErr == null) lastErr = "Không lấy được thông tin (xe đã bật và đã ghép đôi chưa?)"
