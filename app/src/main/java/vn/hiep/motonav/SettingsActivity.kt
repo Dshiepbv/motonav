@@ -475,6 +475,22 @@ class SettingsActivity : Activity() {
                 }
                 build()
             }
+            action(
+                "Test hiệu chỉnh dung lượng khung (5 loại × 10)",
+                if (TftLink.calibActive) "🔄 Đang chạy — chạm để dừng giữa chừng" else "Chạm để chạy: chữ đơn giản → nhiều chữ → siêu nhẹ → đường phức tạp → bản đồ nặng",
+                note = "Gửi lần lượt 5 loại khung (mỗi loại 10 khung, cách nhau 1,2s, cùng chất lượng JPEG với khung thật) từ nhẹ tới nặng, mỗi khung tự ghi dung lượng + thời gian ACK vào nhật ký chuyến đi. Gửi xong, vào \"Gửi nhật ký chuyến đi\" ở trên để lấy ra đối chiếu loại nào/dung lượng bao nhiêu thì xe bắt đầu chậm hẳn hoặc mất kết nối. Đứng yên lúc chạy để không lẫn với khung dẫn đường thật.",
+            ) {
+                if (TftLink.calibActive) {
+                    TftLink.stopCalibration()
+                    toast("Đã dừng test hiệu chỉnh")
+                } else if (TftLink.authed) {
+                    TftLink.runCalibration()
+                    toast("Đang chạy test hiệu chỉnh (50 khung, ~1-2 phút)…")
+                } else {
+                    toast("Chưa bắt tay xong với xe")
+                }
+                build()
+            }
 
             // ---- Chẩn đoán bước 1/3 của "bắt cặp BLE" (thử nghiệm, chưa phải tính năng chính) ----
             val ccuStatus = when {

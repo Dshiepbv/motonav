@@ -200,7 +200,7 @@ object TftLink {
      * tiếp, quá 6 giây thì bỏ qua khung này (coi như gửi xong, không chặn khung sau).
      * CHỈ gọi khi [authed] — chưa bắt tay xong thì xe sẽ không hiểu/ACK.
      */
-    fun sendFrame(jpeg: ByteArray): Boolean {
+    fun sendFrame(jpeg: ByteArray, tag: String? = null): Boolean {
         if (!authed) return false
         val seq = (frameSeq + 1) and 0xFFFF
         frameSeq = seq
@@ -260,7 +260,7 @@ object TftLink {
         // lại có thể đối chiếu xem ACK bắt đầu chậm hẳn từ cỡ khung bao nhiêu byte, tìm ra một mức
         // dung lượng "an toàn" thay vì đoán mò bằng chất lượng JPEG.
         try {
-            TripLog.ev("tftFrame", "bytes" to jpeg.size, "ackMs" to (if (timedOut) null else lastFrameAckMs), "timedOut" to timedOut)
+            TripLog.ev("tftFrame", "bytes" to jpeg.size, "ackMs" to (if (timedOut) null else lastFrameAckMs), "timedOut" to timedOut, "tag" to tag)
         } catch (_: Exception) {
         }
         return true
@@ -399,9 +399,13 @@ object TftLink {
                 // ảnh ngừng gửi (lúc chưa có tuyến, hoặc lúc vừa tới nơi/route về null) thì màn xe tự
                 // báo "mất kết nối" sau một lúc im lặng — xe có vẻ cần thấy dữ liệu liên tục mới coi
                 // là còn kết nối, chứ không chỉ cần bắt tay xong một lần.
-                try {
-                    sendFrame(buildSketchFrame())
-                } catch (_: Exception) {
+                // Trừ lúc đang chạy test hiệu chỉnh (runCalibration) — để không chen khung vào giữa,
+                // làm lẫn lộn số thứ tự/ACK của bộ test.
+                if (!calibRunning) {
+                    try {
+                        sendFrame(buildSketchFrame())
+                    } catch (_: Exception) {
+                    }
                 }
                 // Giãn nhịp theo tốc độ ACK thực tế của xe — quan sát thực tế: lúc ACK chậm (gần 4s)
                 // mà vẫn gửi khung mới liền sau 1,5s thì dồn khung lên xe đang xử lý chưa xong, có vẻ
@@ -456,12 +460,122 @@ object TftLink {
                 if (sendFrame(jpeg)) n++
                 sleepQuiet(1500)
             }
-            testFramesRunning = false
+            testFramesRunning = false; calibRunning = false
         }, "tft-test-frames").apply { isDaemon = true; start() }
     }
 
     fun stopTestFrames() {
-        testFramesRunning = false
+        testFramesRunning = false; calibRunning = false
+    }
+
+    // ---------- Test hiệu chỉnh: 5 loại khung x 10, tăng dần độ phức tạp, có ghi nhật ký ----------
+
+    /** Vẽ 1 khung test theo [kind] (0..4, xem [CALIB_NAMES]) và chỉ số [i] (1..10, đổi chút nội
+     * dung mỗi khung để JPEG không nén trùng y hệt nhau giữa các lần). */
+    private fun buildCalibFrame(kind: Int, i: Int): ByteArray {
+        val w = screenW
+        val h = screenH
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
+        val c = Canvas(bmp)
+        c.drawColor(Color.BLACK)
+        when (kind) {
+            0 -> { // chữ đơn giản — vài ký tự to, gần giống buildTestFrame
+                val p = Paint().apply { color = Color.WHITE; textSize = h * 0.18f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                c.drawText("TEST $i", w / 2f, h / 2f, p)
+            }
+            1 -> { // nhiều chữ — mô phỏng khung chữ dẫn đường đầy đủ (nhiều dòng, chữ nhỏ)
+                val p = Paint().apply { color = Color.WHITE; textSize = h * 0.07f; isAntiAlias = true }
+                val lines = listOf(
+                    "Rẽ trái vào Nguyễn Thị Minh Khai", "200 m tới ngã tư Hai Bà Trưng",
+                    "Tốc độ tối đa 50 km/h", "Camera phạt nguội phía trước",
+                    "Đến lúc 14:4$i", "Quãng đường còn 3.$i km", "Dự kiến còn 12 phút nữa",
+                )
+                var y = h * 0.12f
+                for (ln in lines) { c.drawText(ln, 8f, y, p); y += h * 0.12f }
+            }
+            2 -> { // siêu nhẹ — gần như trống, chỉ 1 chấm nhỏ đổi vị trí
+                val p = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL }
+                c.drawCircle(20f + i * 3f, 20f, 4f, p)
+            }
+            3 -> { // đường phức tạp — zigzag nhiều đoạn (tăng chi tiết nét so với tuyến bình thường)
+                val p = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f; isAntiAlias = true }
+                val path = android.graphics.Path()
+                val rnd = java.util.Random(i.toLong())
+                var x = w * 0.1f; var y = h * 0.9f
+                path.moveTo(x, y)
+                repeat(40) {
+                    x = (x + (rnd.nextFloat() - 0.3f) * w * 0.04f).coerceIn(0f, w.toFloat())
+                    y = (y - h * 0.02f).coerceIn(0f, h.toFloat())
+                    path.lineTo(x, y)
+                }
+                c.drawPath(path, p)
+            }
+            else -> { // bản đồ nặng — lưới nền + tuyến ngoằn ngoèo + chữ + điểm rẽ, nặng hơn khung sketch thường
+                val gridP = Paint().apply { color = Color.rgb(70, 70, 70); style = Paint.Style.STROKE; strokeWidth = 1f }
+                var gx = 0f
+                while (gx < w) { c.drawLine(gx, 0f, gx, h.toFloat(), gridP); gx += 24f }
+                var gy = 0f
+                while (gy < h) { c.drawLine(0f, gy, w.toFloat(), gy, gridP); gy += 24f }
+                val routeP = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 4f; isAntiAlias = true }
+                val path = android.graphics.Path()
+                val rnd = java.util.Random(i.toLong() + 99)
+                var x = w * 0.5f; var y = h * 0.95f
+                path.moveTo(x, y)
+                repeat(25) {
+                    x = (x + (rnd.nextFloat() - 0.5f) * w * 0.12f).coerceIn(0f, w.toFloat())
+                    y = (y - h * 0.03f).coerceIn(0f, h.toFloat())
+                    path.lineTo(x, y)
+                }
+                c.drawPath(path, routeP)
+                val textP = Paint().apply { color = Color.WHITE; textSize = h * 0.06f; isAntiAlias = true }
+                c.drawText("Nguyễn Thị Minh Khai", 8f, h * 0.1f, textP)
+                c.drawText("Pasteur", 8f, h * 0.2f, textP)
+                val manP = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL }
+                c.drawCircle(x, y, h * 0.04f, manP)
+            }
+        }
+        val out = ByteArrayOutputStream()
+        bmp.compress(Bitmap.CompressFormat.JPEG, 22, out) // cùng chất lượng 22 như khung thật, để số liệu so sánh được
+        bmp.recycle()
+        return out.toByteArray()
+    }
+
+    val CALIB_NAMES = listOf("chu-don-gian", "nhieu-chu", "sieu-nhe", "duong-phuc-tap", "ban-do-nang")
+
+    @Volatile private var calibRunning = false
+    val calibActive: Boolean get() = calibRunning
+
+    /** Chạy 5 loại khung x 10 khung/loại, tăng dần độ phức tạp, cách nhau 1.2s — mỗi khung ghi
+     * (loại, dung lượng, ACK) vào nhật ký chuyến đi (sự kiện "tftFrame", trường "tag") để sau này
+     * đối chiếu tìm ngưỡng dung lượng mà xe bắt đầu chậm hẳn/mất kết nối. Dừng ngay nếu mất kết nối
+     * giữa chừng (ghi lại luôn ở lần "tftFrame" cuối, không cần đoán). */
+    fun runCalibration() {
+        if (calibRunning || !authed) return
+        stopTestFrames()
+        calibRunning = true
+        Thread({
+            try {
+                TripLog.ev("tftCalibStart", "batches" to CALIB_NAMES.size, "perBatch" to 10)
+                for (kind in CALIB_NAMES.indices) {
+                    if (!calibRunning || !running.get() || !connected) break
+                    val name = CALIB_NAMES[kind]
+                    TripLog.ev("tftCalibBatch", "name" to name)
+                    for (i in 1..10) {
+                        if (!calibRunning || !running.get() || !connected) break
+                        val jpeg = try { buildCalibFrame(kind, i) } catch (_: Exception) { continue }
+                        sendFrame(jpeg, tag = name)
+                        sleepQuiet(1200)
+                    }
+                }
+            } finally {
+                TripLog.ev("tftCalibEnd")
+                calibRunning = false
+            }
+        }, "tft-calib").apply { isDaemon = true; start() }
+    }
+
+    fun stopCalibration() {
+        calibRunning = false
     }
 
     /**
@@ -617,7 +731,7 @@ object TftLink {
         lastCmdSeen = -1
         txCount = 0
         lastTxAt = 0
-        testFramesRunning = false
+        testFramesRunning = false; calibRunning = false
         synchronized(ackLock) { ackedFrame = -1; (ackLock as Object).notifyAll() }
     }
 
@@ -820,7 +934,7 @@ object TftLink {
             connected = false
             authed = false
             busy.set(false)
-            testFramesRunning = false
+            testFramesRunning = false; calibRunning = false
             synchronized(ackLock) { (ackLock as Object).notifyAll() }
         }
     }
