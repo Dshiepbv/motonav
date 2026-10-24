@@ -256,6 +256,13 @@ object TftLink {
             lastFrameError = null
             frameTxCount++
         }
+        // Ghi vào nhật ký chuyến đi (dung lượng khung thật gửi đi + thời gian ACK) — để sau này xem
+        // lại có thể đối chiếu xem ACK bắt đầu chậm hẳn từ cỡ khung bao nhiêu byte, tìm ra một mức
+        // dung lượng "an toàn" thay vì đoán mò bằng chất lượng JPEG.
+        try {
+            TripLog.ev("tftFrame", "bytes" to jpeg.size, "ackMs" to (if (timedOut) null else lastFrameAckMs), "timedOut" to timedOut)
+        } catch (_: Exception) {
+        }
         return true
     }
 
