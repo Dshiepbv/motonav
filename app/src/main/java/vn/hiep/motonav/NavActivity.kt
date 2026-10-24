@@ -1443,19 +1443,16 @@ class NavActivity : Activity() {
 
         // Biển báo phía trước cắm trên tuyến (cấm dừng đỗ, cấm rẽ…) kèm số mét
         s.addSource(GeoJsonSource("mn-signs", emptyFc))
-        // THỬ NGHIỆM (chưa chắc đúng chỗ, không có video để xem tận mắt lỗi "kéo vệt"): icon/chữ
-        // kiểu VIEWPORT phải tính lại hướng mỗi khung hình trong lúc camera xoay (vòng lặp camera
-        // chạy tới 25 khung/giây khi dẫn đường) — đổi sang MAP để icon "dính" vào mặt bản đồ, không
-        // cần tính lại hướng mỗi khung, đỡ tải hơn cho GPU. Đánh đổi: icon/số sẽ xoay theo hướng xe
-        // chạy thay vì luôn thẳng đứng — cần xem trên xe có đỡ kéo vệt không và có chấp nhận được
-        // việc icon xoay không.
+        // Đã thử đổi sang MAP (v6.49, thử mò không có video) để đỡ tải GPU lúc camera xoay — video
+        // người dùng gửi sau đó cho thấy icon bị nháy giật giật, không khá hơn kiểu "kéo vệt" ban
+        // đầu. Quay lại VIEWPORT (icon/chữ luôn thẳng đứng, không xoay/nháy theo camera).
         val sl = SymbolLayer("mn-signs-icon", "mn-signs").withProperties(
             PropertyFactory.iconImage(Expression.get("img")),
             PropertyFactory.iconAllowOverlap(true),
             PropertyFactory.iconIgnorePlacement(true),
             PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
-            PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
-            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+            PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
+            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
             PropertyFactory.textField(Expression.get("d")),
             PropertyFactory.textSize(13f),
             PropertyFactory.textColor("#FFFFFF"),
@@ -1464,7 +1461,7 @@ class NavActivity : Activity() {
             PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
             PropertyFactory.textAllowOverlap(true),
             PropertyFactory.textIgnorePlacement(true),
-            PropertyFactory.textPitchAlignment(Property.TEXT_PITCH_ALIGNMENT_MAP),
+            PropertyFactory.textPitchAlignment(Property.TEXT_PITCH_ALIGNMENT_VIEWPORT),
         )
         labelFont?.let { sl.setProperties(PropertyFactory.textFont(it)) }
         s.addLayer(sl)
@@ -1472,14 +1469,14 @@ class NavActivity : Activity() {
 
         // Biển tốc độ sắp đổi, cắm ngay tại điểm đổi
         s.addSource(GeoJsonSource("mn-limit", emptyFc))
-        // Thử nghiệm giống layer biển báo phía trên (xem chú thích ở đó) — đổi sang MAP.
+        // Quay lại VIEWPORT (xem chú thích ở layer biển báo phía trên).
         val lim = SymbolLayer("mn-limit-sign", "mn-limit").withProperties(
             PropertyFactory.iconImage(Expression.get("img")),
             PropertyFactory.iconAllowOverlap(true),
             PropertyFactory.iconIgnorePlacement(true),
             PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
-            PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
-            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+            PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_VIEWPORT),
+            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_VIEWPORT),
             PropertyFactory.textField(Expression.get("d")),
             PropertyFactory.textSize(15f),
             PropertyFactory.textColor("#FFD60A"),
@@ -1488,7 +1485,7 @@ class NavActivity : Activity() {
             PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
             PropertyFactory.textAllowOverlap(true),
             PropertyFactory.textIgnorePlacement(true),
-            PropertyFactory.textPitchAlignment(Property.TEXT_PITCH_ALIGNMENT_MAP),
+            PropertyFactory.textPitchAlignment(Property.TEXT_PITCH_ALIGNMENT_VIEWPORT),
         )
         labelFont?.let { lim.setProperties(PropertyFactory.textFont(it)) }
         s.addLayer(lim)

@@ -239,46 +239,24 @@ object TftLink {
             }
         }
         if (interrupted) return false
-        // Xe không chỉ cần ta gửi đều — nếu nó liên tục tụt lại (ACK chậm hoặc không ACK) thì
-        // thực tế quan sát được là màn xe tự chuyển sang "Lỗi kết nối" dù phía điện thoại vẫn coi
-        // là còn sống (NConnect gốc cũng vậy, không phải lỗi protocol). Khi đó chờ thêm/gửi tiếp
-        // không giúp gì — bắt kết nối lại từ đầu (đóng socket, xe sẽ tự gọi lại/bắt tay lại) để
-        // màn thoát khỏi trạng thái lỗi nhanh hơn là cứ im lặng chịu trận.
+        // ĐÃ THỬ (v6.48→v6.51) tự đóng socket ép kết nối lại khi ACK chậm liên tiếp, với hy vọng
+        // giúp màn xe thoát "Lỗi kết nối" nhanh hơn. Thực tế qua 2 video người dùng gửi: lúc đứng
+        // yên chưa có tuyến thì tự gây ra đúng cái lỗi nó định tránh (đã sửa ở v6.51: bỏ áp dụng lúc
+        // đó); nhưng lúc ĐANG dẫn đường thật (khung ảnh nặng hơn khung chờ) thì ACK chậm liên tục,
+        // nên cứ 2 khung là ép kết nối lại — xe vừa bắt tay lại xong lại dính luôn khung chậm tiếp
+        // theo, tạo thành vòng lặp liên tục báo "Lỗi kết nối" mỗi khi chuyển qua khung bản đồ thật.
+        // Tức là KHÔNG giúp gì mà còn làm xấu hơn tình trạng gốc (xe chỉ chậm/đứng hình chứ không
+        // liên tục bật to hộp lỗi). Bỏ hẳn việc chủ động đóng kết nối — giữ lại nhịp gửi thích ứng
+        // (giãn ra khi ACK chậm) để không dồn thêm khung, còn lại để xe tự xử lý ACK chậm như
+        // NConnect gốc vẫn vậy (cùng giới hạn phần cứng, không phải lỗi protocol sửa được từ xa).
         if (timedOut) {
-            consecutiveBadFrames++
             lastFrameAckMs = 6000 // để sketchLoop giãn nhịp tiếp theo ra xa, không dồn thêm khung
         } else {
             lastFrameAckMs = System.currentTimeMillis() - sentAt
             lastFrameError = null
             frameTxCount++
-            consecutiveBadFrames = if (lastFrameAckMs > 2800) consecutiveBadFrames + 1 else 0
-        }
-        // Quan sát thực tế (video người dùng gửi): xe ĐỨNG YÊN, CHƯA có tuyến (chỉ đang gửi khung
-        // "chờ tuyến đường") mà ACK vẫn chậm là bình thường trên phần cứng này — không phải dấu hiệu
-        // xe đang nghẽn vì tải ảnh dẫn đường. Ép kết nối lại trong lúc đó chỉ khiến màn xe tự bật to
-        // hộp thoại "Lỗi kết nối" dù chẳng có gì đang diễn ra — rối hơn hẳn so với im lặng chịu ACK
-        // chậm. Chỉ ép kết nối lại khi THỰC SỰ đang dẫn đường (có tuyến), lúc khung ảnh mới thật sự
-        // quan trọng phải tới kịp.
-        if (consecutiveBadFrames >= 2) {
-            consecutiveBadFrames = 0
-            if (skActive && skRoute != null) {
-                forceReconnect("khung ảnh chậm/không ACK ${if (timedOut) "(quá 6s)" else "(${lastFrameAckMs}ms)"} liên tiếp")
-            }
         }
         return true
-    }
-
-    @Volatile private var consecutiveBadFrames = 0
-
-    /** Chủ động đóng kết nối hiện tại khi phát hiện xe có vẻ đã "đứng hình"/báo lỗi (xem
-     * [sendFrame]) — [clientLoop]/[serverLoop] sẽ tự kết nối + bắt tay lại từ đầu sau đó, thay vì
-     * cứ giữ một kết nối mà màn xe đã tự coi là lỗi. */
-    private fun forceReconnect(reason: String) {
-        lastError = "Kết nối lại: $reason"
-        try {
-            activeSocket?.close()
-        } catch (_: Exception) {
-        }
     }
 
     // ---------- Khung bản đồ "sketch" thật: nét trắng trên nền đen, hướng lên = hướng đang đi ----------
@@ -746,7 +724,6 @@ object TftLink {
         frameTxCount = 0
         lastFrameError = null
         lastFrameAckMs = -1
-        consecutiveBadFrames = 0
         synchronized(ackLock) { ackedFrame = -1 }
         Thread({ readLoop(input, socket) }, "tft-reader").apply { isDaemon = true; start() }
         Thread({ sketchLoop() }, "tft-sketch").apply { isDaemon = true; start() }
