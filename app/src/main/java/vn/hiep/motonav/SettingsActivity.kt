@@ -587,6 +587,13 @@ class SettingsActivity : Activity() {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
         }
         action(
+            "Máy OPPO / Realme / OnePlus (ColorOS)",
+            null,
+            note = "Ngoài \"Thông tin ứng dụng → Pin → Không hạn chế\" bên dưới, ColorOS còn có mục riêng: Cài đặt → Pin → Quản lý pin ứng dụng → MotoNav → bật \"Cho phép chạy nền\"; và Cài đặt → Ứng dụng → Quản lý khởi động → bật MotoNav. Thiếu bước này app hay bị hệ điều hành tạm dừng luồng nền vài giây, đúng kiểu làm màn xe báo \"Lỗi kết nối\" dù nội dung khung ảnh không hề nặng.",
+        ) {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+        }
+        action(
             "Quyền tự bật/tắt ô nổi theo Google Maps",
             status(ForegroundApp.hasPermission(this)),
             note = "Tìm MotoNav → bật \"Cho phép truy cập dữ liệu sử dụng\"",
