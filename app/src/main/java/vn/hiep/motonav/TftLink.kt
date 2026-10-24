@@ -253,9 +253,17 @@ object TftLink {
             frameTxCount++
             consecutiveBadFrames = if (lastFrameAckMs > 2800) consecutiveBadFrames + 1 else 0
         }
+        // Quan sát thực tế (video người dùng gửi): xe ĐỨNG YÊN, CHƯA có tuyến (chỉ đang gửi khung
+        // "chờ tuyến đường") mà ACK vẫn chậm là bình thường trên phần cứng này — không phải dấu hiệu
+        // xe đang nghẽn vì tải ảnh dẫn đường. Ép kết nối lại trong lúc đó chỉ khiến màn xe tự bật to
+        // hộp thoại "Lỗi kết nối" dù chẳng có gì đang diễn ra — rối hơn hẳn so với im lặng chịu ACK
+        // chậm. Chỉ ép kết nối lại khi THỰC SỰ đang dẫn đường (có tuyến), lúc khung ảnh mới thật sự
+        // quan trọng phải tới kịp.
         if (consecutiveBadFrames >= 2) {
             consecutiveBadFrames = 0
-            forceReconnect("khung ảnh chậm/không ACK ${if (timedOut) "(quá 6s)" else "(${lastFrameAckMs}ms)"} liên tiếp")
+            if (skActive && skRoute != null) {
+                forceReconnect("khung ảnh chậm/không ACK ${if (timedOut) "(quá 6s)" else "(${lastFrameAckMs}ms)"} liên tiếp")
+            }
         }
         return true
     }
