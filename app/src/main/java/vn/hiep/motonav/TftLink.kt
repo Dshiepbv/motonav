@@ -290,8 +290,12 @@ object TftLink {
         val anchorX = w / 2f
         val anchorY = h * 0.82f
         if (route == null || route.lats.size < 2) {
-            val p = Paint().apply { color = Color.WHITE; textSize = h * 0.22f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-            c.drawText("MotoNav", w / 2f, h / 2f, p)
+            // Khung "chờ" — gửi đều đặn khi chưa có tuyến (chưa dẫn đường/mất GPS/vừa tới nơi) để
+            // xe không coi là mất kết nối vì im lặng quá lâu.
+            val p1 = Paint().apply { color = Color.WHITE; textSize = h * 0.20f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val p2 = Paint().apply { color = Color.WHITE; textSize = h * 0.11f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+            c.drawText("MotoNav", w / 2f, h * 0.44f, p1)
+            c.drawText("Chờ tuyến đường…", w / 2f, h * 0.62f, p2)
         } else {
             val proj = LocalProjection(skLat, skLon)
             // Tìm điểm gần vị trí hiện tại nhất trên tuyến.
@@ -355,12 +359,17 @@ object TftLink {
      * khi xe không ACK kịp. */
     private fun sketchLoop() {
         while (running.get() && connected) {
-            if (authed && skActive && skRoute != null) {
+            if (authed) {
+                // LUÔN gửi đều đặn kể cả lúc chưa dẫn đường/mất GPS (khung "chờ") — không bao giờ
+                // im lặng hoàn toàn sau khi bắt tay xong. Lý do: quan sát thực tế trên xe, nếu kênh
+                // ảnh ngừng gửi (lúc chưa có tuyến, hoặc lúc vừa tới nơi/route về null) thì màn xe tự
+                // báo "mất kết nối" sau một lúc im lặng — xe có vẻ cần thấy dữ liệu liên tục mới coi
+                // là còn kết nối, chứ không chỉ cần bắt tay xong một lần.
                 try {
                     sendFrame(buildSketchFrame())
                 } catch (_: Exception) {
                 }
-                sleepQuiet(1500)
+                sleepQuiet(if (skActive && skRoute != null) 1500 else 3000)
             } else {
                 sleepQuiet(400)
             }
