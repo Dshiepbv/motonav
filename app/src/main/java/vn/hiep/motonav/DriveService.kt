@@ -308,6 +308,7 @@ class DriveService : Service(), LocationListener {
                     maneuverLon = Live.maneuverLon,
                     sign = Live.maneuverSign,
                     roundabout = Live.maneuverSign == 6,
+                    ways = Live.osm?.ways,
                 )
             }
             handler.postDelayed(this, 1000)
