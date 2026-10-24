@@ -416,14 +416,19 @@ object TftLink {
                     } catch (_: Exception) {
                     }
                 }
-                // Giãn nhịp theo tốc độ ACK thực tế của xe — quan sát thực tế: lúc ACK chậm (gần 4s)
-                // mà vẫn gửi khung mới liền sau 1,5s thì dồn khung lên xe đang xử lý chưa xong, có vẻ
-                // là nguyên nhân khiến xe tự báo "Lỗi kết nối" dù kênh vẫn còn sống từ phía điện thoại.
-                // Chờ lâu hơn khi ACK gần đây chậm, chờ ít hơn khi xe đang bắt kịp tốt.
+                // ĐÃ THỬ (v6.58→v6.64): giãn nhịp gửi khi ACK gần đây chậm (có lúc chờ thêm tới 7s),
+                // với giả thuyết gửi dồn lúc xe còn đang xử lý sẽ làm xe báo "Lỗi kết nối". Log thực
+                // tế (20261024-213431, 23 phút, video kèm theo) cho thấy điều NGƯỢC LẠI mới là vấn đề:
+                // hầu hết khung đều cuối cùng vẫn được ACK (309 khung, chỉ 8 khung thật sự timeout) —
+                // tức kênh KHÔNG hề chết — nhưng vì mỗi lần ACK chậm lại càng chờ lâu hơn mới gửi khung
+                // kế tiếp, khoảng lặng giữa 2 lần gửi nhiều lúc lên tới 10–19 giây (so với gửi đều đặn
+                // mỗi khung chỉ chờ tối đa ~6s). Đúng những lúc im lặng dài bất thường này khớp với lúc
+                // video cho thấy xe tự hiện "Lỗi kết nối" — xe có vẻ tự đếm giờ im lặng riêng, không
+                // quan tâm khung cũ cuối cùng có được ACK hay không. Bỏ hẳn việc giãn nhịp theo ACK:
+                // gửi đều đặn theo [base] cố định, để khoảng lặng giữa 2 lần gửi không bao giờ vượt quá
+                // base + (tối đa 6s chờ ACK của sendFrame) thay vì cộng dồn thêm tới 7s nữa.
                 val base = if (skActive && skRoute != null) 2500L else 4000L
-                val ack = lastFrameAckMs
-                val adaptive = if (ack > 0) (ack * 1.4).toLong() else base
-                sleepQuiet(adaptive.coerceIn(base, 7000L))
+                sleepQuiet(base)
             } else {
                 sleepQuiet(400)
             }
