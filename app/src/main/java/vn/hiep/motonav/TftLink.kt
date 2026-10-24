@@ -218,26 +218,59 @@ object TftLink {
         }
         val deadline2s = sentAt + 2000
         val deadline6s = sentAt + 6000
+        var timedOut = false
+        var interrupted = false
         synchronized(ackLock) {
             while (running.get() && connected && ackedFrame != seq) {
                 val now = System.currentTimeMillis()
                 if (now >= deadline6s) {
                     lastFrameError = "Khung #$seq không được ACK sau 6 giây"
-                    return true // giống app gốc: hết giờ vẫn coi là xong, không chặn khung sau
+                    timedOut = true
+                    break // giống app gốc: hết giờ vẫn coi là xong, không chặn khung sau
                 }
                 val waitMs = if (now < deadline2s) deadline2s - now else deadline6s - now
                 try {
                     (ackLock as Object).wait(waitMs.coerceAtLeast(1))
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
-                    return false
+                    interrupted = true
+                    break
                 }
             }
         }
-        lastFrameAckMs = System.currentTimeMillis() - sentAt
-        lastFrameError = null
-        frameTxCount++
+        if (interrupted) return false
+        // Xe không chỉ cần ta gửi đều — nếu nó liên tục tụt lại (ACK chậm hoặc không ACK) thì
+        // thực tế quan sát được là màn xe tự chuyển sang "Lỗi kết nối" dù phía điện thoại vẫn coi
+        // là còn sống (NConnect gốc cũng vậy, không phải lỗi protocol). Khi đó chờ thêm/gửi tiếp
+        // không giúp gì — bắt kết nối lại từ đầu (đóng socket, xe sẽ tự gọi lại/bắt tay lại) để
+        // màn thoát khỏi trạng thái lỗi nhanh hơn là cứ im lặng chịu trận.
+        if (timedOut) {
+            consecutiveBadFrames++
+            lastFrameAckMs = 6000 // để sketchLoop giãn nhịp tiếp theo ra xa, không dồn thêm khung
+        } else {
+            lastFrameAckMs = System.currentTimeMillis() - sentAt
+            lastFrameError = null
+            frameTxCount++
+            consecutiveBadFrames = if (lastFrameAckMs > 2800) consecutiveBadFrames + 1 else 0
+        }
+        if (consecutiveBadFrames >= 2) {
+            consecutiveBadFrames = 0
+            forceReconnect("khung ảnh chậm/không ACK ${if (timedOut) "(quá 6s)" else "(${lastFrameAckMs}ms)"} liên tiếp")
+        }
         return true
+    }
+
+    @Volatile private var consecutiveBadFrames = 0
+
+    /** Chủ động đóng kết nối hiện tại khi phát hiện xe có vẻ đã "đứng hình"/báo lỗi (xem
+     * [sendFrame]) — [clientLoop]/[serverLoop] sẽ tự kết nối + bắt tay lại từ đầu sau đó, thay vì
+     * cứ giữ một kết nối mà màn xe đã tự coi là lỗi. */
+    private fun forceReconnect(reason: String) {
+        lastError = "Kết nối lại: $reason"
+        try {
+            activeSocket?.close()
+        } catch (_: Exception) {
+        }
     }
 
     // ---------- Khung bản đồ "sketch" thật: nét trắng trên nền đen, hướng lên = hướng đang đi ----------
@@ -705,6 +738,7 @@ object TftLink {
         frameTxCount = 0
         lastFrameError = null
         lastFrameAckMs = -1
+        consecutiveBadFrames = 0
         synchronized(ackLock) { ackedFrame = -1 }
         Thread({ readLoop(input, socket) }, "tft-reader").apply { isDaemon = true; start() }
         Thread({ sketchLoop() }, "tft-sketch").apply { isDaemon = true; start() }
