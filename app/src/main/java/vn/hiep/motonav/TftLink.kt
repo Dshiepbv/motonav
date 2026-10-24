@@ -846,8 +846,21 @@ object TftLink {
         lastFrameError = null
         lastFrameAckMs = -1
         synchronized(ackLock) { ackedFrame = -1 }
-        Thread({ readLoop(input, socket) }, "tft-reader").apply { isDaemon = true; start() }
-        Thread({ sketchLoop() }, "tft-sketch").apply { isDaemon = true; start() }
+        // Nâng mức ưu tiên CPU cho 2 luồng này (ngang mức luồng vẽ màn hình của hệ thống) — lý do:
+        // người dùng báo thực tế là xe dis ngay lúc vừa mở màn bản đồ, máy còn cầm tay, màn hình
+        // CHƯA tắt (tức không phải do hệ điều hành chặn nền lúc màn hình tối). Mở màn bản đồ là lúc
+        // máy dồn việc (tải tile bản đồ, dựng lại layout, bắt GPS...) chiếm CPU vài giây — nếu luồng
+        // gửi khung ảnh lên xe bị đói CPU đúng lúc đó, khung gửi trễ, xe tự báo "Lỗi kết nối" dù kết
+        // nối Bluetooth vẫn còn sống. Ưu tiên cao giúp hệ điều hành vẫn chia CPU cho 2 luồng này dù
+        // luồng giao diện đang bận.
+        Thread({
+            try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY) } catch (_: Exception) {}
+            readLoop(input, socket)
+        }, "tft-reader").apply { isDaemon = true; start() }
+        Thread({
+            try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY) } catch (_: Exception) {}
+            sketchLoop()
+        }, "tft-sketch").apply { isDaemon = true; start() }
     }
 
     /** Đọc gói tin từ xe, chạy máy trạng thái bắt tay 3 bước rồi mới cho phép gửi kênh chữ. */
