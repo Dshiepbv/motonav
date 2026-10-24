@@ -421,14 +421,17 @@ object TftLink {
                 // tế (20261024-213431, 23 phút, video kèm theo) cho thấy điều NGƯỢC LẠI mới là vấn đề:
                 // hầu hết khung đều cuối cùng vẫn được ACK (309 khung, chỉ 8 khung thật sự timeout) —
                 // tức kênh KHÔNG hề chết — nhưng vì mỗi lần ACK chậm lại càng chờ lâu hơn mới gửi khung
-                // kế tiếp, khoảng lặng giữa 2 lần gửi nhiều lúc lên tới 10–19 giây (so với gửi đều đặn
-                // mỗi khung chỉ chờ tối đa ~6s). Đúng những lúc im lặng dài bất thường này khớp với lúc
+                // kế tiếp, khoảng lặng giữa 2 lần gửi nhiều lúc lên tới 10–19 giây, khớp đúng những lúc
                 // video cho thấy xe tự hiện "Lỗi kết nối" — xe có vẻ tự đếm giờ im lặng riêng, không
-                // quan tâm khung cũ cuối cùng có được ACK hay không. Bỏ hẳn việc giãn nhịp theo ACK:
-                // gửi đều đặn theo [base] cố định, để khoảng lặng giữa 2 lần gửi không bao giờ vượt quá
-                // base + (tối đa 6s chờ ACK của sendFrame) thay vì cộng dồn thêm tới 7s nữa.
+                // quan tâm khung cũ cuối cùng có được ACK hay không.
+                // v6.67: thay vì chờ cố định [base] mỗi lần, bám sát tốc độ ACK thực tế — lúc xe đang
+                // nhanh (ACK ~300ms) thì gửi gần như liên tục (~500ms/lần) để đỡ delay hiển thị, lúc xe
+                // chậm lại thì giãn ra một chút theo đúng tốc độ đó (ACK ~1s → gửi mỗi 1.2s) — nhưng
+                // CHẶN TRẦN ở [base] (như v6.66) để không bao giờ lặp lại khoảng lặng dài 7s+ như trước.
                 val base = if (skActive && skRoute != null) 2500L else 4000L
-                sleepQuiet(base)
+                val ack = lastFrameAckMs
+                val interval = if (ack > 0) (ack + 200) else base
+                sleepQuiet(interval.coerceIn(400L, base))
             } else {
                 sleepQuiet(400)
             }
