@@ -609,6 +609,14 @@ object TftLink {
     @Volatile var connected: Boolean = false
         private set
 
+    /** Thời điểm bắt đầu lệnh ghi (write) hiện tại ra socket, 0 nghĩa là không có lệnh ghi nào đang
+     * chạy. BluetoothSocket không có cách đặt timeout cho write() của Android — nếu xe không đọc
+     * kịp (bộ đệm RFCOMM phía xe đầy), lệnh write() có thể treo vô thời hạn mà không ném lỗi, khiến
+     * TOÀN BỘ luồng gửi (cả kênh chữ và kênh ảnh, dùng chung [send] có khoá synchronized) bị đứng im
+     * — không phải do CPU đói hay do hệ thống chặn nền. [writeWatchdog] theo dõi biến này để ép đóng
+     * kết nối nếu một lệnh ghi treo quá lâu, cho xe bắt tay lại từ đầu. */
+    @Volatile private var writeStartedAt: Long = 0L
+
     /** Đã bắt tay xong (3 bước) — xe sẵn sàng hiển thị/nhận dữ liệu. Chỉ gửi kênh chữ khi true. */
     @Volatile var authed: Boolean = false
         private set
@@ -732,6 +740,7 @@ object TftLink {
         txCount = 0
         lastTxAt = 0
         testFramesRunning = false; calibRunning = false
+        writeStartedAt = 0L
         synchronized(ackLock) { ackedFrame = -1; (ackLock as Object).notifyAll() }
     }
 
@@ -861,6 +870,7 @@ object TftLink {
             try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY) } catch (_: Exception) {}
             sketchLoop()
         }, "tft-sketch").apply { isDaemon = true; start() }
+        Thread({ writeWatchdog() }, "tft-writewatch").apply { isDaemon = true; start() }
     }
 
     /** Đọc gói tin từ xe, chạy máy trạng thái bắt tay 3 bước rồi mới cho phép gửi kênh chữ. */
@@ -955,6 +965,7 @@ object TftLink {
     @Synchronized
     private fun send(bytes: ByteArray): Boolean {
         val o = out ?: return false
+        writeStartedAt = System.currentTimeMillis()
         return try {
             o.write(bytes)
             o.flush()
@@ -966,6 +977,32 @@ object TftLink {
             } catch (_: Exception) {
             }
             false
+        } finally {
+            writeStartedAt = 0L
+        }
+    }
+
+    /** Theo dõi riêng (không đụng khoá synchronized của [send]) — nếu lệnh ghi hiện tại treo quá
+     * 4 giây, coi như kết nối đã chết (xe không đọc kịp/đứng) và ép đóng socket để xe bắt tay lại từ
+     * đầu, thay vì để app treo im lặng không giới hạn thời gian như log thực tế từng ghi được (khoảng
+     * trống 77 giây liên tục ngay giữa lúc đang dẫn đường thật, trong khi mọi khung khác đều cách
+     * nhau tối đa ~7 giây theo thiết kế [sketchLoop]). */
+    private fun writeWatchdog() {
+        while (running.get() && connected) {
+            val started = writeStartedAt
+            if (started != 0L && System.currentTimeMillis() - started > 4000) {
+                lastError = "Gửi treo quá 4 giây (xe không đọc kịp) — ép đóng kết nối để bắt tay lại"
+                try {
+                    TripLog.ev("tftWriteStall", "ms" to (System.currentTimeMillis() - started))
+                } catch (_: Exception) {
+                }
+                try {
+                    activeSocket?.close()
+                } catch (_: Exception) {
+                }
+                break
+            }
+            sleepQuiet(500)
         }
     }
 
