@@ -34,6 +34,16 @@ object Updater {
 
     class Release(val version: String, val build: Int, val assetId: Long, val size: Long, val notes: String)
 
+    /** Trạng thái cho hàng "Cập nhật phần mềm" trong Cài đặt — hiện trực tiếp dưới dòng đó (thanh
+     * tiến độ + chữ nhỏ), không mở bảng hỏi riêng. */
+    sealed class UpdateState {
+        object Checking : UpdateState()
+        class UpToDate(val ver: String) : UpdateState()
+        class Downloading(val pct: Int, val doneMB: Long, val totalMB: Long) : UpdateState()
+        object Installing : UpdateState()
+        class Error(val msg: String) : UpdateState()
+    }
+
     fun currentVersion(ctx: Context): String = try {
         ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?"
     } catch (_: Exception) {
@@ -174,6 +184,98 @@ object Updater {
                         .setNeutralButton("Đổi mã GitHub") { _, _ -> askToken(a, prefs) }
                         .show()
                 }
+            }
+        }.start()
+    }
+
+    /** Dùng cho hàng "Cập nhật phần mềm" trong Cài đặt: bấm là tự kiểm tra, có bản mới thì tải+cài
+     * ngay (không hỏi lại "có muốn cập nhật không") — mọi trạng thái báo qua [onState] để vẽ thanh
+     * tiến độ ngay dưới dòng đó thay vì mở bảng riêng. Bảng hỏi duy nhất còn lại là xin quyền
+     * "Cài ứng dụng không rõ nguồn" lúc đầu (chỉ 1 lần, bắt buộc phải có, Android không cho bỏ qua). */
+    fun checkInline(a: Activity, prefs: Prefs, onState: (UpdateState) -> Unit) {
+        val token = prefs.githubToken
+        if (token.isBlank()) {
+            askToken(a, prefs)
+            return
+        }
+        onState(UpdateState.Checking)
+        Thread {
+            try {
+                val rel = latest(token)
+                val cur = currentVersion(a)
+                main.post {
+                    if (a.isFinishing) return@post
+                    if (!newer(rel.version, cur)) {
+                        onState(UpdateState.UpToDate(cur))
+                    } else {
+                        installInline(a, prefs, rel, onState)
+                    }
+                }
+            } catch (e: Exception) {
+                main.post { if (!a.isFinishing) onState(UpdateState.Error(e.message ?: "Lỗi mạng")) }
+            }
+        }.start()
+    }
+
+    private fun installInline(a: Activity, prefs: Prefs, rel: Release, onState: (UpdateState) -> Unit) {
+        if (!a.packageManager.canRequestPackageInstalls()) {
+            AlertDialog.Builder(a)
+                .setTitle("Cho phép NMAX Navi tự cập nhật")
+                .setMessage("Bấm \"Mở cài đặt\" → bật \"Cho phép từ nguồn này\". Chỉ cần làm 1 lần. Xong quay lại bấm Cập nhật phần mềm lần nữa.")
+                .setPositiveButton("Mở cài đặt") { _, _ ->
+                    a.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${a.packageName}")))
+                }
+                .setNegativeButton("Huỷ", null)
+                .show()
+            return
+        }
+        val ctx = a.applicationContext
+        Thread {
+            var session: PackageInstaller.Session? = null
+            try {
+                val pi = ctx.packageManager.packageInstaller
+                val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+                params.setAppPackageName(ctx.packageName)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+                }
+                val id = pi.createSession(params)
+                session = pi.openSession(id)
+                val url = "https://api.github.com/repos/$REPO/releases/assets/${rel.assetId}"
+                http.newCall(req(url, prefs.githubToken, "application/octet-stream")).execute().use { r ->
+                    if (!r.isSuccessful) throw RuntimeException("Tải lỗi ${r.code}")
+                    val body = r.body!!
+                    val total = body.contentLength().takeIf { it > 0 } ?: rel.size
+                    session.openWrite("motonav.apk", 0, total).use { out ->
+                        body.byteStream().use { inp ->
+                            val buf = ByteArray(64 * 1024)
+                            var done = 0L
+                            var lastPct = -1
+                            while (true) {
+                                val n = inp.read(buf)
+                                if (n < 0) break
+                                out.write(buf, 0, n)
+                                done += n
+                                val pct = if (total > 0) (done * 100 / total).toInt() else 0
+                                if (pct != lastPct) {
+                                    lastPct = pct
+                                    main.post { onState(UpdateState.Downloading(pct, done / 1_000_000, total / 1_000_000)) }
+                                }
+                            }
+                        }
+                        session.fsync(out)
+                    }
+                }
+                main.post { onState(UpdateState.Installing) }
+                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                    (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
+                val intent = Intent(ctx, InstallReceiver::class.java)
+                val pint = PendingIntent.getBroadcast(ctx, id, intent, flags)
+                session.commit(pint.intentSender)
+                session.close()
+            } catch (e: Exception) {
+                try { session?.abandon() } catch (_: Exception) {}
+                main.post { onState(UpdateState.Error(e.message ?: "Lỗi cài đặt")) }
             }
         }.start()
     }

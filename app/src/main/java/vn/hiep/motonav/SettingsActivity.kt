@@ -215,6 +215,67 @@ class SettingsActivity : Activity() {
         group?.addView(box)
     }
 
+    /** Hàng "Cập nhật phần mềm" — bấm là tự kiểm tra rồi tải+cài luôn, thanh tiến độ hiện ngay dưới
+     * dòng này (không mở bảng hỏi riêng), đúng kiểu NConnect. */
+    private fun updateRow() {
+        divider()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(10f), 0, dp(10f))
+        }
+        val sub = tv(11.5f, muted).apply { text = "Đang dùng bản ${Updater.currentVersion(this@SettingsActivity)}" }
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        top.addView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(tv(14f, Color.parseColor("#7CC4FF")).apply { text = "Cập nhật phần mềm" })
+                addView(sub)
+            },
+            LinearLayout.LayoutParams(0, -2, 1f),
+        )
+        top.addView(tv(18f, muted).apply { text = "›" })
+        box.addView(top)
+        val bar = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            visibility = View.GONE
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#7CC4FF"))
+        }
+        box.addView(bar, LinearLayout.LayoutParams(-1, dp(5f)).apply { topMargin = dp(8f) })
+        group?.addView(box)
+
+        fun setState(st: Updater.UpdateState) {
+            when (st) {
+                is Updater.UpdateState.Checking -> {
+                    bar.visibility = View.GONE
+                    sub.text = "Đang kiểm tra bản mới…"
+                }
+                is Updater.UpdateState.UpToDate -> {
+                    bar.visibility = View.GONE
+                    sub.text = "Đang dùng bản ${st.ver} — đã là mới nhất"
+                }
+                is Updater.UpdateState.Downloading -> {
+                    bar.visibility = View.VISIBLE
+                    bar.progress = st.pct
+                    sub.text = "Đang tải bản mới… ${st.doneMB}/${st.totalMB} MB"
+                }
+                is Updater.UpdateState.Installing -> {
+                    bar.visibility = View.VISIBLE
+                    bar.progress = 100
+                    sub.text = "Đang cài…"
+                }
+                is Updater.UpdateState.Error -> {
+                    bar.visibility = View.GONE
+                    sub.text = "Lỗi: ${st.msg}"
+                }
+            }
+        }
+        top.setOnClickListener { Updater.checkInline(this, prefs, ::setState) }
+    }
+
     /** Hàng bấm để mở một thao tác. */
     private fun action(title: String, sub: String?, color: Int = Color.WHITE, note: String? = null, onClick: () -> Unit) {
         divider()
@@ -564,12 +625,7 @@ class SettingsActivity : Activity() {
                 startActivity(Intent.createChooser(send, "Gửi nhật ký"))
             }
         }
-        action(
-            "Cập nhật phần mềm",
-            "Đang dùng bản ${Updater.currentVersion(this)}",
-            Color.parseColor("#7CC4FF"),
-            note = "Tải bản mới từ GitHub và cài luôn (không lưu file trong máy)",
-        ) { Updater.check(this, prefs) }
+        updateRow()
         toggle("Theo dõi tốc độ & camera", null, Live.serviceRunning, note = "Chạy nền khi dùng app") { on ->
             if (on) {
                 Live.userStopped = false
