@@ -410,7 +410,7 @@ object TftLink {
                 // là còn kết nối, chứ không chỉ cần bắt tay xong một lần.
                 // Trừ lúc đang chạy test hiệu chỉnh (runCalibration) — để không chen khung vào giữa,
                 // làm lẫn lộn số thứ tự/ACK của bộ test.
-                if (!calibRunning) {
+                if (!calibRunning && !routeTestRunning) {
                     try {
                         sendFrame(buildSketchFrame())
                     } catch (_: Exception) {
@@ -482,7 +482,72 @@ object TftLink {
     }
 
     fun stopTestFrames() {
-        testFramesRunning = false; calibRunning = false
+        testFramesRunning = false; calibRunning = false; routeTestRunning = false
+    }
+
+    /** Vẽ khung "dạng đường" giả (tuyến zigzag + điểm rẽ, giống hệt cách [buildSketchFrame] vẽ khung
+     * thật) nhưng KHÔNG cần có tuyến/GPS thật — dùng để test riêng việc gửi liên tục nhịp nhanh có
+     * đúng là nguyên nhân hay không, tách khỏi mọi phụ thuộc vào dữ liệu dẫn đường thật. */
+    private fun buildFakeRouteFrame(i: Int): ByteArray {
+        val w = screenW
+        val h = screenH
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
+        val c = Canvas(bmp)
+        c.drawColor(Color.BLACK)
+        val anchorX = w / 2f
+        val anchorY = h * 0.82f
+        val path = android.graphics.Path()
+        val rnd = java.util.Random(i.toLong())
+        var x = anchorX; var y = anchorY
+        path.moveTo(x, y)
+        repeat(30) {
+            x = (x + (rnd.nextFloat() - 0.5f) * w * 0.08f).coerceIn(0f, w.toFloat())
+            y = (y - h * 0.02f).coerceIn(0f, h.toFloat())
+            path.lineTo(x, y)
+        }
+        val linePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+        c.drawPath(path, linePaint)
+        val manPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+        c.drawCircle(x, y, h * 0.035f, manPaint)
+        val carPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+        val carR = h * 0.06f
+        val carPath = android.graphics.Path().apply {
+            moveTo(anchorX, anchorY - carR)
+            lineTo(anchorX - carR * 0.7f, anchorY + carR * 0.6f)
+            lineTo(anchorX + carR * 0.7f, anchorY + carR * 0.6f)
+            close()
+        }
+        c.drawPath(carPath, carPaint)
+        val out = ByteArrayOutputStream()
+        bmp.compress(Bitmap.CompressFormat.JPEG, 22, out) // cùng chất lượng 22 như khung thật
+        bmp.recycle()
+        return out.toByteArray()
+    }
+
+    @Volatile var routeTestRunning = false
+        private set
+
+    /** Gửi [count] khung "dạng đường" giả, cách nhau cố định [intervalMs] (không phụ thuộc ACK) —
+     * để kiểm tra riêng xem gửi nhịp nhanh cố định có tự gây "Lỗi kết nối" hay không, tách khỏi mọi
+     * giả thuyết về giãn nhịp/ACK đã thử trước đó. */
+    fun sendRouteTestFrames(count: Int = 100, intervalMs: Long = 500) {
+        if (routeTestRunning) return
+        stopTestFrames()
+        routeTestRunning = true
+        Thread({
+            var i = 0
+            while (routeTestRunning && running.get() && i < count) {
+                i++
+                val jpeg = try { buildFakeRouteFrame(i) } catch (_: Exception) { continue }
+                sendFrame(jpeg, tag = "route-test-${intervalMs}ms")
+                sleepQuiet(intervalMs)
+            }
+            routeTestRunning = false
+        }, "tft-route-test").apply { isDaemon = true; start() }
+    }
+
+    fun stopRouteTestFrames() {
+        routeTestRunning = false
     }
 
     // ---------- Test hiệu chỉnh: 5 loại khung x 10, tăng dần độ phức tạp, có ghi nhật ký ----------

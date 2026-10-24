@@ -537,6 +537,22 @@ class SettingsActivity : Activity() {
                 build()
             }
             action(
+                "Test 100 khung \"dạng đường\" cách nhau 500ms",
+                if (TftLink.routeTestRunning) "🔄 Đang gửi — chạm để dừng giữa chừng" else "Chạm để gửi 100 khung vẽ tuyến zigzag giả (không cần GPS/tuyến thật), cách đều 500ms, không chờ ACK rồi mới gửi tiếp",
+                note = "Để kiểm tra riêng: gửi nhịp nhanh cố định (không phụ thuộc ACK xe trả về nhanh/chậm) có tự gây \"Lỗi kết nối\" hay không — tách khỏi mọi tuyến đường/GPS thật. Gửi xong vào \"Gửi nhật ký chuyến đi\" để lấy log, các khung này có tag \"route-test-500ms\".",
+            ) {
+                if (TftLink.routeTestRunning) {
+                    TftLink.stopRouteTestFrames()
+                    toast("Đã dừng test")
+                } else if (TftLink.authed) {
+                    TftLink.sendRouteTestFrames(100, 500)
+                    toast("Đang gửi 100 khung dạng đường, cách nhau 500ms…")
+                } else {
+                    toast("Chưa bắt tay xong với xe")
+                }
+                build()
+            }
+            action(
                 "Test hiệu chỉnh dung lượng khung (5 loại × 10)",
                 if (TftLink.calibActive) "🔄 Đang chạy — chạm để dừng giữa chừng" else "Chạm để chạy: chữ đơn giản → nhiều chữ → siêu nhẹ → đường phức tạp → bản đồ nặng",
                 note = "Gửi lần lượt 5 loại khung (mỗi loại 10 khung, cách nhau 1,2s, cùng chất lượng JPEG với khung thật) từ nhẹ tới nặng, mỗi khung tự ghi dung lượng + thời gian ACK vào nhật ký chuyến đi. Gửi xong, vào \"Gửi nhật ký chuyến đi\" ở trên để lấy ra đối chiếu loại nào/dung lượng bao nhiêu thì xe bắt đầu chậm hẳn hoặc mất kết nối. Đứng yên lúc chạy để không lẫn với khung dẫn đường thật.",
