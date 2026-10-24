@@ -119,6 +119,8 @@ class DriveService : Service(), LocationListener {
         voice = Voice(this)
         overlay = Overlay(this, prefs)
         nav = NavEngine(this, prefs, navExecutor) { text, speech, urgent -> alert(text, speech, urgent = urgent) }
+        // Bấm nút "Dừng dẫn đường" trên màn TFT xe (cmd 49) → dừng dẫn đường thật trong app.
+        TftLink.onStopRequested = { handler.post { nav.finish() } }
         Live.addListener(overlayListener)
         lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         thread = HandlerThread("drive").also { it.start() }

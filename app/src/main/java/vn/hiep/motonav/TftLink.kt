@@ -462,6 +462,10 @@ object TftLink {
     @Volatile private var lastSentKey: String = ""
     @Volatile private var failCount = 0
 
+    /** Gọi khi xe gửi cmd 49 (bấm nút "Dừng dẫn đường" trên màn xe) — DriveService gán để dừng
+     * dẫn đường thật khi người dùng bấm nút này trên đồng hồ xe thay vì trong app. */
+    @Volatile var onStopRequested: (() -> Unit)? = null
+
     // ---------- Chẩn đoán (xem ở màn Cài đặt khi chưa bắt tay xong được) ----------
     /** Tổng số byte đã đọc được từ socket — 0 nghĩa là xe chưa gửi gì cả (kể cả rác). */
     @Volatile var rxBytes: Long = 0
@@ -744,6 +748,19 @@ object TftLink {
                                 (ackLock as Object).notifyAll()
                             }
                         }
+                        // Xe bấm nút trên màn (chỉ xảy ra khi màn sketch đang hiện, tức kênh ảnh đã
+                        // chạy): trước đây KHÔNG xử lý các cmd này — dò theo NConnect thêm vào đây,
+                        // dù chỉ log/gọi callback (không chắc có phải nguyên nhân gây mất kết nối lúc
+                        // bấm nút hay không, cần xem lại sau khi lên bản mới).
+                        48 -> { // menu đồng hồ: chọn mục (zoom +/- cũng gửi qua đây ở một số bản) — chỉ log
+                            TripLog.ev("tftBtn", "cmd" to "48 menu")
+                        }
+                        49 -> { // nút "Dừng dẫn đường" trên màn xe
+                            TripLog.ev("tftBtn", "cmd" to "49 stop")
+                            onStopRequested?.invoke()
+                        }
+                        51 -> TripLog.ev("tftBtn", "cmd" to "51 up/zoom+") // nút LÊN / zoom +
+                        52 -> TripLog.ev("tftBtn", "cmd" to "52 down/zoom-") // nút XUỐNG / zoom -
                     }
                     if (step2Done && step3Done && !authed) {
                         authed = true
