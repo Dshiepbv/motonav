@@ -11,22 +11,25 @@ import android.widget.Toast
 /** Các thao tác dùng chung cho màn hình bản đồ và màn hình tốc độ. */
 object AppActions {
 
-    /** Nút "!" – đánh dấu camera / ổ gà / CSGT tại vị trí hiện tại. */
+    /** Nút "!" – đánh dấu camera / ổ gà / CSGT tại vị trí hiện tại (xe đang ở đâu). */
     fun markAlert(a: Activity) {
         if (!Live.gpsOk) {
             Toast.makeText(a, "Chưa có GPS, chờ một chút rồi thử lại.", Toast.LENGTH_SHORT).show()
             return
         }
-        val lat = Live.lat
-        val lon = Live.lon
-        val hdg = Live.heading
+        markAlertAt(a, Live.lat, Live.lon, Live.heading)
+    }
+
+    /** Đánh dấu camera / ổ gà / CSGT tại một điểm bất kỳ (vd: chạm giữ trên bản đồ) — không
+     * nhất thiết là vị trí hiện tại, nên mặc định không có hướng cụ thể (báo cả hai chiều). */
+    fun markAlertAt(a: Activity, lat: Double, lon: Double, heading: Double = -1.0) {
         val kinds = arrayOf("📷  Camera phạt nguội", "🚨  Camera bắn tốc độ", "🚦  Camera đèn đỏ", "⚠️  Ổ gà / đường xấu", "👮  Trạm CSGT cố định")
         val codes = intArrayOf(CamKind.FINE, CamKind.SPEED, CamKind.RED_LIGHT, CamKind.HAZARD, CamKind.POLICE)
         AlertDialog.Builder(a)
             .setTitle("Báo cảnh báo tại vị trí này")
             .setItems(kinds) { _, which ->
-                CameraStore.add(a, lat, lon, codes[which], hdg)
-                val note = if (hdg >= 0) "chỉ báo theo hướng anh đang đi" else "báo cả hai chiều"
+                CameraStore.add(a, lat, lon, codes[which], heading)
+                val note = if (heading >= 0) "chỉ báo theo hướng anh đang đi" else "báo cả hai chiều"
                 Toast.makeText(a, "Đã lưu: ${kinds[which].substring(3).trim().lowercase()} ($note).", Toast.LENGTH_LONG).show()
             }
             .setNegativeButton("Huỷ", null)

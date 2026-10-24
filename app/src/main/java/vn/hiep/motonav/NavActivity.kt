@@ -1062,8 +1062,9 @@ class NavActivity : Activity() {
 
     private fun confirmDestination(lat: Double, lon: Double, name: String) {
         AlertDialog.Builder(this)
-            .setMessage("Dẫn đường tới điểm này?")
-            .setPositiveButton("Đi") { _, _ -> startNavTo(lat, lon, name) }
+            .setMessage("Điểm đã chạm trên bản đồ")
+            .setPositiveButton("Dẫn đường tới đây") { _, _ -> startNavTo(lat, lon, name) }
+            .setNeutralButton("Báo camera/cảnh báo") { _, _ -> AppActions.markAlertAt(this, lat, lon) }
             .setNegativeButton("Huỷ", null)
             .show()
     }
