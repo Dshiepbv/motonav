@@ -377,7 +377,14 @@ object TftLink {
                     sendFrame(buildSketchFrame())
                 } catch (_: Exception) {
                 }
-                sleepQuiet(if (skActive && skRoute != null) 1500 else 3000)
+                // Giãn nhịp theo tốc độ ACK thực tế của xe — quan sát thực tế: lúc ACK chậm (gần 4s)
+                // mà vẫn gửi khung mới liền sau 1,5s thì dồn khung lên xe đang xử lý chưa xong, có vẻ
+                // là nguyên nhân khiến xe tự báo "Lỗi kết nối" dù kênh vẫn còn sống từ phía điện thoại.
+                // Chờ lâu hơn khi ACK gần đây chậm, chờ ít hơn khi xe đang bắt kịp tốt.
+                val base = if (skActive && skRoute != null) 2500L else 4000L
+                val ack = lastFrameAckMs
+                val adaptive = if (ack > 0) (ack * 1.4).toLong() else base
+                sleepQuiet(adaptive.coerceIn(base, 7000L))
             } else {
                 sleepQuiet(400)
             }
