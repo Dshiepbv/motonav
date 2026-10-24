@@ -195,7 +195,7 @@ class DriveService : Service(), LocationListener {
                     handler.post { nav.start(lat, lon, intent.getStringExtra("name")) }
                 }
             }
-            ACTION_NAV_STOP -> handler.post { nav.finish() }
+            ACTION_NAV_STOP -> handler.post { TripLog.ev("navStopBtn"); nav.finish() }
             ACTION_NAV_ALTS -> handler.post { nav.requestAlternatives() }
             ACTION_NAV_CHOOSE -> {
                 val i = intent.getIntExtra("idx", 0)

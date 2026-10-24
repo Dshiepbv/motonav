@@ -231,6 +231,10 @@ class NavEngine(
         // Đến nơi — chốt thêm bằng khoảng cách thẳng tới điểm đích thực tế, tránh báo "đến nơi"
         // sớm khi khớp tuyến bị nhảy nhầm tới gần cuối tuyến (ví dụ GPS nhiễu/tuyến vòng gần đích)
         if (remaining < 30 && Geo.distance(lat, lon, Live.destLat, Live.destLon) < 40) {
+            // Ghi log rõ lý do kết thúc tuyến — trước đây finish()/stop() không ghi gì cả, nên khi
+            // tuyến tự biến mất giữa chừng (ví dụ GPS nhảy lố tới gần đích) không có cách nào phân
+            // biệt được với các nguyên nhân khác (bấm nút Kết thúc, bấm nút Dừng trên màn xe...).
+            TripLog.ev("arrived", "remaining" to remaining, "straight" to Geo.distance(lat, lon, Live.destLat, Live.destLon))
             alert("Đã đến nơi${Live.destName?.let { ": $it" } ?: ""}", "Đã đến nơi", false)
             finish()
             return
