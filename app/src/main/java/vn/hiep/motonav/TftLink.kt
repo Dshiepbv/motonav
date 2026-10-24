@@ -280,6 +280,7 @@ object TftLink {
     @Volatile private var skSign = 0
     @Volatile private var skRoundabout = false
     @Volatile private var skWays: List<Way>? = null
+    @Volatile private var skSpeedKmh: Int = -1
 
     fun updateSketch(
         active: Boolean,
@@ -292,6 +293,7 @@ object TftLink {
         sign: Int,
         roundabout: Boolean,
         ways: List<Way>? = null,
+        speedKmh: Int = -1,
     ) {
         skActive = active
         skRoute = route
@@ -303,6 +305,7 @@ object TftLink {
         skSign = sign
         skRoundabout = roundabout
         skWays = ways
+        skSpeedKmh = speedKmh
     }
 
     /** Vẽ khung sketch: đường đi phía trước (~220m) thành nét trắng trên nền đen, xe luôn ở giữa
@@ -318,9 +321,6 @@ object TftLink {
         val route = skRoute
         val anchorX = w / 2f
         val anchorY = h * 0.82f
-        // Đã thử vẽ thêm nhánh đường xung quanh (nét xám mờ) nhưng bỏ lại: ngoài trời nắng không
-        // thấy được (màn TFT tương phản thấp dưới nắng), mà lại làm JPEG nặng hơn → xe xoay lâu hơn
-        // mỗi lần tải khung. Giữ tối giản nhất có thể: chỉ tuyến đường trắng + điểm rẽ.
         if (route == null || route.lats.size < 2) {
             // Khung "chờ" — gửi đều đặn khi chưa có tuyến (chưa dẫn đường/mất GPS/vừa tới nơi) để
             // xe không coi là mất kết nối vì im lặng quá lâu.
@@ -338,11 +338,51 @@ object TftLink {
                 if (d < best) { best = d; idx0 = i }
             }
             val cum0 = route.cum[idx0]
-            val maxAhead = 220.0
+            // Thu phóng theo tốc độ (giống app bản đồ điện thoại: nhanh thì nhìn xa hơn) — 60km/h đi
+            // hết 220m cũ chỉ trong ~13 giây, quá ngắn để kịp phản ứng. Lấy quãng đường đi được trong
+            // ~15 giây tới làm bán kính vẽ, giới hạn 120–400m để không quá hẹp lúc đứng yên/quá rộng
+            // lúc chạy nhanh (ảnh sẽ chi tiết hơn nếu vẽ quá xa).
+            val spd = skSpeedKmh
+            val maxAhead = (if (spd > 0) spd * (1000.0 / 3600.0) * 15.0 else 150.0).coerceIn(120.0, 400.0)
             val hRad = Math.toRadians(if (skHeadingDeg >= 0) skHeadingDeg else 0.0)
             val cosH = Math.cos(hRad); val sinH = Math.sin(hRad)
             // px trên mét — chỉnh theo đoạn xa nhất sẽ vẽ, để luôn vừa khung hình.
             val scale = (h * 0.68f) / maxAhead.toFloat()
+
+            // Nhánh đường xung quanh (nét trắng mảnh) — thử lại (trước đã bỏ vì sợ nặng JPEG, giờ
+            // thử lại theo yêu cầu). Lọc bớt: chỉ các way có điểm đầu nằm trong bán kính vẽ (lọc
+            // nhanh bằng khoảng cách theo độ, không gọi Geo.distance cho từng điểm), tối đa 25 way,
+            // tối đa 60 điểm/way (giữ nhẹ, đủ hình dạng) để JPEG không phình quá to.
+            val ways = skWays
+            if (ways != null) {
+                val degRadius = (maxAhead / 111320.0) * 1.3
+                val branchPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.5f; isAntiAlias = true }
+                var drawnWays = 0
+                for (wy in ways) {
+                    if (drawnWays >= 25) break
+                    if (wy.lats.isEmpty()) continue
+                    if (Math.abs(wy.lats[0] - skLat) > degRadius || Math.abs(wy.lons[0] - skLon) > degRadius) continue
+                    val bp = android.graphics.Path()
+                    var bStarted = false
+                    var any = false
+                    val step = (wy.lats.size / 60).coerceAtLeast(1)
+                    var j = 0
+                    while (j < wy.lats.size) {
+                        val dx = proj.x(wy.lons[j]); val dy = proj.y(wy.lats[j])
+                        val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
+                        if (Math.abs(rx) <= maxAhead * 1.1 && ry >= -maxAhead * 0.3 && ry <= maxAhead) {
+                            val sx = anchorX + (rx * scale).toFloat(); val sy = anchorY - (ry * scale).toFloat()
+                            if (!bStarted) { bp.moveTo(sx, sy); bStarted = true } else bp.lineTo(sx, sy)
+                            any = true
+                        } else {
+                            bStarted = false
+                        }
+                        j += step
+                    }
+                    if (any) { c.drawPath(bp, branchPaint); drawnWays++ }
+                }
+            }
+
             val path = android.graphics.Path()
             var started = false
             var i = idx0
@@ -356,7 +396,8 @@ object TftLink {
                 if (!started) { path.moveTo(sx, sy); started = true } else path.lineTo(sx, sy)
                 i++
             }
-            val linePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+            // Tuyến chính màu xanh (trước là trắng) để phân biệt với nhánh đường trắng xung quanh.
+            val linePaint = Paint().apply { color = Color.rgb(60, 140, 255); style = Paint.Style.STROKE; strokeWidth = 4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
             c.drawPath(path, linePaint)
             // Chấm tại điểm rẽ sắp tới.
             val mdx = proj.x(skManLon); val mdy = proj.y(skManLat)
