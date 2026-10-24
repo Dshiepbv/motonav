@@ -298,6 +298,15 @@ class SettingsActivity : Activity() {
         action("Mã API VietMap", if (keysOk) "✅ Đã nhập" else "⚠️ Chưa nhập – cần để tìm đường", note = "Dùng cho tìm đường, tìm địa điểm, kẹt xe") {
             KeyDialog.show(this, prefs) { build() }
         }
+        val gKeyOk = prefs.googleDirKey.isNotBlank()
+        action("Mã API Google Directions", if (gKeyOk) "✅ Đã nhập" else "Chưa nhập (tuỳ chọn)", note = "Tuỳ chọn — thử nghiệm, chưa test kỹ. Có thể thông minh hơn VietMap (né đường có chắn) nhưng cần tự tạo mã + bật thanh toán trên Google Cloud") {
+            KeyDialog.showGoogle(this, prefs) { build() }
+        }
+        if (gKeyOk) {
+            toggle("Dùng Google Directions để tìm đường", null, prefs.useGoogleDirections, note = "Thay VietMap bằng Google khi tìm/đổi tuyến. Không có dữ liệu kẹt xe tô màu khi dùng Google. Tự động dùng lại VietMap nếu Google lỗi") {
+                prefs.useGoogleDirections = it
+            }
+        }
 
         header("⚡", "Tốc độ giới hạn")
         choice("Loại xe", null, listOf("Mô tô (>50cc)", "Xe gắn máy (≤50cc)"), if (prefs.moped) 1 else 0) {

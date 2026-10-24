@@ -35,4 +35,32 @@ object KeyDialog {
             .setNegativeButton("Đóng", null)
             .show()
     }
+
+    /** Hộp nhập mã API Google Directions (tuỳ chọn, thay VietMap khi bật). */
+    fun showGoogle(a: Activity, prefs: Prefs, after: (() -> Unit)? = null) {
+        val pad = (16 * a.resources.displayMetrics.density).toInt()
+        val box = LinearLayout(a).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+        }
+        val api = EditText(a).apply {
+            setText(prefs.googleDirKey)
+            hint = "Dán mã API Google Directions"
+            setSingleLine()
+        }
+        box.addView(api)
+        AlertDialog.Builder(a)
+            .setTitle("Mã API Google Directions")
+            .setMessage("Tìm đường bằng Google thay VietMap (thường thông minh hơn, né đường có chắn tốt hơn). Cần tạo mã riêng tại Google Cloud Console → bật \"Directions API\" + bật thanh toán (có hạn mức miễn phí hàng tháng nhưng vẫn cần thẻ).")
+            .setView(box)
+            .setPositiveButton("Lưu") { _, _ ->
+                prefs.googleDirKey = api.text.toString()
+                after?.invoke()
+            }
+            .setNeutralButton("Mở Google Cloud Console") { _, _ ->
+                a.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.cloud.google.com/apis/library/directions-backend.googleapis.com")))
+            }
+            .setNegativeButton("Đóng", null)
+            .show()
+    }
 }

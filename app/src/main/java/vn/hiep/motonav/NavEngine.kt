@@ -107,10 +107,23 @@ class NavEngine(
         val dLat = Live.destLat
         val dLon = Live.destLon
         val reroute = Live.route != null && !offerChoice
+        // Google Directions (thử nghiệm) thay VietMap khi bật + đã nhập mã — lỗi thì tự quay lại
+        // VietMap (không có dữ liệu kẹt xe khi dùng Google).
+        val useGoogle = prefs.useGoogleDirections && prefs.googleDirKey.isNotBlank()
+        fun findRoutes(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> {
+            if (useGoogle) {
+                try {
+                    return GoogleDirections.routes(prefs.googleDirKey, lat, lon, dLat, dLon, alt, via, prefs.avoidHighway)
+                } catch (_: Exception) {
+                    // Rơi về VietMap
+                }
+            }
+            return VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway)
+        }
         executor.execute {
             try {
                 // Luôn lấy vài tuyến để tự chọn tuyến tốt nhất (tránh kẹt xe / ngắn nhất)
-                var list = VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, true, avoidHighway = prefs.avoidHighway)
+                var list = findRoutes(true)
                 // Né các đoạn người dùng tự báo "đường bị chặn" (dữ liệu bản đồ cũ): bỏ bớt tuyến
                 // đi ngang điểm đó nếu còn tuyến khác không dính
                 val clean = list.filter { !BlockedRoads.blocksPath(ctx, it.lats, it.lons) }
@@ -120,7 +133,7 @@ class NavEngine(
                 if (heading != null && (reroute || Live.speedKmh > 8) && RoutePick.isBackward(list.first(), heading)) {
                     try {
                         val ap = RoutePick.aheadPoint(Live.osm, lat, lon, heading)
-                        val vr = VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, false, listOf(ap), prefs.avoidHighway).first()
+                        val vr = findRoutes(false, listOf(ap)).first()
                         if (!RoutePick.isBackward(vr, heading)) list = listOf(vr) + list
                     } catch (_: Exception) {
                     }
