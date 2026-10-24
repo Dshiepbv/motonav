@@ -983,15 +983,22 @@ object TftLink {
     }
 
     /** Theo dõi riêng (không đụng khoá synchronized của [send]) — nếu lệnh ghi hiện tại treo quá
-     * 4 giây, coi như kết nối đã chết (xe không đọc kịp/đứng) và ép đóng socket để xe bắt tay lại từ
+     * 15 giây, coi như kết nối đã chết (xe không đọc kịp/đứng) và ép đóng socket để xe bắt tay lại từ
      * đầu, thay vì để app treo im lặng không giới hạn thời gian như log thực tế từng ghi được (khoảng
      * trống 77 giây liên tục ngay giữa lúc đang dẫn đường thật, trong khi mọi khung khác đều cách
-     * nhau tối đa ~7 giây theo thiết kế [sketchLoop]). */
+     * nhau tối đa ~7 giây theo thiết kế [sketchLoop]).
+     * NGƯỠNG CŨ (4 giây, bản v6.58) QUÁ NHẠY: màn xe này vốn đã hay chậm xử lý vài giây một cách
+     * bình thường (thấy rõ ở log hiệu chỉnh dung lượng khung trước đó, ACK hay mất 3-6 giây dù
+     * không lỗi gì) — 4 giây bắt oan cả những lần chỉ đang chậm, ép đóng kết nối liên tục ngay giữa
+     * lúc đang bắt tay/gửi khung, biến thành vòng lặp kết nối-rồi-rớt không bao giờ ổn định (người
+     * dùng báo thực tế: mở lại chục lần vẫn không nhận được gì, hoặc nhận 1 khung rồi đứng luôn —
+     * đúng kiểu reset giữa chừng liên tục). Nới lên 15 giây: vẫn bắt được kiểu treo thật kéo dài hàng
+     * chục giây, nhưng không đụng tới độ chậm vài giây vốn là bình thường của phần cứng này. */
     private fun writeWatchdog() {
         while (running.get() && connected) {
             val started = writeStartedAt
-            if (started != 0L && System.currentTimeMillis() - started > 4000) {
-                lastError = "Gửi treo quá 4 giây (xe không đọc kịp) — ép đóng kết nối để bắt tay lại"
+            if (started != 0L && System.currentTimeMillis() - started > 15_000) {
+                lastError = "Gửi treo quá 15 giây (xe không đọc kịp) — ép đóng kết nối để bắt tay lại"
                 try {
                     TripLog.ev("tftWriteStall", "ms" to (System.currentTimeMillis() - started))
                 } catch (_: Exception) {
