@@ -292,7 +292,14 @@ class InstallReceiver : BroadcastReceiver() {
                 try { ctx.startActivity(confirm) } catch (_: Exception) {}
             }
             PackageInstaller.STATUS_SUCCESS -> {
-                Toast.makeText(ctx, "Đã cập nhật MotoNav", Toast.LENGTH_LONG).show()
+                Toast.makeText(ctx, "Đã cập nhật MotoNav — đang mở lại", Toast.LENGTH_LONG).show()
+                // Tự mở lại app sau khi cài xong (giống NConnect: cài xong tự "reload"), khỏi phải
+                // tìm icon mở tay — bản mới cài đè lên nên khởi động lại là vào đúng bản mới.
+                try {
+                    val open = Intent(ctx, NavActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    ctx.startActivity(open)
+                } catch (_: Exception) {
+                }
             }
             else -> {
                 val msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "không rõ"
