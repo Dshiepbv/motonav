@@ -424,14 +424,17 @@ object TftLink {
                 // kế tiếp, khoảng lặng giữa 2 lần gửi nhiều lúc lên tới 10–19 giây, khớp đúng những lúc
                 // video cho thấy xe tự hiện "Lỗi kết nối" — xe có vẻ tự đếm giờ im lặng riêng, không
                 // quan tâm khung cũ cuối cùng có được ACK hay không.
-                // v6.67: thay vì chờ cố định [base] mỗi lần, bám sát tốc độ ACK thực tế — lúc xe đang
-                // nhanh (ACK ~300ms) thì gửi gần như liên tục (~500ms/lần) để đỡ delay hiển thị, lúc xe
-                // chậm lại thì giãn ra một chút theo đúng tốc độ đó (ACK ~1s → gửi mỗi 1.2s) — nhưng
-                // CHẶN TRẦN ở [base] (như v6.66) để không bao giờ lặp lại khoảng lặng dài 7s+ như trước.
-                val base = if (skActive && skRoute != null) 2500L else 4000L
+                // v6.67: bám sát tốc độ ACK thực tế thay vì chờ cố định [base] — nhưng chặn trần ở
+                // [base] (2.5s/4s) để tránh im lặng dài.
+                // v6.68 thử nghiệm: nút test gửi 100 khung "dạng đường" cách đều CỐ ĐỊNH 500ms (không
+                // phụ thuộc ACK) — log 20261024-222404 cho kết quả rất tốt: 100/100 khung thành công,
+                // 0 timeout, ACK trung bình chỉ 367ms, khoảng lặng xa nhất 5.3s. Ngay sau khi test xong,
+                // quay lại nhịp cũ (base 2.5–4s) thì dính ngay 1 khung timeout thật. Bằng chứng cho thấy
+                // nhịp nhanh cố định ~500ms ổn định hơn hẳn base 2.5–4s hiện tại. Áp dụng luôn nhịp này
+                // cho khung thật, bỏ hẳn [base] làm trần — chỉ còn sàn 400ms (an toàn, không dồn khung).
                 val ack = lastFrameAckMs
-                val interval = if (ack > 0) (ack + 200) else base
-                sleepQuiet(interval.coerceIn(400L, base))
+                val interval = if (ack > 0) (ack + 200) else 500L
+                sleepQuiet(interval.coerceIn(400L, 3000L))
             } else {
                 sleepQuiet(400)
             }
