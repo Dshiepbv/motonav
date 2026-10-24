@@ -111,6 +111,11 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("traffic", true)
         set(v) = sp.edit().putBoolean("traffic", v).apply()
 
+    /** Né đường cao tốc khi tìm đường (tham số "avoid=motorway" của VietMap/GraphHopper). */
+    var avoidHighway: Boolean
+        get() = sp.getBoolean("avoidHighway", false)
+        set(v) = sp.edit().putBoolean("avoidHighway", v).apply()
+
     /** 0 = OpenFreeMap (miễn phí, không cần mã), 1 = VietMap */
     var mapSource: Int
         get() = sp.getInt("mapSource", 0)

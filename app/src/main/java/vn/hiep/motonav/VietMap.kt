@@ -41,23 +41,24 @@ object VietMap {
         }
     }
 
-    fun route(key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double, traffic: Boolean = true): Route =
-        routes(key, fromLat, fromLon, heading, toLat, toLon, traffic, false).first()
+    fun route(key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double, traffic: Boolean = true, avoidHighway: Boolean = false): Route =
+        routes(key, fromLat, fromLon, heading, toLat, toLon, traffic, false, avoidHighway = avoidHighway).first()
 
     /** Tìm đường; alternative = true trả về thêm các tuyến thay thế (tối đa 3). */
     fun routes(
         key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double,
         traffic: Boolean = true, alternative: Boolean = false,
         via: List<Pair<Double, Double>> = emptyList(),
+        avoidHighway: Boolean = false,
     ): List<Route> {
         if (traffic) {
             try {
-                return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, true, alternative, via)
+                return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, true, alternative, via, avoidHighway)
             } catch (e: Exception) {
                 // Thử lại không kèm dữ liệu kẹt xe
             }
         }
-        return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, false, alternative, via)
+        return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, false, alternative, via, avoidHighway)
     }
 
     /** Đọc mảng mức kẹt xe, chấp nhận nhiều dạng trả về. */
@@ -96,12 +97,17 @@ object VietMap {
     private fun routeOnce(
         key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double,
         traffic: Boolean, alternative: Boolean, via: List<Pair<Double, Double>> = emptyList(),
+        avoidHighway: Boolean = false,
     ): List<Route> {
         val sb = StringBuilder("$BASE/route/v4?apikey=").append(enc(key))
             .append("&point=").append(ll(fromLat, fromLon))
         for (v in via) sb.append("&point=").append(ll(v.first, v.second))
         sb.append("&point=").append(ll(toLat, toLon))
-            .append("&vehicle=motorcycle&points_encoded=true&avoid=ferry")
+        // avoid (GraphHopper, nền của API này): ferry luôn tránh; cao tốc tránh nếu người dùng bật.
+        // Không có giá trị "đường đất/chưa trải nhựa" trong tham số avoid này (chỉ: ferry, bridge,
+        // motorway, toll, tunnel, ford) nên không né được đường đất qua API.
+        val avoid = if (avoidHighway) "ferry,motorway" else "ferry"
+        sb.append("&vehicle=motorcycle&points_encoded=true&avoid=").append(avoid)
         if (traffic) sb.append("&annotations=congestion")
         if (alternative && via.isEmpty()) sb.append("&alternative=true")
         if (heading != null && heading >= 0) sb.append("&heading=").append(heading.toInt())

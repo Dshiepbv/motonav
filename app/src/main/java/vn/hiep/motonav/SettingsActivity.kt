@@ -291,6 +291,9 @@ class SettingsActivity : Activity() {
         toggle("Tô màu kẹt xe trên tuyến", null, prefs.traffic, note = "Dữ liệu kẹt xe của VietMap: cam = chậm, đỏ = kẹt, đỏ sẫm = kẹt nặng") {
             prefs.traffic = it
         }
+        toggle("Tránh đường cao tốc", null, prefs.avoidHighway, note = "Tuyến tìm được sẽ né đường cao tốc (motorway) khi có thể. Phà luôn được né sẵn, không cần bật. Chưa né được đường đất/chưa trải nhựa — API tìm đường không hỗ trợ") {
+            prefs.avoidHighway = it
+        }
         val keysOk = prefs.vietmapKey.isNotBlank()
         action("Mã API VietMap", if (keysOk) "✅ Đã nhập" else "⚠️ Chưa nhập – cần để tìm đường", note = "Dùng cho tìm đường, tìm địa điểm, kẹt xe") {
             KeyDialog.show(this, prefs) { build() }

@@ -110,7 +110,7 @@ class NavEngine(
         executor.execute {
             try {
                 // Luôn lấy vài tuyến để tự chọn tuyến tốt nhất (tránh kẹt xe / ngắn nhất)
-                var list = VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, true)
+                var list = VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, true, avoidHighway = prefs.avoidHighway)
                 // Né các đoạn người dùng tự báo "đường bị chặn" (dữ liệu bản đồ cũ): bỏ bớt tuyến
                 // đi ngang điểm đó nếu còn tuyến khác không dính
                 val clean = list.filter { !BlockedRoads.blocksPath(ctx, it.lats, it.lons) }
@@ -120,7 +120,7 @@ class NavEngine(
                 if (heading != null && (reroute || Live.speedKmh > 8) && RoutePick.isBackward(list.first(), heading)) {
                     try {
                         val ap = RoutePick.aheadPoint(Live.osm, lat, lon, heading)
-                        val vr = VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, false, listOf(ap)).first()
+                        val vr = VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, false, listOf(ap), prefs.avoidHighway).first()
                         if (!RoutePick.isBackward(vr, heading)) list = listOf(vr) + list
                     } catch (_: Exception) {
                     }

@@ -699,10 +699,9 @@ class DriveService : Service(), LocationListener {
         val hdg: Double? = hdgIn ?: (if (signHdg >= 0) signHdg else null)
         val out = ArrayList<Triple<Int, Int, Int>>()
         val way = currentWay
-        way?.let { w ->
-            if (w.parkingRule != 0) out.add(Triple(w.parkingRule, 0, -1))
-            if (w.oneway != 0 && w.tags["junction"] != "roundabout") out.add(Triple(SignType.ONE_WAY, 0, -1))
-        }
+        // Trước đây có thêm biển cấm dừng đỗ/một chiều "áp dụng cho cả đoạn đường đang đi" (hiện
+        // chữ "Đoạn này" thay vì số mét) — bỏ: không có khoảng cách cụ thể nên không rõ còn áp dụng
+        // tới đâu, gây rối hơn là giúp ích.
         if (snap != null && hdg != null) {
             val found = ArrayList<Pair<RoadSign, Double>>()
             // Chỉ xét đường đang đi + các đoạn nối tiếp phía trước đúng chiều (không lấy nhánh/đường cắt ngang)
