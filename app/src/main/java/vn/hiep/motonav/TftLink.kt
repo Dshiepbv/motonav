@@ -392,14 +392,15 @@ object TftLink {
      * việc chờ ACK (có thể mất vài giây nếu xe đang nghẽn) không làm chậm kênh chữ. Tự nhịp chậm lại
      * khi xe không ACK kịp. */
     private fun sketchLoop() {
-        // Nghỉ 1 giây trước khung ảnh đầu tiên — lý do: log thực tế cho thấy khung ảnh đầu tiên gửi
-        // ngay sau khi bắt tay xong hay bị timeout (không ACK sau 6s), rất có thể do xe còn đang bận
-        // xử lý loạt 9 gói cấu hình ban đầu ([sendInitBurst]) ngay lúc đó. Khung đầu bị timeout có vẻ
-        // là lúc xe tự quyết định hiện "Lỗi kết nối" — dù kênh vẫn chạy bình thường ngay sau đó (data
-        // vẫn gửi liên tục), xe không tự thoát màn báo lỗi, phải bấm Home thủ công mới thấy lại được.
-        // Cho xe thời gian xử lý xong loạt gói đầu trước khi dội thêm khung ảnh, giảm khả năng dính
-        // đúng khung đầu tiên.
-        sleepQuiet(1000)
+        // Nghỉ trước khung ảnh đầu tiên — lý do: log thực tế (video + log 20261024-213431) cho thấy
+        // dù đã nghỉ 1 giây (bản cũ), khung ảnh đầu tiên vẫn mất tới 4,46 giây mới được xe ACK — và
+        // ngay trong khoảng chờ đó, màn xe đã tự hiện "Lỗi kết nối" (video người dùng quay lúc vừa mở
+        // màn, xe báo lỗi gần như ngay lập tức). Có vẻ 1 giây là chưa đủ cho xe xử lý xong loạt 9 gói
+        // cấu hình ban đầu ([sendInitBurst]) + bắt tay xong rồi mới sẵn sàng nhận khung ảnh. Nâng lên
+        // 3 giây để thử — vẫn chỉ là thử nghiệm, chưa chắc chắn hết hẳn, vì có thể bản chất là xe xử
+        // lý JPEG đầu tiên chậm (cold start phần vẽ màn hình của xe) chứ không riêng việc tranh chấp
+        // với loạt gói cấu hình.
+        sleepQuiet(3000)
         while (running.get() && connected) {
             if (authed) {
                 // LUÔN gửi đều đặn kể cả lúc chưa dẫn đường/mất GPS (khung "chờ") — không bao giờ
