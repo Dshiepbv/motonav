@@ -292,46 +292,9 @@ object TftLink {
         val route = skRoute
         val anchorX = w / 2f
         val anchorY = h * 0.82f
-        val maxAhead0 = 220.0
-        val hRad0 = Math.toRadians(if (skHeadingDeg >= 0) skHeadingDeg else 0.0)
-        val cosH0 = Math.cos(hRad0); val sinH0 = Math.sin(hRad0)
-        val scale0 = (h * 0.68f) / maxAhead0.toFloat()
-        // Nhánh rẽ quanh vị trí hiện tại — nét xám rất mờ, vẽ dưới tuyến đường trắng, giống bản đồ
-        // đầy đủ nhưng nhạt để không tốn thêm nhiều băng thông. Dữ liệu đường lấy từ OSM app đã tải
-        // sẵn cho tính năng khác (camera, bắt đường) — không gọi mạng thêm cho việc này.
-        if (skLat != 0.0 || skLon != 0.0) {
-            val ways = skWays
-            if (ways != null && ways.isNotEmpty()) {
-                val proj0 = LocalProjection(skLat, skLon)
-                val rangeM = maxAhead0 * 1.3
-                val dLat = rangeM / 111_320.0
-                val dLon = rangeM / (111_320.0 * Math.cos(Math.toRadians(skLat)).coerceAtLeast(0.2))
-                val minLatB = skLat - dLat; val maxLatB = skLat + dLat
-                val minLonB = skLon - dLon; val maxLonB = skLon + dLon
-                // Lọc nhanh bằng bounding box, sắp theo gần trước, chỉ vẽ tối đa 50 đường để JPEG
-                // không phình to.
-                val nearby = ways.asSequence()
-                    .filter { it.lats.size >= 2 && it.maxLat >= minLatB && it.minLat <= maxLatB && it.maxLon >= minLonB && it.minLon <= maxLonB }
-                    .map { it to Geo.distance(skLat, skLon, (it.minLat + it.maxLat) / 2, (it.minLon + it.maxLon) / 2) }
-                    .sortedBy { it.second }
-                    .take(50)
-                    .map { it.first }
-                if (nearby.any()) {
-                    val wayPaint = Paint().apply { color = Color.rgb(60, 60, 60); style = Paint.Style.STROKE; strokeWidth = 1.5f; isAntiAlias = true }
-                    for (way in nearby) {
-                        val wp = android.graphics.Path()
-                        var started = false
-                        for (j in way.lats.indices) {
-                            val dx = proj0.x(way.lons[j]); val dy = proj0.y(way.lats[j])
-                            val rx = dx * cosH0 - dy * sinH0; val ry = dx * sinH0 + dy * cosH0
-                            val sx = anchorX + (rx * scale0).toFloat(); val sy = anchorY - (ry * scale0).toFloat()
-                            if (!started) { wp.moveTo(sx, sy); started = true } else wp.lineTo(sx, sy)
-                        }
-                        c.drawPath(wp, wayPaint)
-                    }
-                }
-            }
-        }
+        // Đã thử vẽ thêm nhánh đường xung quanh (nét xám mờ) nhưng bỏ lại: ngoài trời nắng không
+        // thấy được (màn TFT tương phản thấp dưới nắng), mà lại làm JPEG nặng hơn → xe xoay lâu hơn
+        // mỗi lần tải khung. Giữ tối giản nhất có thể: chỉ tuyến đường trắng + điểm rẽ.
         if (route == null || route.lats.size < 2) {
             // Khung "chờ" — gửi đều đặn khi chưa có tuyến (chưa dẫn đường/mất GPS/vừa tới nơi) để
             // xe không coi là mất kết nối vì im lặng quá lâu.
@@ -392,7 +355,9 @@ object TftLink {
         }
         c.drawPath(carPath, carPaint)
         val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, 35, out)
+        // Chất lượng thấp hơn trước (35→22): nội dung chỉ nét trắng trên nền đen, hạ chất lượng gần
+        // như không đổi hình mà khung nhỏ hơn, xe tải/giải mã nhanh hơn, bớt xoay.
+        bmp.compress(Bitmap.CompressFormat.JPEG, 22, out)
         bmp.recycle()
         return out.toByteArray()
     }
