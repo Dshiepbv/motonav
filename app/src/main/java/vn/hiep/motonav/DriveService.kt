@@ -251,7 +251,7 @@ class DriveService : Service(), LocationListener {
         )
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_compass)
-            .setContentTitle("MotoNav đang chạy")
+            .setContentTitle("NMAX Navi đang chạy")
             .setContentText("Theo dõi tốc độ giới hạn và camera")
             .setContentIntent(open)
             .setOngoing(true)

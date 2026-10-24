@@ -27,7 +27,7 @@
     </queries>
 
     <application
-        android:label="MotoNav"
+        android:label="NMAX Navi"
         android:icon="@drawable/ic_launcher"
         android:roundIcon="@drawable/ic_launcher"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
@@ -44,7 +44,7 @@
             android:name=".NavActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
             android:exported="true"
-            android:label="MotoNav"
+            android:label="NMAX Navi"
             android:launchMode="singleTask"
             android:screenOrientation="unspecified">
             <intent-filter>
