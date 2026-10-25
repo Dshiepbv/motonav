@@ -312,6 +312,10 @@ class DriveService : Service(), LocationListener {
                     ways = Live.osm?.ways,
                     speedKmh = Live.speedKmh,
                     limitKmh = Live.limit,
+                    distanceM = if (Live.navMeters >= 0) Live.navMeters else -1,
+                    nextStreet = Live.maneuverLabel,
+                    remainingM = Live.remainingM,
+                    etaMs = Live.etaMs,
                 )
             }
             handler.postDelayed(this, 1000)
