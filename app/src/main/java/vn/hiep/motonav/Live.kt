@@ -108,6 +108,10 @@ object Live {
     @Volatile var wxJson: String? = null
     @Volatile var wxVersion = 0
     @Volatile var wxSummary: String? = null
+    // Thời tiết dự báo lúc TỚI ĐIỂM ĐẾN (mốc cuối của wxJson) — riêng cho icon góc màn TFT.
+    @Volatile var wxDestCat: Int? = null
+    @Volatile var wxDestLabel: String? = null
+    @Volatile var wxDestNight = false
 
     // Dải chữ cảnh báo (hiện kèm mọi âm thanh)
     @Volatile var alertText: String? = null

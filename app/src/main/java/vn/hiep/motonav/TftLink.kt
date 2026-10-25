@@ -292,6 +292,10 @@ object TftLink {
     @Volatile private var skRemainingM: Double = 0.0
     @Volatile private var skEtaMs: Long = 0L
     @Volatile private var skCurrentStreet: String? = null
+    // Thời tiết dự báo lúc tới điểm đến — icon góc trên-phải, cạnh biển tốc độ, theo yêu cầu.
+    @Volatile private var skWxCat: Int? = null
+    @Volatile private var skWxLabel: String? = null
+    @Volatile private var skWxNight: Boolean = false
     // Zoom thủ công bằng nút vật lý trên xe (51 lên = xa hơn, 52 xuống = gần hơn), cộng dồn vào
     // công thức maxAhead theo tốc độ. -3..+3, 0 = mặc định.
     @Volatile private var skZoomStep: Int = 0
@@ -319,6 +323,9 @@ object TftLink {
         remainingM: Double = 0.0,
         etaMs: Long = 0L,
         currentStreet: String? = null,
+        wxCat: Int? = null,
+        wxLabel: String? = null,
+        wxNight: Boolean = false,
     ) {
         skActive = active
         skRoute = route
@@ -333,6 +340,9 @@ object TftLink {
         skWays = ways
         skSpeedKmh = speedKmh
         skCurrentStreet = currentStreet
+        skWxCat = wxCat
+        skWxLabel = wxLabel
+        skWxNight = wxNight
         skDistanceM = distanceM
         skNextStreet = nextStreet
         skRemainingM = remainingM
@@ -610,6 +620,19 @@ object TftLink {
             c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
             limBottomY = cy + r
         }
+        // Icon thời tiết dự báo LÚC TỚI điểm đến — góc trên-phải, cùng hàng với biển tốc độ, đặt
+        // vào khoảng trống giữa thẻ chỉ dẫn (góc trái) và biển tốc độ (theo yêu cầu).
+        val wxCat = skWxCat
+        if (wxCat != null) {
+            val wxCx = w * 0.755f; val wxCy = h * 0.14f
+            val emojiPaint = Paint().apply { textSize = h * 0.16f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+            c.drawText(WxCat.emoji(wxCat, skWxNight), wxCx, wxCy + h * 0.06f, emojiPaint)
+            val lbl = skWxLabel
+            if (!lbl.isNullOrBlank()) {
+                val lblPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.065f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+                c.drawText(lbl, wxCx, wxCy + h * 0.195f, lblPaint)
+            }
+        }
         // Dưới ô giới hạn tốc độ: ETA (giờ đến), thời gian còn lại, quãng đường còn lại — giống Waze.
         // To hơn nữa theo yêu cầu (0.068->0.085 chiều cao khung). Thêm dòng tên đường đang đi ngay
         // dưới số km còn lại (dời từ nhãn firmware sang đây theo yêu cầu, cùng cỡ chữ các thông số).
@@ -629,12 +652,35 @@ object TftLink {
             c.drawText(remTxt, cx, sy, statPaint)
             val cur = skCurrentStreet
             if (!cur.isNullOrBlank()) {
-                sy += h * 0.1f
+                // Dài quá cột hẹp bên phải thì xuống dòng (tối đa 2 dòng, dòng 2 còn dư mới cắt "…")
+                // thay vì cắt ngắn luôn — theo yêu cầu, đỡ mất chữ so với kiểu "…" một dòng cũ.
                 val maxW = w * 0.42f
-                var txt: String = cur
-                while (txt.length > 2 && statPaint.measureText(txt) > maxW) txt = txt.substring(0, txt.length - 1)
-                if (txt != cur) txt = txt.dropLast(1) + "…"
-                c.drawText(txt, cx, sy, statPaint)
+                val words = cur.split(' ').filter { it.isNotEmpty() }
+                val lines = ArrayList<String>()
+                var line = StringBuilder()
+                for (word in words) {
+                    val trial = if (line.isEmpty()) word else "$line $word"
+                    if (statPaint.measureText(trial) <= maxW || line.isEmpty()) {
+                        line = StringBuilder(trial)
+                    } else {
+                        lines.add(line.toString())
+                        line = StringBuilder(word)
+                    }
+                    if (lines.size >= 2) break
+                }
+                if (line.isNotEmpty() && lines.size < 2) lines.add(line.toString())
+                if (lines.size > 2) {
+                    while (lines.size > 2) lines.removeAt(lines.size - 1)
+                }
+                if (lines.size == 2 && statPaint.measureText(lines[1]) > maxW) {
+                    var t = lines[1]
+                    while (t.length > 2 && statPaint.measureText("$t…") > maxW) t = t.substring(0, t.length - 1)
+                    lines[1] = "$t…"
+                }
+                for (ln in lines) {
+                    sy += h * 0.1f
+                    c.drawText(ln, cx, sy, statPaint)
+                }
             }
         }
         // Thẻ chỉ dẫn — góc trên-trái (nhãn firmware xe, cmd 3/1, giờ hiện câu chỉ dẫn rẽ thay vì

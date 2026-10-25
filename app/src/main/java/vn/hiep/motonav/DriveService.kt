@@ -316,6 +316,9 @@ class DriveService : Service(), LocationListener {
                     remainingM = Live.remainingM,
                     etaMs = Live.etaMs,
                     currentStreet = Live.street,
+                    wxCat = Live.wxDestCat,
+                    wxLabel = Live.wxDestLabel,
+                    wxNight = Live.wxDestNight,
                 )
             }
             handler.postDelayed(this, 1000)
@@ -655,6 +658,8 @@ class DriveService : Service(), LocationListener {
             if (Live.wxJson != null) {
                 Live.wxJson = null
                 Live.wxSummary = null
+                Live.wxDestCat = null
+                Live.wxDestLabel = null
                 Live.wxVersion++
             }
             wxRouteVer = -1
@@ -677,6 +682,11 @@ class DriveService : Service(), LocationListener {
                 val (marks, summary) = RouteWeather.fetch(r, progress)
                 Live.wxJson = RouteWeather.toGeoJson(marks)
                 Live.wxSummary = summary
+                // Mốc cuối cùng = gần điểm đến nhất — dùng riêng cho icon thời tiết trên màn TFT.
+                val destMark = marks.lastOrNull()
+                Live.wxDestCat = destMark?.cat
+                Live.wxDestLabel = destMark?.label
+                Live.wxDestNight = destMark?.let { RouteWeather.isNightAt(it.minutes) } ?: false
                 Live.wxVersion++
                 // Báo một lần khi phía trước có mưa
                 if (summary != null && summary.startsWith("Phía trước") && summary != wxAnnounced) {
