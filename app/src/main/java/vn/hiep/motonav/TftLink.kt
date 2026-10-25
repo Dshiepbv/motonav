@@ -281,6 +281,14 @@ object TftLink {
     @Volatile private var skRoundabout = false
     @Volatile private var skWays: List<Way>? = null
     @Volatile private var skSpeedKmh: Int = -1
+    // Zoom thủ công bằng nút vật lý trên xe (51 lên = xa hơn, 52 xuống = gần hơn), cộng dồn vào
+    // công thức maxAhead theo tốc độ. -3..+3, 0 = mặc định.
+    @Volatile private var skZoomStep: Int = 0
+    // "Ghim" chỉ số điểm gần nhất tìm được ở khung trước, để khung sau chỉ dò quanh đó thay vì
+    // quét lại toàn tuyến — tránh nhảy lung tung sang điểm xa (một đoạn đường khác của tuyến tình
+    // cờ ở gần) làm đường xanh biến mất/vẽ sai rồi tự "sửa" lại ở khung sau.
+    @Volatile private var skIdxHint: Int = -1
+    private var skIdxHintRoute: Route? = null
 
     fun updateSketch(
         active: Boolean,
@@ -330,24 +338,48 @@ object TftLink {
             c.drawText("Chờ tuyến đường…", w / 2f, h * 0.62f, p2)
         } else {
             val proj = LocalProjection(skLat, skLon)
-            // Tìm điểm gần vị trí hiện tại nhất trên tuyến.
-            var idx0 = 0
+            // Tìm điểm gần vị trí hiện tại nhất trên tuyến. "Ghim" quanh chỉ số khung trước (nếu
+            // cùng tuyến) để tránh nhảy xa sang một đoạn khác của tuyến tình cờ ở gần — nguyên nhân
+            // đường xanh thỉnh thoảng biến mất rồi lại hiện (báo lỗi thực tế từ xe). Chỉ quét lại
+            // toàn tuyến khi chưa có điểm ghim, đổi tuyến, hoặc điểm ghim cũ lệch quá xa (>80m, có
+            // thể do mất GPS/dừng lâu/đi xa khỏi tuyến thật).
+            val hintValid = skIdxHintRoute === route && skIdxHint in route.lats.indices
+            var idx0: Int
             var best = Double.MAX_VALUE
-            for (i in route.lats.indices) {
-                val d = Geo.distance(skLat, skLon, route.lats[i], route.lons[i])
-                if (d < best) { best = d; idx0 = i }
+            if (hintValid) {
+                val lo = (skIdxHint - 15).coerceAtLeast(0)
+                val hi = (skIdxHint + 120).coerceAtMost(route.lats.size - 1)
+                var bi = skIdxHint
+                for (i in lo..hi) {
+                    val d = Geo.distance(skLat, skLon, route.lats[i], route.lons[i])
+                    if (d < best) { best = d; bi = i }
+                }
+                idx0 = bi
+            } else {
+                idx0 = 0
             }
+            if (!hintValid || best > 80.0) {
+                var fi = 0
+                var fbest = Double.MAX_VALUE
+                for (i in route.lats.indices) {
+                    val d = Geo.distance(skLat, skLon, route.lats[i], route.lons[i])
+                    if (d < fbest) { fbest = d; fi = i }
+                }
+                idx0 = fi
+            }
+            skIdxHint = idx0
+            skIdxHintRoute = route
             val cum0 = route.cum[idx0]
-            // Thu phóng theo tốc độ (giống app bản đồ điện thoại: nhanh thì nhìn xa hơn) — 60km/h đi
-            // hết 220m cũ chỉ trong ~13 giây, quá ngắn để kịp phản ứng. Lấy quãng đường đi được trong
-            // ~15 giây tới làm bán kính vẽ, giới hạn 120–400m để không quá hẹp lúc đứng yên/quá rộng
-            // lúc chạy nhanh (ảnh sẽ chi tiết hơn nếu vẽ quá xa).
-            // Ghi nhận từ log thực tế (20261025-082815): ở tốc độ đô thị thấp (đa số <30km/h),
-            // maxAhead cũ (15s lookahead, sàn 120m) ra quá nhỏ nên đoạn tuyến xanh vẽ được rất
-            // ngắn, nhiều khung gần như không thấy đường xanh. Nâng sàn lên 300m, trần 500m theo
-            // yêu cầu "dài 500m phía trước".
+            // Thu phóng theo tốc độ (giống app bản đồ điện thoại) + zoom thủ công bằng nút xe.
+            // Theo phản hồi thực tế: đường xanh quá ngắn làm chạy quá nhanh so với khung mới gửi
+            // tới (chạy hết đường xanh mà chưa thấy gì tiếp), nên nâng sàn cao hẳn và vẽ sớm, ưu
+            // tiên "luôn đầy màn" hơn là tiết kiệm dung lượng khung.
             val spd = skSpeedKmh
-            val maxAhead = (if (spd > 0) spd * (1000.0 / 3600.0) * 20.0 else 300.0).coerceIn(300.0, 500.0)
+            val zoomMul = when (skZoomStep) {
+                -3 -> 0.5; -2 -> 0.65; -1 -> 0.8; 1 -> 1.25; 2 -> 1.5; 3 -> 1.8; else -> 1.0
+            }
+            val baseAhead = if (spd > 0) spd * (1000.0 / 3600.0) * 25.0 else 450.0
+            val maxAhead = (baseAhead.coerceIn(450.0, 700.0) * zoomMul).coerceIn(250.0, 900.0)
             val hRad = Math.toRadians(if (skHeadingDeg >= 0) skHeadingDeg else 0.0)
             val cosH = Math.cos(hRad); val sinH = Math.sin(hRad)
             // px trên mét — chỉnh theo đoạn xa nhất sẽ vẽ, để luôn vừa khung hình.
@@ -1067,8 +1099,14 @@ object TftLink {
                             TripLog.ev("tftBtn", "cmd" to "49 stop")
                             onStopRequested?.invoke()
                         }
-                        51 -> TripLog.ev("tftBtn", "cmd" to "51 up/zoom+") // nút LÊN / zoom +
-                        52 -> TripLog.ev("tftBtn", "cmd" to "52 down/zoom-") // nút XUỐNG / zoom -
+                        51 -> { // nút LÊN / zoom+ : vẽ xa hơn
+                            skZoomStep = (skZoomStep + 1).coerceIn(-3, 3)
+                            TripLog.ev("tftBtn", "cmd" to "51 up/zoom+", "zoomStep" to skZoomStep)
+                        }
+                        52 -> { // nút XUỐNG / zoom- : vẽ gần hơn
+                            skZoomStep = (skZoomStep - 1).coerceIn(-3, 3)
+                            TripLog.ev("tftBtn", "cmd" to "52 down/zoom-", "zoomStep" to skZoomStep)
+                        }
                     }
                     if (step2Done && step3Done && !authed) {
                         authed = true
