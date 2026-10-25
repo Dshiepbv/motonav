@@ -401,9 +401,14 @@ object TftLink {
             val zoomMul = when (skZoomStep) {
                 -3 -> 0.4; -2 -> 0.55; -1 -> 0.75; 1 -> 1.3; 2 -> 1.65; 3 -> 2.0; else -> 1.0
             }
-            // Theo yêu cầu: dưới 40km/h phóng to gấp đôi (maxAhead giảm 1 nửa) — tốc độ thấp thường
-            // là đường nhỏ/khu đông dân cư, cần thấy rõ chi tiết gần hơn là nhìn xa.
-            val spdMul = if (skSpeedKmh in 1..39) 0.5 else 1.0
+            // Theo yêu cầu: dưới 20km/h phóng to 300% (maxAhead còn 1/3), dưới 40km/h phóng to gấp
+            // đôi — tốc độ thấp thường là đường nhỏ/khu đông dân cư/vòng xoay, cần thấy rõ chi tiết
+            // gần hơn là nhìn xa.
+            val spdMul = when {
+                skSpeedKmh in 1..19 -> 1.0 / 3.0
+                skSpeedKmh in 20..39 -> 0.5
+                else -> 1.0
+            }
             val maxAhead = (1800.0 * zoomMul * spdMul).coerceIn(400.0, 3600.0)
             val headingNow = if (skHeadingDeg >= 0) { skLastGoodHeadingDeg = skHeadingDeg; skHeadingDeg } else skLastGoodHeadingDeg
             val hRad = Math.toRadians(headingNow)
@@ -423,25 +428,28 @@ object TftLink {
                 )
             }
 
-            // Nhánh đường xung quanh (nét trắng mảnh) — thử lại (trước đã bỏ vì sợ nặng JPEG, giờ
-            // thử lại theo yêu cầu). Lọc bớt: chỉ các way có điểm đầu nằm trong bán kính vẽ (lọc
-            // nhanh bằng khoảng cách theo độ, không gọi Geo.distance cho từng điểm), tối đa 25 way,
-            // tối đa 60 điểm/way (giữ nhẹ, đủ hình dạng) để JPEG không phình quá to.
-            // Tên đường nhánh đã thử (v6.76) nhưng chữ quá nhỏ/mờ trên màn xe, không đọc được —
-            // bỏ hẳn theo phản hồi thực tế, chỉ giữ nét trắng để biết hình dạng/có lối rẽ hay không.
+            // Nhánh đường xung quanh (nét trắng mảnh) — theo yêu cầu "mọi đường bên cạnh đường
+            // chính đều hiện" (biết có quẹo được hay đi thẳng được không ở ngã tư/vòng xoay dù
+            // không phải đường dẫn): nới bán kính lọc và số way/điểm vẽ được so với trước, lọc theo
+            // khoảng cách gần nhất của TỪNG điểm way (không chỉ điểm đầu) để không bỏ sót nhánh/lối
+            // ra vòng xoay có điểm đầu nằm hơi xa nhưng đoạn gần xe vẫn cắt qua bán kính vẽ.
             val ways = skWays
             if (ways != null) {
-                val degRadius = (maxAhead / 111320.0) * 1.3
+                val degRadius = (maxAhead / 111320.0) * 1.6
                 val branchPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.5f; isAntiAlias = true }
                 var drawnWays = 0
                 for (wy in ways) {
-                    if (drawnWays >= 18) break
+                    if (drawnWays >= 30) break
                     if (wy.lats.isEmpty()) continue
-                    if (Math.abs(wy.lats[0] - skLat) > degRadius || Math.abs(wy.lons[0] - skLon) > degRadius) continue
+                    var nearEnough = false
+                    for (k in wy.lats.indices step (wy.lats.size / 6).coerceAtLeast(1)) {
+                        if (Math.abs(wy.lats[k] - skLat) <= degRadius && Math.abs(wy.lons[k] - skLon) <= degRadius) { nearEnough = true; break }
+                    }
+                    if (!nearEnough) continue
                     val bp = android.graphics.Path()
                     var bStarted = false
                     var any = false
-                    val step = (wy.lats.size / 45).coerceAtLeast(1)
+                    val step = (wy.lats.size / 55).coerceAtLeast(1)
                     var j = 0
                     while (j < wy.lats.size) {
                         val dx = proj.x(wy.lons[j]); val dy = proj.y(wy.lats[j])
@@ -498,7 +506,7 @@ object TftLink {
                 val mdx = proj.x(skManLon); val mdy = proj.y(skManLat)
                 val mrx = mdx * cosH - mdy * sinH; val mry = mdx * sinH + mdy * cosH
                 val (mx, my) = toScreen(mrx, mry)
-                val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.05f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.062f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
                 val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
                 val leaderPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
                 // Nhãn đặt lệch lên-phải điểm rẽ một khoảng cố định theo pixel (không phụ thuộc
@@ -508,10 +516,10 @@ object TftLink {
                 c.drawLine(mx, my, lx, ly, leaderPaint)
                 c.drawCircle(mx, my, h * 0.018f, leaderPaint)
                 val tw = labelPaint.measureText(nextSt)
-                val padX = h * 0.02f; val padY = h * 0.018f
+                val padX = h * 0.022f; val padY = h * 0.02f
                 val boxLeft = (lx - tw / 2f - padX).coerceAtLeast(2f)
                 val boxRight = (boxLeft + tw + padX * 2f).coerceAtMost(w - 2f)
-                c.drawRect(boxLeft, ly - h * 0.045f - padY, boxRight, ly + h * 0.015f + padY, bgPaint)
+                c.drawRect(boxLeft, ly - h * 0.055f - padY, boxRight, ly + h * 0.018f + padY, bgPaint)
                 c.drawText(nextSt, (boxLeft + boxRight) / 2f - tw / 2f, ly, labelPaint)
             }
         }
@@ -542,28 +550,32 @@ object TftLink {
             limBottomY = cy + r
         }
         // Dưới ô giới hạn tốc độ: ETA (giờ đến), thời gian còn lại, quãng đường còn lại — giống Waze.
+        // To hơn trước theo yêu cầu "cho to ra" (0.05->0.068 chiều cao khung).
         if (skActive && skRoute != null) {
-            val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.05f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+            val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.068f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
             val cx = w * 0.90f
             val remKm = skRemainingM / 1000.0
             val remTxt = if (remKm >= 10) "${remKm.toInt()} km" else String.format("%.1f km", remKm)
             val remMin = (skEtaMs / 60000L).toInt()
             val arriveCal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
             val etaTxt = String.format("%02d:%02d", arriveCal.get(java.util.Calendar.HOUR_OF_DAY), arriveCal.get(java.util.Calendar.MINUTE))
-            var sy = limBottomY + h * 0.07f
+            var sy = limBottomY + h * 0.09f
             c.drawText(etaTxt, cx, sy, statPaint)
-            sy += h * 0.065f
+            sy += h * 0.085f
             c.drawText("$remMin ph", cx, sy, statPaint)
-            sy += h * 0.065f
+            sy += h * 0.085f
             c.drawText(remTxt, cx, sy, statPaint)
         }
-        // Thẻ chỉ dẫn góc trên-trái: mũi tên hướng rẽ + khoảng cách (giống Waze) — theo yêu cầu.
+        // Thẻ chỉ dẫn, dời xuống góc dưới-trái theo yêu cầu (trước ở trên-trái) — mũi tên hướng rẽ +
+        // khoảng cách + tên đường sắp rẽ, chữ to hơn hẳn ("cho to ra").
         if (skActive && skRoute != null && skDistanceM >= 0) {
-            val boxW = w * 0.46f; val boxH = h * 0.26f
+            val boxW = w * 0.52f; val boxH = h * 0.30f
+            c.save()
+            c.translate(0f, h - boxH)
             val bg = Paint().apply { color = Color.argb(200, 25, 25, 25); style = Paint.Style.FILL }
             c.drawRect(0f, 0f, boxW, boxH, bg)
             // Mũi tên (tam giác xoay theo góc rẽ — dùng chung công thức góc với bản điện thoại).
-            val arrowCx = boxW * 0.28f; val arrowCy = boxH * 0.52f; val arrowR = boxH * 0.3f
+            val arrowCx = boxW * 0.26f; val arrowCy = boxH * 0.52f; val arrowR = boxH * 0.32f
             val angle = Maneuver.angle(skSign)
             c.save()
             c.rotate(angle, arrowCx, arrowCy)
@@ -579,13 +591,14 @@ object TftLink {
             c.restore()
             val distTxt = if (skDistanceM >= 1000) String.format("%.1f km", skDistanceM / 1000.0) else "$skDistanceM m"
             val distCx = boxW * 0.66f
-            val distPaint = Paint().apply { color = Color.WHITE; textSize = boxH * 0.34f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            c.drawText(distTxt, distCx, boxH * 0.42f, distPaint)
+            val distPaint = Paint().apply { color = Color.WHITE; textSize = boxH * 0.4f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            c.drawText(distTxt, distCx, boxH * 0.46f, distPaint)
             val nextSt2 = skNextStreet
             if (!nextSt2.isNullOrBlank()) {
-                val stPaint = Paint().apply { color = Color.rgb(230, 230, 230); textSize = boxH * 0.2f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-                c.drawText(nextSt2, distCx, boxH * 0.75f, stPaint)
+                val stPaint = Paint().apply { color = Color.rgb(230, 230, 230); textSize = boxH * 0.26f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+                c.drawText(nextSt2, distCx, boxH * 0.8f, stPaint)
             }
+            c.restore()
         }
         val out = ByteArrayOutputStream()
         // Chất lượng thấp hơn trước (35→22): nội dung chỉ nét trắng trên nền đen, hạ chất lượng gần
