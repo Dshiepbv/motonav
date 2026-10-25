@@ -328,7 +328,9 @@ object TftLink {
         c.drawColor(Color.BLACK)
         val route = skRoute
         val anchorX = w / 2f
-        val anchorY = h * 0.82f
+        // Nhích điểm xe lên khỏi mép dưới (0.82->0.72) — theo phản hồi thực tế: khi tuyến rẽ ngang
+        // ngay gần vị trí hiện tại, đoạn rẽ bị khuất sát đáy khung, không thấy đường đi đâu.
+        val anchorY = h * 0.72f
         if (route == null || route.lats.size < 2) {
             // Khung "chờ" — gửi đều đặn khi chưa có tuyến (chưa dẫn đường/mất GPS/vừa tới nơi) để
             // xe không coi là mất kết nối vì im lặng quá lâu.
@@ -370,13 +372,14 @@ object TftLink {
             skIdxHint = idx0
             skIdxHintRoute = route
             val cum0 = route.cum[idx0]
-            // Yêu cầu rõ từ thực tế dùng (vẫn ko hiện full đường xanh ở bản 450-700m): "load map
-            // 2km đi" — bỏ hẳn kiểu scale theo tốc độ (quá hẹp), neo cố định quanh 2000m (2km) để
-            // luôn thấy toàn cảnh lộ trình phía trước, nút zoom vật lý chỉnh nới/co quanh mốc này.
+            // Chỉnh lại theo phản hồi: 2km vẽ ra quá nhỏ, không thấy rõ điểm rẽ — hạ mốc neo xuống
+            // 1000m (1km). "Load 2km" (ý ban đầu) là phạm vi dữ liệu nhánh đường/tuyến chính cần có
+            // sẵn để thấy hướng rẽ xa — không phải khoảng cách hiển thị trên khung; khoảng hiển thị
+            // (maxAhead, quyết định độ zoom) để ở 1km là vừa thấy rõ điểm rẽ gần mà vẫn đủ xa.
             val zoomMul = when (skZoomStep) {
                 -3 -> 0.4; -2 -> 0.55; -1 -> 0.75; 1 -> 1.3; 2 -> 1.65; 3 -> 2.0; else -> 1.0
             }
-            val maxAhead = (2000.0 * zoomMul).coerceIn(800.0, 4000.0)
+            val maxAhead = (1000.0 * zoomMul).coerceIn(400.0, 2000.0)
             val hRad = Math.toRadians(if (skHeadingDeg >= 0) skHeadingDeg else 0.0)
             val cosH = Math.cos(hRad); val sinH = Math.sin(hRad)
             // px trên mét — chỉnh theo đoạn xa nhất sẽ vẽ, để luôn vừa khung hình.
@@ -447,21 +450,13 @@ object TftLink {
             // Tuyến chính màu xanh, dày hơn nữa (4f->6f) để nổi bật rõ giữa các nhánh đường trắng.
             val linePaint = Paint().apply { color = Color.rgb(60, 140, 255); style = Paint.Style.STROKE; strokeWidth = 6f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
             c.drawPath(path, linePaint)
-            // Chấm tại điểm rẽ sắp tới.
-            val mdx = proj.x(skManLon); val mdy = proj.y(skManLat)
-            val mrx = mdx * cosH - mdy * sinH; val mry = mdx * sinH + mdy * cosH
-            val mx = anchorX + (mrx * scale).toFloat(); val my = anchorY - (mry * scale).toFloat()
-            val manPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
-            if (skRoundabout) {
-                val ringPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f; isAntiAlias = true }
-                c.drawCircle(mx, my, h * 0.09f, ringPaint)
-            } else {
-                c.drawCircle(mx, my, h * 0.035f, manPaint)
-            }
+            // Bỏ chấm tròn đánh dấu điểm rẽ theo yêu cầu — tuyến xanh + vị trí xe là đủ, chấm tròn
+            // gây rối mắt trên đường đi.
         }
-        // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up).
+        // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up) — to hơn trước (0.06->0.085) theo yêu
+        // cầu "điểm định vị to ra chút" để dễ thấy giữa tuyến xanh/nhánh trắng.
         val carPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
-        val carR = h * 0.06f
+        val carR = h * 0.085f
         val carPath = android.graphics.Path().apply {
             moveTo(anchorX, anchorY - carR)
             lineTo(anchorX - carR * 0.7f, anchorY + carR * 0.6f)
