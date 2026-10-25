@@ -482,7 +482,8 @@ object TftLink {
                     val li = wy.lats.size - 1
                     if (li > 0) endpointMap.getOrPut(endKey(wy.lats[li], wy.lons[li])) { mutableListOf() }.add(wy)
                 }
-                val branchPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.5f; isAntiAlias = true }
+                // Dày hơn (1.5->2.4) theo yêu cầu "tất cả đường cho dày thêm cho dễ nhìn".
+                val branchPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 val globalVisited = HashSet<Long>()
                 var drawnWays = 0
                 for (seed in ways) {
@@ -567,7 +568,8 @@ object TftLink {
                 path.lineTo(lx, ly)
             }
             // Tuyến chính màu xanh, dày hơn nữa (4f->6f) để nổi bật rõ giữa các nhánh đường trắng.
-            val linePaint = Paint().apply { color = Color.rgb(60, 140, 255); style = Paint.Style.STROKE; strokeWidth = 6f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+            // Dày hơn nữa (6->8.5) theo yêu cầu "kể cả đường xanh".
+            val linePaint = Paint().apply { color = Color.rgb(60, 140, 255); style = Paint.Style.STROKE; strokeWidth = 8.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
             c.drawPath(path, linePaint)
             // Bỏ chấm tròn đánh dấu điểm rẽ (trước đây gây rối mắt) nhưng theo yêu cầu mới: chỉ vào
             // đúng đoạn sắp rẽ 1 chú thích tên đường (đường kẻ mảnh nối từ điểm rẽ tới nhãn), để biết
