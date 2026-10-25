@@ -620,19 +620,6 @@ object TftLink {
             c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
             limBottomY = cy + r
         }
-        // Icon thời tiết dự báo LÚC TỚI điểm đến — góc trên-phải, cùng hàng với biển tốc độ, đặt
-        // vào khoảng trống giữa thẻ chỉ dẫn (góc trái) và biển tốc độ (theo yêu cầu).
-        val wxCat = skWxCat
-        if (wxCat != null) {
-            val wxCx = w * 0.755f; val wxCy = h * 0.14f
-            val emojiPaint = Paint().apply { textSize = h * 0.16f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-            c.drawText(WxCat.emoji(wxCat, skWxNight), wxCx, wxCy + h * 0.06f, emojiPaint)
-            val lbl = skWxLabel
-            if (!lbl.isNullOrBlank()) {
-                val lblPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.065f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-                c.drawText(lbl, wxCx, wxCy + h * 0.195f, lblPaint)
-            }
-        }
         // Dưới ô giới hạn tốc độ: ETA (giờ đến), thời gian còn lại, quãng đường còn lại — giống Waze.
         // To hơn nữa theo yêu cầu (0.068->0.085 chiều cao khung). Thêm dòng tên đường đang đi ngay
         // dưới số km còn lại (dời từ nhãn firmware sang đây theo yêu cầu, cùng cỡ chữ các thông số).
@@ -683,36 +670,18 @@ object TftLink {
                 }
             }
         }
-        // Thẻ chỉ dẫn — góc trên-trái (nhãn firmware xe, cmd 3/1, giờ hiện câu chỉ dẫn rẽ thay vì
-        // tên đường, nên đặt thẻ ở dưới sẽ trùng nội dung; để ở trên). Mũi tên hướng rẽ + khoảng
-        // cách + tên đường sắp rẽ, chữ to hơn nữa theo yêu cầu.
-        if (skActive && skRoute != null && skDistanceM >= 0) {
-            val boxW = w * 0.56f; val boxH = h * 0.3f
-            val bg = Paint().apply { color = Color.argb(200, 25, 25, 25); style = Paint.Style.FILL }
-            c.drawRect(0f, 0f, boxW, boxH, bg)
-            // Mũi tên (tam giác xoay theo góc rẽ — dùng chung công thức góc với bản điện thoại).
-            val arrowCx = boxW * 0.26f; val arrowCy = boxH * 0.52f; val arrowR = boxH * 0.34f
-            val angle = Maneuver.angle(skSign)
-            c.save()
-            c.rotate(angle, arrowCx, arrowCy)
-            val arrowPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
-            val arrowPath = android.graphics.Path().apply {
-                moveTo(arrowCx, arrowCy - arrowR)
-                lineTo(arrowCx - arrowR * 0.8f, arrowCy + arrowR * 0.7f)
-                lineTo(arrowCx, arrowCy + arrowR * 0.3f)
-                lineTo(arrowCx + arrowR * 0.8f, arrowCy + arrowR * 0.7f)
-                close()
-            }
-            c.drawPath(arrowPath, arrowPaint)
-            c.restore()
-            val distTxt = if (skDistanceM >= 1000) String.format("%.1f km", skDistanceM / 1000.0) else "$skDistanceM m"
-            val distCx = boxW * 0.66f
-            val distPaint = Paint().apply { color = Color.WHITE; textSize = boxH * 0.46f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            c.drawText(distTxt, distCx, boxH * 0.46f, distPaint)
-            val nextSt2 = skNextStreet
-            if (!nextSt2.isNullOrBlank()) {
-                val stPaint = Paint().apply { color = Color.rgb(230, 230, 230); textSize = boxH * 0.3f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-                c.drawText(nextSt2, distCx, boxH * 0.82f, stPaint)
+        // Bỏ thẻ chỉ dẫn (mũi tên + khoảng cách + tên đường sắp rẽ) ở góc trên-trái — theo yêu cầu,
+        // vì dưới đã có nhãn firmware xe (cmd 3/1) hiện câu chỉ dẫn rẽ rồi, để hai chỗ trùng nội
+        // dung là thừa. Thay chỗ đó bằng icon thời tiết dự báo LÚC TỚI điểm đến.
+        val wxCat = skWxCat
+        if (wxCat != null) {
+            val wxCx = w * 0.14f; val wxCy = h * 0.17f
+            val emojiPaint = Paint().apply { textSize = h * 0.22f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+            c.drawText(WxCat.emoji(wxCat, skWxNight), wxCx, wxCy + h * 0.08f, emojiPaint)
+            val lbl = skWxLabel
+            if (!lbl.isNullOrBlank()) {
+                val lblPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.075f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+                c.drawText(lbl, wxCx, wxCy + h * 0.25f, lblPaint)
             }
         }
         val out = ByteArrayOutputStream()
