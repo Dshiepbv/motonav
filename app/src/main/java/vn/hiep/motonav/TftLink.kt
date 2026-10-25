@@ -370,16 +370,13 @@ object TftLink {
             skIdxHint = idx0
             skIdxHintRoute = route
             val cum0 = route.cum[idx0]
-            // Thu phóng theo tốc độ (giống app bản đồ điện thoại) + zoom thủ công bằng nút xe.
-            // Theo phản hồi thực tế: đường xanh quá ngắn làm chạy quá nhanh so với khung mới gửi
-            // tới (chạy hết đường xanh mà chưa thấy gì tiếp), nên nâng sàn cao hẳn và vẽ sớm, ưu
-            // tiên "luôn đầy màn" hơn là tiết kiệm dung lượng khung.
-            val spd = skSpeedKmh
+            // Yêu cầu rõ từ thực tế dùng (vẫn ko hiện full đường xanh ở bản 450-700m): "load map
+            // 2km đi" — bỏ hẳn kiểu scale theo tốc độ (quá hẹp), neo cố định quanh 2000m (2km) để
+            // luôn thấy toàn cảnh lộ trình phía trước, nút zoom vật lý chỉnh nới/co quanh mốc này.
             val zoomMul = when (skZoomStep) {
-                -3 -> 0.5; -2 -> 0.65; -1 -> 0.8; 1 -> 1.25; 2 -> 1.5; 3 -> 1.8; else -> 1.0
+                -3 -> 0.4; -2 -> 0.55; -1 -> 0.75; 1 -> 1.3; 2 -> 1.65; 3 -> 2.0; else -> 1.0
             }
-            val baseAhead = if (spd > 0) spd * (1000.0 / 3600.0) * 25.0 else 450.0
-            val maxAhead = (baseAhead.coerceIn(450.0, 700.0) * zoomMul).coerceIn(250.0, 900.0)
+            val maxAhead = (2000.0 * zoomMul).coerceIn(800.0, 4000.0)
             val hRad = Math.toRadians(if (skHeadingDeg >= 0) skHeadingDeg else 0.0)
             val cosH = Math.cos(hRad); val sinH = Math.sin(hRad)
             // px trên mét — chỉnh theo đoạn xa nhất sẽ vẽ, để luôn vừa khung hình.
@@ -419,10 +416,18 @@ object TftLink {
                 }
             }
 
+            // Với maxAhead lớn (tới 4km), tuyến có thể có hàng nghìn điểm trong đoạn này — nếu vẽ
+            // hết sẽ làm khung JPEG phình to, chậm, có thể gây mất kết nối lại (đã sửa ở bản
+            // trước). Dò trước điểm cuối nằm trong maxAhead rồi giãn bước vẽ để tối đa ~260 điểm,
+            // vẫn giữ đủ hình dạng đường ở độ phân giải nhỏ của màn dash.
+            var iEnd = idx0
+            while (iEnd < route.lats.size && route.cum[iEnd] - cum0 <= maxAhead) iEnd++
+            val ptCount = iEnd - idx0
+            val pathStep = (ptCount / 260).coerceAtLeast(1)
             val path = android.graphics.Path()
             var started = false
             var i = idx0
-            while (i < route.lats.size && route.cum[i] - cum0 <= maxAhead) {
+            while (i < iEnd) {
                 val dx = proj.x(route.lons[i])
                 val dy = proj.y(route.lats[i])
                 val rx = dx * cosH - dy * sinH
@@ -430,7 +435,14 @@ object TftLink {
                 val sx = anchorX + (rx * scale).toFloat()
                 val sy = anchorY - (ry * scale).toFloat()
                 if (!started) { path.moveTo(sx, sy); started = true } else path.lineTo(sx, sy)
-                i++
+                i += pathStep
+            }
+            // Đảm bảo luôn vẽ tới điểm cuối thực (iEnd-1) kể cả khi bước nhảy bỏ qua nó.
+            if (started && (iEnd - 1) >= idx0 && (iEnd - 1 - idx0) % pathStep != 0) {
+                val li = (iEnd - 1).coerceAtMost(route.lats.size - 1)
+                val dx = proj.x(route.lons[li]); val dy = proj.y(route.lats[li])
+                val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
+                path.lineTo(anchorX + (rx * scale).toFloat(), anchorY - (ry * scale).toFloat())
             }
             // Tuyến chính màu xanh, dày hơn nữa (4f->6f) để nổi bật rõ giữa các nhánh đường trắng.
             val linePaint = Paint().apply { color = Color.rgb(60, 140, 255); style = Paint.Style.STROKE; strokeWidth = 6f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
