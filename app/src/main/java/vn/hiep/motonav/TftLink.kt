@@ -291,6 +291,7 @@ object TftLink {
     @Volatile private var skNextStreet: String? = null
     @Volatile private var skRemainingM: Double = 0.0
     @Volatile private var skEtaMs: Long = 0L
+    @Volatile private var skCurrentStreet: String? = null
     // Zoom thủ công bằng nút vật lý trên xe (51 lên = xa hơn, 52 xuống = gần hơn), cộng dồn vào
     // công thức maxAhead theo tốc độ. -3..+3, 0 = mặc định.
     @Volatile private var skZoomStep: Int = 0
@@ -317,6 +318,7 @@ object TftLink {
         nextStreet: String? = null,
         remainingM: Double = 0.0,
         etaMs: Long = 0L,
+        currentStreet: String? = null,
     ) {
         skActive = active
         skRoute = route
@@ -330,6 +332,7 @@ object TftLink {
         skLimitKmh = limitKmh
         skWays = ways
         skSpeedKmh = speedKmh
+        skCurrentStreet = currentStreet
         skDistanceM = distanceM
         skNextStreet = nextStreet
         skRemainingM = remainingM
@@ -433,10 +436,14 @@ object TftLink {
             var iEnd0 = idx0
             while (iEnd0 < route.lats.size && route.cum[iEnd0] - cum0 <= maxAhead) iEnd0++
 
-            // Nhánh đường — theo yêu cầu: CHỈ quan tâm các trục gắn thẳng vào đường chính (biết có
-            // quẹo được/đi thẳng được không ở từng giao lộ dọc tuyến), đường xung quanh không chạm
-            // vào tuyến thì bỏ, không cần vẽ. Dò bằng lưới ô vuông ~25m phủ các điểm của đoạn tuyến
-            // chính sắp vẽ: way nào có ít nhất 1 điểm rơi vào ô lưới này coi là "gắn vào trục chính".
+            // Nhánh đường — CHỈ quan tâm các trục gắn thẳng vào đường chính (biết có quẹo được/đi
+            // thẳng được không ở từng giao lộ dọc tuyến). Dò điểm "gắn vào trục chính" bằng lưới ô
+            // vuông ~25m phủ lên đoạn tuyến chính sắp vẽ. OSM hay cắt 1 con đường thành nhiều "way"
+            // ngắn nối tiếp nhau (đổi tên/giới hạn tốc độ ở mỗi giao lộ) nên nếu chỉ vẽ đúng way chạm
+            // tuyến thì nhánh hiện ra rất ngắn (chỉ đúng đoạn sát ngã tư) — theo yêu cầu "vẽ dài ra,
+            // tương xứng với độ dài đường chính hiện ra", nối tiếp các way kế tiếp cùng chung đầu mút
+            // (dò bằng lưới mút đường ~12m) để nhánh kéo dài ra xa, bị khung vẽ (theo maxAhead, cùng
+            // công thức nén dùng cho tuyến chính) tự cắt bớt nếu vượt khỏi phạm vi hiển thị.
             val ways = skWays
             if (ways != null) {
                 val gridDeg = 25.0 / 111320.0 // ~25m quy ra độ, đủ dung sai nối điểm way vào tuyến
@@ -451,34 +458,74 @@ object TftLink {
                     routeGrid.add(cellKey(route.lats[gi], route.lons[gi]))
                     gi++
                 }
-                val branchPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.5f; isAntiAlias = true }
-                var drawnWays = 0
+                // Lưới đầu mút way (dung sai nhỏ hơn, ~12m) để nối các way kế tiếp nhau.
+                val endDeg = 12.0 / 111320.0
+                fun endKey(lat: Double, lon: Double): Long {
+                    val la = Math.floor(lat / endDeg).toLong()
+                    val lo = Math.floor(lon / endDeg).toLong()
+                    return (la shl 24) xor (lo and 0xFFFFFFL)
+                }
+                val endpointMap = HashMap<Long, MutableList<Way>>()
                 for (wy in ways) {
-                    if (drawnWays >= 40) break
                     if (wy.lats.isEmpty()) continue
+                    endpointMap.getOrPut(endKey(wy.lats[0], wy.lons[0])) { mutableListOf() }.add(wy)
+                    val li = wy.lats.size - 1
+                    if (li > 0) endpointMap.getOrPut(endKey(wy.lats[li], wy.lons[li])) { mutableListOf() }.add(wy)
+                }
+                val branchPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.5f; isAntiAlias = true }
+                val globalVisited = HashSet<Long>()
+                var drawnWays = 0
+                for (seed in ways) {
+                    if (drawnWays >= 40) break
+                    if (seed.lats.isEmpty() || seed.id in globalVisited) continue
                     var touchesRoute = false
-                    for (k in wy.lats.indices) {
-                        if (routeGrid.contains(cellKey(wy.lats[k], wy.lons[k]))) { touchesRoute = true; break }
+                    for (k in seed.lats.indices) {
+                        if (routeGrid.contains(cellKey(seed.lats[k], seed.lons[k]))) { touchesRoute = true; break }
                     }
                     if (!touchesRoute) continue
-                    val bp = android.graphics.Path()
-                    var bStarted = false
-                    var any = false
-                    val step = (wy.lats.size / 55).coerceAtLeast(1)
-                    var j = 0
-                    while (j < wy.lats.size) {
-                        val dx = proj.x(wy.lons[j]); val dy = proj.y(wy.lats[j])
-                        val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
-                        if (Math.abs(rx) <= maxAhead * 1.1 && ry >= -maxAhead * 0.3 && ry <= maxAhead) {
-                            val (sx, sy) = toScreen(rx, ry)
-                            if (!bStarted) { bp.moveTo(sx, sy); bStarted = true } else bp.lineTo(sx, sy)
-                            any = true
-                        } else {
-                            bStarted = false
-                        }
-                        j += step
+                    // Chuỗi way nối tiếp nhau, bắt đầu từ seed, kéo dài về phía đầu mút XA vị trí xe
+                    // hơn (đầu mút gần coi như phía giao lộ, không cần nối thêm về hướng đó).
+                    val chain = ArrayList<Way>()
+                    chain.add(seed)
+                    globalVisited.add(seed.id)
+                    val dStart0 = Geo.distance(skLat, skLon, seed.lats[0], seed.lons[0])
+                    val dEnd0 = Geo.distance(skLat, skLon, seed.lats[seed.lats.size - 1], seed.lons[seed.lats.size - 1])
+                    var curLat: Double; var curLon: Double
+                    if (dEnd0 > dStart0) { curLat = seed.lats[seed.lats.size - 1]; curLon = seed.lons[seed.lats.size - 1] }
+                    else { curLat = seed.lats[0]; curLon = seed.lons[0] }
+                    var hops = 0
+                    while (hops < 12) {
+                        hops++
+                        val cands = endpointMap[endKey(curLat, curLon)] ?: break
+                        val next = cands.firstOrNull { it.id !in globalVisited && it.lats.isNotEmpty() } ?: break
+                        globalVisited.add(next.id)
+                        chain.add(next)
+                        val nd0 = Geo.distance(curLat, curLon, next.lats[0], next.lons[0])
+                        val nd1 = Geo.distance(curLat, curLon, next.lats[next.lats.size - 1], next.lons[next.lats.size - 1])
+                        if (nd0 <= nd1) { curLat = next.lats[next.lats.size - 1]; curLon = next.lons[next.lats.size - 1] }
+                        else { curLat = next.lats[0]; curLon = next.lons[0] }
                     }
-                    if (any) { c.drawPath(bp, branchPaint); drawnWays++ }
+                    for (wy in chain) {
+                        if (drawnWays >= 40) break
+                        val bp = android.graphics.Path()
+                        var bStarted = false
+                        var any = false
+                        val step = (wy.lats.size / 55).coerceAtLeast(1)
+                        var j = 0
+                        while (j < wy.lats.size) {
+                            val dx = proj.x(wy.lons[j]); val dy = proj.y(wy.lats[j])
+                            val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
+                            if (Math.abs(rx) <= maxAhead * 1.1 && ry >= -maxAhead * 0.3 && ry <= maxAhead) {
+                                val (sx, sy) = toScreen(rx, ry)
+                                if (!bStarted) { bp.moveTo(sx, sy); bStarted = true } else bp.lineTo(sx, sy)
+                                any = true
+                            } else {
+                                bStarted = false
+                            }
+                            j += step
+                        }
+                        if (any) { c.drawPath(bp, branchPaint); drawnWays++ }
+                    }
                 }
             }
 
@@ -564,7 +611,8 @@ object TftLink {
             limBottomY = cy + r
         }
         // Dưới ô giới hạn tốc độ: ETA (giờ đến), thời gian còn lại, quãng đường còn lại — giống Waze.
-        // To hơn nữa theo yêu cầu (0.068->0.085 chiều cao khung).
+        // To hơn nữa theo yêu cầu (0.068->0.085 chiều cao khung). Thêm dòng tên đường đang đi ngay
+        // dưới số km còn lại (dời từ nhãn firmware sang đây theo yêu cầu, cùng cỡ chữ các thông số).
         if (skActive && skRoute != null) {
             val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.085f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
             val cx = w * 0.90f
@@ -579,11 +627,19 @@ object TftLink {
             c.drawText("$remMin ph", cx, sy, statPaint)
             sy += h * 0.1f
             c.drawText(remTxt, cx, sy, statPaint)
+            val cur = skCurrentStreet
+            if (!cur.isNullOrBlank()) {
+                sy += h * 0.1f
+                val maxW = w * 0.42f
+                var txt: String = cur
+                while (txt.length > 2 && statPaint.measureText(txt) > maxW) txt = txt.substring(0, txt.length - 1)
+                if (txt != cur) txt = txt.dropLast(1) + "…"
+                c.drawText(txt, cx, sy, statPaint)
+            }
         }
-        // Thẻ chỉ dẫn — đưa trở lại góc trên-trái: nhãn tên đường đang đi (của firmware xe, cmd 3/1)
-        // nằm ở mép dưới màn hình và không chỉnh vị trí được từ app, nên đặt thẻ này ở dưới (bản
-        // trước) làm đè/rối với nhãn đó. Mũi tên hướng rẽ + khoảng cách + tên đường sắp rẽ, chữ to
-        // hơn nữa theo yêu cầu.
+        // Thẻ chỉ dẫn — góc trên-trái (nhãn firmware xe, cmd 3/1, giờ hiện câu chỉ dẫn rẽ thay vì
+        // tên đường, nên đặt thẻ ở dưới sẽ trùng nội dung; để ở trên). Mũi tên hướng rẽ + khoảng
+        // cách + tên đường sắp rẽ, chữ to hơn nữa theo yêu cầu.
         if (skActive && skRoute != null && skDistanceM >= 0) {
             val boxW = w * 0.56f; val boxH = h * 0.3f
             val bg = Paint().apply { color = Color.argb(200, 25, 25, 25); style = Paint.Style.FILL }
@@ -1346,13 +1402,14 @@ object TftLink {
      * Gọi liên tục (khoảng mỗi giây) từ dịch vụ chạy nền khi đang dẫn đường. Tự lọc trùng để
      * không gửi lại những gì chưa đổi — giữ đúng tinh thần "kênh chữ nhẹ" không nghẽn Bluetooth.
      */
-    fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, etaMinutes: Int, street: String? = null) {
+    fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, etaMinutes: Int) {
         if (!authed) return
-        // Nhãn nguồn dưới tam giác vị trí trên xe — theo yêu cầu, thay chữ "MotoNav" cố định bằng
-        // tên đường đang đi (rơi về "MotoNav" khi chưa rõ tên đường/chưa dẫn đường). Tách khỏi
-        // "active" ở dưới để vẫn cập nhật được kể cả lúc không dẫn đường (ví dụ đi lạc ra khỏi
-        // tuyến), chỉ gửi khi thật sự đổi để không tốn băng thông.
-        val wantName = if (active && !street.isNullOrBlank()) street else "MotoNav"
+        // Nhãn nguồn dưới tam giác vị trí trên xe — trước đổi theo tên đường đang đi (v6.76), nay
+        // theo yêu cầu đổi tiếp thành CHỈ DẪN ĐƯỜNG (mũi tên/khoảng cách dạng câu, "road" — tên đường
+        // đang đi dời sang vẽ trong khung ảnh, dưới số km còn lại). Rơi về "MotoNav" khi chưa dẫn
+        // đường. Tách khỏi "active" ở dưới để vẫn cập nhật được kể cả lúc không dẫn đường, chỉ gửi
+        // khi thật sự đổi để không tốn băng thông.
+        val wantName = if (active && road.isNotBlank()) road else "MotoNav"
         if (wantName != lastSentName) {
             send(namePacket(wantName))
             lastSentName = wantName

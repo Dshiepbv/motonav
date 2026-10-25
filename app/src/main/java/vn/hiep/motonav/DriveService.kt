@@ -56,7 +56,7 @@ class DriveService : Service(), LocationListener {
             ctx.startService(Intent(ctx, DriveService::class.java).setAction(ACTION_NAV_STOP))
         }
 
-        private const val WAY_RADIUS = 1200      // tải đường trong bán kính 1,2 km
+        private const val WAY_RADIUS = 1800      // tải đường trong bán kính 1,8 km (khớp mốc neo maxAhead mặc định trên TFT, để nhánh đường nối dài ra đủ xa)
         private const val CAM_RADIUS = 4000      // tải camera trong bán kính 4 km
         private const val REFETCH_AT = 600.0     // đi xa tâm vùng đã tải 600 m thì tải lại
         private const val MATCH_MAX = 45.0       // điểm khớp đường tối đa (mét + phạt hướng)
@@ -297,7 +297,6 @@ class DriveService : Service(), LocationListener {
                     distanceM = if (Live.navMeters >= 0) Live.navMeters else 0,
                     road = Live.navInstruction ?: Live.maneuverLabel ?: "",
                     etaMinutes = (Live.etaMs / 60000L).toInt(),
-                    street = Live.street,
                 )
                 TftLink.updateSketch(
                     active = navOn,
@@ -316,6 +315,7 @@ class DriveService : Service(), LocationListener {
                     nextStreet = Live.maneuverLabel,
                     remainingM = Live.remainingM,
                     etaMs = Live.etaMs,
+                    currentStreet = Live.street,
                 )
             }
             handler.postDelayed(this, 1000)
