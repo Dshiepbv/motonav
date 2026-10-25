@@ -342,8 +342,12 @@ object TftLink {
             // hết 220m cũ chỉ trong ~13 giây, quá ngắn để kịp phản ứng. Lấy quãng đường đi được trong
             // ~15 giây tới làm bán kính vẽ, giới hạn 120–400m để không quá hẹp lúc đứng yên/quá rộng
             // lúc chạy nhanh (ảnh sẽ chi tiết hơn nếu vẽ quá xa).
+            // Ghi nhận từ log thực tế (20261025-082815): ở tốc độ đô thị thấp (đa số <30km/h),
+            // maxAhead cũ (15s lookahead, sàn 120m) ra quá nhỏ nên đoạn tuyến xanh vẽ được rất
+            // ngắn, nhiều khung gần như không thấy đường xanh. Nâng sàn lên 300m, trần 500m theo
+            // yêu cầu "dài 500m phía trước".
             val spd = skSpeedKmh
-            val maxAhead = (if (spd > 0) spd * (1000.0 / 3600.0) * 15.0 else 150.0).coerceIn(120.0, 400.0)
+            val maxAhead = (if (spd > 0) spd * (1000.0 / 3600.0) * 20.0 else 300.0).coerceIn(300.0, 500.0)
             val hRad = Math.toRadians(if (skHeadingDeg >= 0) skHeadingDeg else 0.0)
             val cosH = Math.cos(hRad); val sinH = Math.sin(hRad)
             // px trên mét — chỉnh theo đoạn xa nhất sẽ vẽ, để luôn vừa khung hình.
@@ -359,13 +363,13 @@ object TftLink {
                 val branchPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.5f; isAntiAlias = true }
                 var drawnWays = 0
                 for (wy in ways) {
-                    if (drawnWays >= 25) break
+                    if (drawnWays >= 18) break
                     if (wy.lats.isEmpty()) continue
                     if (Math.abs(wy.lats[0] - skLat) > degRadius || Math.abs(wy.lons[0] - skLon) > degRadius) continue
                     val bp = android.graphics.Path()
                     var bStarted = false
                     var any = false
-                    val step = (wy.lats.size / 60).coerceAtLeast(1)
+                    val step = (wy.lats.size / 45).coerceAtLeast(1)
                     var j = 0
                     while (j < wy.lats.size) {
                         val dx = proj.x(wy.lons[j]); val dy = proj.y(wy.lats[j])
@@ -396,8 +400,8 @@ object TftLink {
                 if (!started) { path.moveTo(sx, sy); started = true } else path.lineTo(sx, sy)
                 i++
             }
-            // Tuyến chính màu xanh (trước là trắng) để phân biệt với nhánh đường trắng xung quanh.
-            val linePaint = Paint().apply { color = Color.rgb(60, 140, 255); style = Paint.Style.STROKE; strokeWidth = 4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+            // Tuyến chính màu xanh, dày hơn nữa (4f->6f) để nổi bật rõ giữa các nhánh đường trắng.
+            val linePaint = Paint().apply { color = Color.rgb(60, 140, 255); style = Paint.Style.STROKE; strokeWidth = 6f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
             c.drawPath(path, linePaint)
             // Chấm tại điểm rẽ sắp tới.
             val mdx = proj.x(skManLon); val mdy = proj.y(skManLat)
