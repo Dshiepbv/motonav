@@ -334,10 +334,10 @@ object TftLink {
         if (route == null || route.lats.size < 2) {
             // Khung "chờ" — gửi đều đặn khi chưa có tuyến (chưa dẫn đường/mất GPS/vừa tới nơi) để
             // xe không coi là mất kết nối vì im lặng quá lâu.
-            val p1 = Paint().apply { color = Color.WHITE; textSize = h * 0.20f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            val p2 = Paint().apply { color = Color.WHITE; textSize = h * 0.11f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-            c.drawText("MotoNav", w / 2f, h * 0.44f, p1)
-            c.drawText("Chờ tuyến đường…", w / 2f, h * 0.62f, p2)
+            // Bỏ chữ "MotoNav" theo yêu cầu "bỏ logo cho nó rộng" — chỉ còn dòng trạng thái, để
+            // khoảng trống thoáng hơn.
+            val p2 = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+            c.drawText("Chờ tuyến đường…", w / 2f, h * 0.52f, p2)
         } else {
             val proj = LocalProjection(skLat, skLon)
             // Tìm điểm gần vị trí hiện tại nhất trên tuyến. "Ghim" quanh chỉ số khung trước (nếu
@@ -372,18 +372,32 @@ object TftLink {
             skIdxHint = idx0
             skIdxHintRoute = route
             val cum0 = route.cum[idx0]
-            // Chỉnh lại theo phản hồi: 2km vẽ ra quá nhỏ, không thấy rõ điểm rẽ — hạ mốc neo xuống
-            // 1000m (1km). "Load 2km" (ý ban đầu) là phạm vi dữ liệu nhánh đường/tuyến chính cần có
-            // sẵn để thấy hướng rẽ xa — không phải khoảng cách hiển thị trên khung; khoảng hiển thị
-            // (maxAhead, quyết định độ zoom) để ở 1km là vừa thấy rõ điểm rẽ gần mà vẫn đủ xa.
+            // "Dài hơn" (chạy 60km/h hết đường xanh) nhưng vẫn phải "thấy rõ điểm rẽ" (2km tuyến tính
+            // cũ bị quá bé ở gần) — hai yêu cầu mâu thuẫn nếu chiếu thẳng khoảng cách sang pixel theo
+            // 1 tỉ lệ cố định. Giải quyết bằng phép chiếu "nén xa, giãn gần" (căn bậc hai theo bán
+            // kính, giống kiểu bản đồ fisheye): đoạn gần xe chiếm nhiều pixel hơn tỉ lệ thật (dễ thấy
+            // khúc rẽ ngay trước mắt), đoạn xa bị nén lại nhưng vẫn hiện đủ hình dạng/hướng đi xa tới
+            // maxAhead. Nhờ vậy nâng lại maxAhead lên hẳn (1.8km mặc định) mà điểm rẽ gần vẫn to rõ.
             val zoomMul = when (skZoomStep) {
                 -3 -> 0.4; -2 -> 0.55; -1 -> 0.75; 1 -> 1.3; 2 -> 1.65; 3 -> 2.0; else -> 1.0
             }
-            val maxAhead = (1000.0 * zoomMul).coerceIn(400.0, 2000.0)
+            val maxAhead = (1800.0 * zoomMul).coerceIn(700.0, 3600.0)
             val hRad = Math.toRadians(if (skHeadingDeg >= 0) skHeadingDeg else 0.0)
             val cosH = Math.cos(hRad); val sinH = Math.sin(hRad)
-            // px trên mét — chỉnh theo đoạn xa nhất sẽ vẽ, để luôn vừa khung hình.
+            // px trên "mét đã nén" — chỉnh theo đoạn xa nhất sẽ vẽ, để luôn vừa khung hình.
             val scale = (h * 0.68f) / maxAhead.toFloat()
+            // rx/ry (mét thật, đã xoay theo hướng xe) -> toạ độ pixel, nén bán kính theo căn bậc hai
+            // (mũ 0.55) quanh vị trí xe: gần xe gần như không nén (dễ thấy rẽ), xa xe nén mạnh hơn.
+            fun toScreen(rx: Double, ry: Double): FloatArray {
+                val dist = Math.hypot(rx, ry)
+                if (dist < 1.0) return floatArrayOf(anchorX, anchorY)
+                val warped = maxAhead * Math.pow((dist / maxAhead).coerceAtMost(2.0), 0.55)
+                val ux = rx / dist; val uy = ry / dist
+                return floatArrayOf(
+                    anchorX + (ux * warped * scale).toFloat(),
+                    anchorY - (uy * warped * scale).toFloat()
+                )
+            }
 
             // Nhánh đường xung quanh (nét trắng mảnh) — thử lại (trước đã bỏ vì sợ nặng JPEG, giờ
             // thử lại theo yêu cầu). Lọc bớt: chỉ các way có điểm đầu nằm trong bán kính vẽ (lọc
@@ -407,7 +421,7 @@ object TftLink {
                         val dx = proj.x(wy.lons[j]); val dy = proj.y(wy.lats[j])
                         val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
                         if (Math.abs(rx) <= maxAhead * 1.1 && ry >= -maxAhead * 0.3 && ry <= maxAhead) {
-                            val sx = anchorX + (rx * scale).toFloat(); val sy = anchorY - (ry * scale).toFloat()
+                            val (sx, sy) = toScreen(rx, ry)
                             if (!bStarted) { bp.moveTo(sx, sy); bStarted = true } else bp.lineTo(sx, sy)
                             any = true
                         } else {
@@ -435,8 +449,7 @@ object TftLink {
                 val dy = proj.y(route.lats[i])
                 val rx = dx * cosH - dy * sinH
                 val ry = dx * sinH + dy * cosH
-                val sx = anchorX + (rx * scale).toFloat()
-                val sy = anchorY - (ry * scale).toFloat()
+                val (sx, sy) = toScreen(rx, ry)
                 if (!started) { path.moveTo(sx, sy); started = true } else path.lineTo(sx, sy)
                 i += pathStep
             }
@@ -445,7 +458,8 @@ object TftLink {
                 val li = (iEnd - 1).coerceAtMost(route.lats.size - 1)
                 val dx = proj.x(route.lons[li]); val dy = proj.y(route.lats[li])
                 val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
-                path.lineTo(anchorX + (rx * scale).toFloat(), anchorY - (ry * scale).toFloat())
+                val (lx, ly) = toScreen(rx, ry)
+                path.lineTo(lx, ly)
             }
             // Tuyến chính màu xanh, dày hơn nữa (4f->6f) để nổi bật rõ giữa các nhánh đường trắng.
             val linePaint = Paint().apply { color = Color.rgb(60, 140, 255); style = Paint.Style.STROKE; strokeWidth = 6f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
