@@ -275,6 +275,11 @@ object TftLink {
     @Volatile private var skLat = 0.0
     @Volatile private var skLon = 0.0
     @Volatile private var skHeadingDeg = -1.0
+    // Hướng hợp lệ gần nhất (khi xe đứng yên/chạy chậm, Live.heading = -1 vì GPS course không đáng
+    // tin ở tốc độ thấp — DriveService.onLocation dòng ~401). Trước đây lúc đó khung lấy mặc định
+    // 0° (coi như hướng Bắc) làm bản đồ đột ngột "xoay ngang" mỗi lần dừng xe rồi lại đúng khi chạy
+    // tiếp. Giữ nguyên hướng cuối cùng đã biết thay vì nhảy về 0° để bản đồ không tự xoay khi dừng.
+    @Volatile private var skLastGoodHeadingDeg = 0.0
     @Volatile private var skManLat = 0.0
     @Volatile private var skManLon = 0.0
     @Volatile private var skSign = 0
@@ -400,7 +405,8 @@ object TftLink {
             // là đường nhỏ/khu đông dân cư, cần thấy rõ chi tiết gần hơn là nhìn xa.
             val spdMul = if (skSpeedKmh in 1..39) 0.5 else 1.0
             val maxAhead = (1800.0 * zoomMul * spdMul).coerceIn(400.0, 3600.0)
-            val hRad = Math.toRadians(if (skHeadingDeg >= 0) skHeadingDeg else 0.0)
+            val headingNow = if (skHeadingDeg >= 0) { skLastGoodHeadingDeg = skHeadingDeg; skHeadingDeg } else skLastGoodHeadingDeg
+            val hRad = Math.toRadians(headingNow)
             val cosH = Math.cos(hRad); val sinH = Math.sin(hRad)
             // px trên "mét đã nén" — chỉnh theo đoạn xa nhất sẽ vẽ, để luôn vừa khung hình.
             val scale = (h * 0.68f) / maxAhead.toFloat()
