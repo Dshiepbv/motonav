@@ -44,6 +44,11 @@ object VietMap {
     fun route(key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double, traffic: Boolean = true, avoidHighway: Boolean = false): Route =
         routes(key, fromLat, fromLon, heading, toLat, toLon, traffic, false, avoidHighway = avoidHighway).first()
 
+    // Pool dùng chung để chạy song song 2 lượt gọi (có/không kèm kẹt xe) khi cần đua lấy kết quả
+    // về trước — xem routes() bên dưới. Daemon thread, không chặn app thoát.
+    private val raceExec: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newCachedThreadPool { r -> Thread(r, "vietmap-route").apply { isDaemon = true } }
+
     /** Tìm đường; alternative = true trả về thêm các tuyến thay thế (tối đa 3). */
     fun routes(
         key: String, fromLat: Double, fromLon: Double, heading: Double?, toLat: Double, toLon: Double,
@@ -51,13 +56,36 @@ object VietMap {
         via: List<Pair<Double, Double>> = emptyList(),
         avoidHighway: Boolean = false,
     ): List<Route> {
-        if (traffic) {
+        if (!traffic) return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, false, alternative, via, avoidHighway)
+        // Gọi bản kèm dữ liệu kẹt xe trước (tô màu tuyến đẹp hơn). TRƯỚC ĐÂY: lỗi/chậm mới gọi lại
+        // NỐI TIẾP bản không kẹt xe — có lúc phải chờ gần gấp đôi (mỗi lượt tới ~30s, cộng dồn có
+        // thể gần 1 phút). GIỜ: đợi bản kèm kẹt xe tối đa 6s; nếu nó lỗi ngay hoặc chưa xong trong
+        // 6s thì mới bắn thêm bản không kẹt xe chạy SONG SONG và dùng kết quả của bên nào xong
+        // trước — vẫn ưu tiên có kẹt xe khi về kịp trong 6 giây đầu (trường hợp thường gặp, không
+        // tốn thêm lượt gọi API), chỉ tốn thêm 1 lượt gọi đúng những lần đang chậm/lỗi.
+        val completion = java.util.concurrent.ExecutorCompletionService<List<Route>>(raceExec)
+        completion.submit(java.util.concurrent.Callable { routeOnce(key, fromLat, fromLon, heading, toLat, toLon, true, alternative, via, avoidHighway) })
+        val first = completion.poll(6, java.util.concurrent.TimeUnit.SECONDS)
+        if (first != null) {
             try {
-                return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, true, alternative, via, avoidHighway)
-            } catch (e: Exception) {
-                // Thử lại không kèm dữ liệu kẹt xe
+                return first.get()
+            } catch (_: Exception) {
+                // Bản kèm kẹt xe lỗi ngay trong 6s đầu — gọi thẳng bản không kẹt xe, khỏi chờ thêm.
+                return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, false, alternative, via, avoidHighway)
             }
         }
+        // Chưa xong sau 6s — bắn thêm bản không kẹt xe chạy song song, lấy kết quả của bên nào
+        // xong trước trong số 2 lệnh đang chạy (ưu tiên có kẹt xe nếu nó cũng vừa xong).
+        completion.submit(java.util.concurrent.Callable { routeOnce(key, fromLat, fromLon, heading, toLat, toLon, false, alternative, via, avoidHighway) })
+        repeat(2) {
+            val f = completion.take()
+            try {
+                return f.get()
+            } catch (_: Exception) {
+                // Lệnh này lỗi — thử lấy kết quả của lệnh còn lại (vòng lặp tự lấy ở lượt sau).
+            }
+        }
+        // Cả 2 đều lỗi — gọi lại 1 lần nữa (không kèm kẹt xe) để lấy thông báo lỗi rõ ràng cho người dùng.
         return routeOnce(key, fromLat, fromLon, heading, toLat, toLon, false, alternative, via, avoidHighway)
     }
 
