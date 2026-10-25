@@ -297,6 +297,7 @@ class DriveService : Service(), LocationListener {
                     distanceM = if (Live.navMeters >= 0) Live.navMeters else 0,
                     road = Live.navInstruction ?: Live.maneuverLabel ?: "",
                     etaMinutes = (Live.etaMs / 60000L).toInt(),
+                    street = Live.street,
                 )
                 TftLink.updateSketch(
                     active = navOn,
@@ -310,6 +311,7 @@ class DriveService : Service(), LocationListener {
                     roundabout = Live.maneuverSign == 6,
                     ways = Live.osm?.ways,
                     speedKmh = Live.speedKmh,
+                    limitKmh = Live.limit,
                 )
             }
             handler.postDelayed(this, 1000)

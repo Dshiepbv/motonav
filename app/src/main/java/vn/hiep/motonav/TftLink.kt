@@ -281,6 +281,7 @@ object TftLink {
     @Volatile private var skRoundabout = false
     @Volatile private var skWays: List<Way>? = null
     @Volatile private var skSpeedKmh: Int = -1
+    @Volatile private var skLimitKmh: Int? = null
     // Zoom thủ công bằng nút vật lý trên xe (51 lên = xa hơn, 52 xuống = gần hơn), cộng dồn vào
     // công thức maxAhead theo tốc độ. -3..+3, 0 = mặc định.
     @Volatile private var skZoomStep: Int = 0
@@ -302,6 +303,7 @@ object TftLink {
         roundabout: Boolean,
         ways: List<Way>? = null,
         speedKmh: Int = -1,
+        limitKmh: Int? = null,
     ) {
         skActive = active
         skRoute = route
@@ -312,6 +314,7 @@ object TftLink {
         skManLon = maneuverLon
         skSign = sign
         skRoundabout = roundabout
+        skLimitKmh = limitKmh
         skWays = ways
         skSpeedKmh = speedKmh
     }
@@ -407,6 +410,11 @@ object TftLink {
             if (ways != null) {
                 val degRadius = (maxAhead / 111320.0) * 1.3
                 val branchPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.5f; isAntiAlias = true }
+                // Tên đường nhánh — chữ nhỏ, chỉ tối đa 6 nhãn (mỗi tên 1 lần) để đỡ rối mắt/nặng
+                // JPEG, đặt ở trung điểm đoạn vẽ được của way đó.
+                val namePaint = Paint().apply { color = Color.rgb(210, 210, 210); textSize = h * 0.038f; isAntiAlias = true }
+                val namedDrawn = HashSet<String>()
+                var labelsLeft = 6
                 var drawnWays = 0
                 for (wy in ways) {
                     if (drawnWays >= 18) break
@@ -415,6 +423,7 @@ object TftLink {
                     val bp = android.graphics.Path()
                     var bStarted = false
                     var any = false
+                    var sumX = 0f; var sumY = 0f; var cnt = 0
                     val step = (wy.lats.size / 45).coerceAtLeast(1)
                     var j = 0
                     while (j < wy.lats.size) {
@@ -424,12 +433,21 @@ object TftLink {
                             val (sx, sy) = toScreen(rx, ry)
                             if (!bStarted) { bp.moveTo(sx, sy); bStarted = true } else bp.lineTo(sx, sy)
                             any = true
+                            sumX += sx; sumY += sy; cnt++
                         } else {
                             bStarted = false
                         }
                         j += step
                     }
-                    if (any) { c.drawPath(bp, branchPaint); drawnWays++ }
+                    if (any) {
+                        c.drawPath(bp, branchPaint)
+                        drawnWays++
+                        val nm = wy.name
+                        if (nm != null && labelsLeft > 0 && namedDrawn.add(nm) && cnt > 0) {
+                            c.drawText(nm, sumX / cnt, sumY / cnt, namePaint)
+                            labelsLeft--
+                        }
+                    }
                 }
             }
 
@@ -478,6 +496,19 @@ object TftLink {
             close()
         }
         c.drawPath(carPath, carPaint)
+        // Biển tốc độ tối đa, góc trên bên phải — theo yêu cầu. Vẽ kiểu biển báo VN (viền đỏ, nền
+        // trắng, số đen) để nhận ra ngay là giới hạn tốc độ chứ không phải số liệu khác.
+        val lim = skLimitKmh
+        if (lim != null && lim > 0) {
+            val cx = w * 0.90f; val cy = h * 0.16f; val r = h * 0.105f
+            val ringPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.FILL; isAntiAlias = true }
+            val facePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+            val numPaint = Paint().apply { color = Color.BLACK; textSize = r * 1.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            c.drawCircle(cx, cy, r, ringPaint)
+            c.drawCircle(cx, cy, r * 0.78f, facePaint)
+            val fm = numPaint.fontMetrics
+            c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
+        }
         val out = ByteArrayOutputStream()
         // Chất lượng thấp hơn trước (35→22): nội dung chỉ nét trắng trên nền đen, hạ chất lượng gần
         // như không đổi hình mà khung nhỏ hơn, xe tải/giải mã nhanh hơn, bớt xoay.
@@ -807,6 +838,9 @@ object TftLink {
         private set
     @Volatile private var lastSentKey: String = ""
     @Volatile private var failCount = 0
+    // Tên hiển thị ở nhãn nguồn dưới tam giác vị trí trên xe (gói cmd 3/1, ban đầu chỉ gửi 1 lần
+    // lúc bắt tay là "MotoNav") — nay cập nhật lại theo tên đường đang đi, chỉ gửi khi đổi.
+    @Volatile private var lastSentName: String = "MotoNav"
 
     /** Gọi khi xe gửi cmd 49 (bấm nút "Dừng dẫn đường" trên màn xe) — DriveService gán để dừng
      * dẫn đường thật khi người dùng bấm nút này trên đồng hồ xe thay vì trong app. */
@@ -917,6 +951,7 @@ object TftLink {
         connected = false
         authed = false
         lastSentKey = ""
+        lastSentName = "MotoNav"
         rxBytes = 0
         handshakeStep = 0
         lastCmdSeen = -1
@@ -1028,6 +1063,7 @@ object TftLink {
         lastError = null
         failCount = 0
         lastSentKey = ""
+        lastSentName = "MotoNav"
         rxBytes = 0
         handshakeStep = 0
         lastCmdSeen = -1
@@ -1206,8 +1242,17 @@ object TftLink {
      * Gọi liên tục (khoảng mỗi giây) từ dịch vụ chạy nền khi đang dẫn đường. Tự lọc trùng để
      * không gửi lại những gì chưa đổi — giữ đúng tinh thần "kênh chữ nhẹ" không nghẽn Bluetooth.
      */
-    fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, etaMinutes: Int) {
+    fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, etaMinutes: Int, street: String? = null) {
         if (!authed) return
+        // Nhãn nguồn dưới tam giác vị trí trên xe — theo yêu cầu, thay chữ "MotoNav" cố định bằng
+        // tên đường đang đi (rơi về "MotoNav" khi chưa rõ tên đường/chưa dẫn đường). Tách khỏi
+        // "active" ở dưới để vẫn cập nhật được kể cả lúc không dẫn đường (ví dụ đi lạc ra khỏi
+        // tuyến), chỉ gửi khi thật sự đổi để không tốn băng thông.
+        val wantName = if (active && !street.isNullOrBlank()) street else "MotoNav"
+        if (wantName != lastSentName) {
+            send(namePacket(wantName))
+            lastSentName = wantName
+        }
         if (!active) {
             if (lastSentKey != "off") {
                 send(navActivePacket(false))
