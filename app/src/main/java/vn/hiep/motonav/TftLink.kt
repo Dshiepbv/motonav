@@ -428,24 +428,39 @@ object TftLink {
                 )
             }
 
-            // Nhánh đường xung quanh (nét trắng mảnh) — theo yêu cầu "mọi đường bên cạnh đường
-            // chính đều hiện" (biết có quẹo được hay đi thẳng được không ở ngã tư/vòng xoay dù
-            // không phải đường dẫn): nới bán kính lọc và số way/điểm vẽ được so với trước, lọc theo
-            // khoảng cách gần nhất của TỪNG điểm way (không chỉ điểm đầu) để không bỏ sót nhánh/lối
-            // ra vòng xoay có điểm đầu nằm hơi xa nhưng đoạn gần xe vẫn cắt qua bán kính vẽ.
+            // Phạm vi tuyến chính sẽ vẽ (idx0..iEnd) — tính trước để dùng làm "lưới" phát hiện nhánh
+            // đường THỰC SỰ gắn vào trục chính (xem bên dưới).
+            var iEnd0 = idx0
+            while (iEnd0 < route.lats.size && route.cum[iEnd0] - cum0 <= maxAhead) iEnd0++
+
+            // Nhánh đường — theo yêu cầu: CHỈ quan tâm các trục gắn thẳng vào đường chính (biết có
+            // quẹo được/đi thẳng được không ở từng giao lộ dọc tuyến), đường xung quanh không chạm
+            // vào tuyến thì bỏ, không cần vẽ. Dò bằng lưới ô vuông ~25m phủ các điểm của đoạn tuyến
+            // chính sắp vẽ: way nào có ít nhất 1 điểm rơi vào ô lưới này coi là "gắn vào trục chính".
             val ways = skWays
             if (ways != null) {
-                val degRadius = (maxAhead / 111320.0) * 1.6
+                val gridDeg = 25.0 / 111320.0 // ~25m quy ra độ, đủ dung sai nối điểm way vào tuyến
+                fun cellKey(lat: Double, lon: Double): Long {
+                    val la = Math.floor(lat / gridDeg).toLong()
+                    val lo = Math.floor(lon / gridDeg).toLong()
+                    return (la shl 24) xor (lo and 0xFFFFFFL)
+                }
+                val routeGrid = HashSet<Long>()
+                var gi = idx0
+                while (gi < iEnd0) {
+                    routeGrid.add(cellKey(route.lats[gi], route.lons[gi]))
+                    gi++
+                }
                 val branchPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.5f; isAntiAlias = true }
                 var drawnWays = 0
                 for (wy in ways) {
-                    if (drawnWays >= 30) break
+                    if (drawnWays >= 40) break
                     if (wy.lats.isEmpty()) continue
-                    var nearEnough = false
-                    for (k in wy.lats.indices step (wy.lats.size / 6).coerceAtLeast(1)) {
-                        if (Math.abs(wy.lats[k] - skLat) <= degRadius && Math.abs(wy.lons[k] - skLon) <= degRadius) { nearEnough = true; break }
+                    var touchesRoute = false
+                    for (k in wy.lats.indices) {
+                        if (routeGrid.contains(cellKey(wy.lats[k], wy.lons[k]))) { touchesRoute = true; break }
                     }
-                    if (!nearEnough) continue
+                    if (!touchesRoute) continue
                     val bp = android.graphics.Path()
                     var bStarted = false
                     var any = false
@@ -469,10 +484,9 @@ object TftLink {
 
             // Với maxAhead lớn (tới 4km), tuyến có thể có hàng nghìn điểm trong đoạn này — nếu vẽ
             // hết sẽ làm khung JPEG phình to, chậm, có thể gây mất kết nối lại (đã sửa ở bản
-            // trước). Dò trước điểm cuối nằm trong maxAhead rồi giãn bước vẽ để tối đa ~260 điểm,
-            // vẫn giữ đủ hình dạng đường ở độ phân giải nhỏ của màn dash.
-            var iEnd = idx0
-            while (iEnd < route.lats.size && route.cum[iEnd] - cum0 <= maxAhead) iEnd++
+            // trước). iEnd0 đã dò ở trên (dùng chung cho lưới phát hiện nhánh đường) — giãn bước vẽ
+            // để tối đa ~260 điểm, vẫn giữ đủ hình dạng đường ở độ phân giải nhỏ của màn dash.
+            val iEnd = iEnd0
             val ptCount = iEnd - idx0
             val pathStep = (ptCount / 260).coerceAtLeast(1)
             val path = android.graphics.Path()
@@ -550,32 +564,32 @@ object TftLink {
             limBottomY = cy + r
         }
         // Dưới ô giới hạn tốc độ: ETA (giờ đến), thời gian còn lại, quãng đường còn lại — giống Waze.
-        // To hơn trước theo yêu cầu "cho to ra" (0.05->0.068 chiều cao khung).
+        // To hơn nữa theo yêu cầu (0.068->0.085 chiều cao khung).
         if (skActive && skRoute != null) {
-            val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.068f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+            val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.085f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
             val cx = w * 0.90f
             val remKm = skRemainingM / 1000.0
             val remTxt = if (remKm >= 10) "${remKm.toInt()} km" else String.format("%.1f km", remKm)
             val remMin = (skEtaMs / 60000L).toInt()
             val arriveCal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
             val etaTxt = String.format("%02d:%02d", arriveCal.get(java.util.Calendar.HOUR_OF_DAY), arriveCal.get(java.util.Calendar.MINUTE))
-            var sy = limBottomY + h * 0.09f
+            var sy = limBottomY + h * 0.1f
             c.drawText(etaTxt, cx, sy, statPaint)
-            sy += h * 0.085f
+            sy += h * 0.1f
             c.drawText("$remMin ph", cx, sy, statPaint)
-            sy += h * 0.085f
+            sy += h * 0.1f
             c.drawText(remTxt, cx, sy, statPaint)
         }
-        // Thẻ chỉ dẫn, dời xuống góc dưới-trái theo yêu cầu (trước ở trên-trái) — mũi tên hướng rẽ +
-        // khoảng cách + tên đường sắp rẽ, chữ to hơn hẳn ("cho to ra").
+        // Thẻ chỉ dẫn — đưa trở lại góc trên-trái: nhãn tên đường đang đi (của firmware xe, cmd 3/1)
+        // nằm ở mép dưới màn hình và không chỉnh vị trí được từ app, nên đặt thẻ này ở dưới (bản
+        // trước) làm đè/rối với nhãn đó. Mũi tên hướng rẽ + khoảng cách + tên đường sắp rẽ, chữ to
+        // hơn nữa theo yêu cầu.
         if (skActive && skRoute != null && skDistanceM >= 0) {
-            val boxW = w * 0.52f; val boxH = h * 0.30f
-            c.save()
-            c.translate(0f, h - boxH)
+            val boxW = w * 0.56f; val boxH = h * 0.3f
             val bg = Paint().apply { color = Color.argb(200, 25, 25, 25); style = Paint.Style.FILL }
             c.drawRect(0f, 0f, boxW, boxH, bg)
             // Mũi tên (tam giác xoay theo góc rẽ — dùng chung công thức góc với bản điện thoại).
-            val arrowCx = boxW * 0.26f; val arrowCy = boxH * 0.52f; val arrowR = boxH * 0.32f
+            val arrowCx = boxW * 0.26f; val arrowCy = boxH * 0.52f; val arrowR = boxH * 0.34f
             val angle = Maneuver.angle(skSign)
             c.save()
             c.rotate(angle, arrowCx, arrowCy)
@@ -591,14 +605,13 @@ object TftLink {
             c.restore()
             val distTxt = if (skDistanceM >= 1000) String.format("%.1f km", skDistanceM / 1000.0) else "$skDistanceM m"
             val distCx = boxW * 0.66f
-            val distPaint = Paint().apply { color = Color.WHITE; textSize = boxH * 0.4f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val distPaint = Paint().apply { color = Color.WHITE; textSize = boxH * 0.46f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             c.drawText(distTxt, distCx, boxH * 0.46f, distPaint)
             val nextSt2 = skNextStreet
             if (!nextSt2.isNullOrBlank()) {
-                val stPaint = Paint().apply { color = Color.rgb(230, 230, 230); textSize = boxH * 0.26f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-                c.drawText(nextSt2, distCx, boxH * 0.8f, stPaint)
+                val stPaint = Paint().apply { color = Color.rgb(230, 230, 230); textSize = boxH * 0.3f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+                c.drawText(nextSt2, distCx, boxH * 0.82f, stPaint)
             }
-            c.restore()
         }
         val out = ByteArrayOutputStream()
         // Chất lượng thấp hơn trước (35→22): nội dung chỉ nét trắng trên nền đen, hạ chất lượng gần
