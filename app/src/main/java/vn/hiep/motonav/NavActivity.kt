@@ -1158,6 +1158,19 @@ class NavActivity : Activity() {
             } catch (_: Exception) {
                 styleDiag = "lỗi đọc style"
             }
+            // Chưa có vị trí GPS: camera mặc định của MapLibre nằm giữa biển (0,0) nên bản đồ
+            // trông như trống trơn (chỉ có màu nền) dù tải style/mảnh OK. Đưa tạm về vị trí mặc định
+            // (trung tâm TP.HCM) để thấy bản đồ ngay; khi có GPS, render() sẽ tự đưa về vị trí thật.
+            if (!Live.gpsOk) {
+                try {
+                    m.moveCamera(
+                        CameraUpdateFactory.newCameraPosition(
+                            CameraPosition.Builder().target(LatLng(10.7769, 106.7009)).zoom(14.0).build(),
+                        ),
+                    )
+                } catch (_: Exception) {
+                }
+            }
             render()
         }
         if (!useVm || key.isBlank()) {
