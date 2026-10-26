@@ -29,9 +29,23 @@ object MapHttp {
             .addInterceptor(Interceptor { chain ->
                 var req = chain.request()
                 val url = req.url
-                // Kiểu bản đồ VietMap để trống "apikey=" trong link mảnh bản đồ → thay bằng mã Tilemap
-                if (url.host.endsWith("vietmap.vn") && key.isNotBlank() && url.queryParameter("apikey") != key) {
-                    req = req.newBuilder().url(url.newBuilder().setQueryParameter("apikey", key).build()).build()
+                if (url.host.endsWith("vietmap.vn")) {
+                    val rb = req.newBuilder()
+                    // Kiểu bản đồ VietMap để trống "apikey=" trong link mảnh bản đồ → thay bằng mã Tilemap
+                    if (key.isNotBlank() && url.queryParameter("apikey") != key) {
+                        rb.url(url.newBuilder().setQueryParameter("apikey", key).build())
+                    }
+                    // Lỗi "invalid tag" (đọc mảnh gzip thô, xem bên dưới) vẫn còn dù đã thử đổi thứ tự
+                    // khởi tạo (gây crash, đã bỏ) — nghi thật ra là do thư viện bản đồ (mã gốc C++/Java
+                    // của SDK) tự gắn sẵn header "Accept-Encoding" khi tạo yêu cầu tải mảnh. OkHttp CHỈ
+                    // tự giải nén gzip trong suốt khi KHÔNG có ai tự set header này — nếu tầng gọi (thư
+                    // viện bản đồ) đã tự set, OkHttp coi là tầng gọi tự lo giải nén, trả nguyên byte nén
+                    // thô cho interceptor này — rồi phần dò gzip thủ công bên dưới có thể bỏ sót (vd
+                    // nếu máy chủ trả kiểu nén khác gzip như brotli/deflate). Bỏ hẳn header này ở đây để
+                    // OkHttp tự thương lượng + tự giải nén lại theo kiểu mặc định của nó, không phụ
+                    // thuộc thư viện bản đồ tự set gì.
+                    rb.removeHeader("Accept-Encoding")
+                    req = rb.build()
                 }
                 var resp = chain.proceed(req)
                 // Mảnh bản đồ VietMap: tự giải nén nếu bị nén gzip mà không báo
