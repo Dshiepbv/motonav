@@ -50,16 +50,13 @@ object Updater {
         "?"
     }
 
-    /** So sánh "5.10" > "5.9". */
-    private fun newer(a: String, b: String): Boolean {
-        val x = a.split('.').map { it.toIntOrNull() ?: 0 }
-        val y = b.split('.').map { it.toIntOrNull() ?: 0 }
-        for (i in 0 until maxOf(x.size, y.size)) {
-            val p = x.getOrElse(i) { 0 }
-            val q = y.getOrElse(i) { 0 }
-            if (p != q) return p > q
-        }
-        return false
+    /** Số build (versionCode) của bản đang cài — dùng để so "mới hơn" thay vì so chuỗi tên bản,
+     * vì tên bản (versionName) không còn tăng dần đều kiểu "6.95 → 6.96" (đổi sang "0.<build>"). */
+    fun currentBuild(ctx: Context): Int = try {
+        val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+        if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode.toInt() else @Suppress("DEPRECATION") pi.versionCode
+    } catch (_: Exception) {
+        0
     }
 
     private fun req(url: String, token: String, accept: String) = Request.Builder().url(url)
@@ -156,9 +153,10 @@ object Updater {
             try {
                 val rel = latest(token)
                 val cur = currentVersion(a)
+                val curBuild = currentBuild(a)
                 main.post {
                     if (a.isFinishing) return@post
-                    if (!newer(rel.version, cur)) {
+                    if (rel.build <= curBuild) {
                         AlertDialog.Builder(a)
                             .setTitle("Đã là bản mới nhất")
                             .setMessage("MotoNav $cur – không có bản cập nhật.")
@@ -203,9 +201,10 @@ object Updater {
             try {
                 val rel = latest(token)
                 val cur = currentVersion(a)
+                val curBuild = currentBuild(a)
                 main.post {
                     if (a.isFinishing) return@post
-                    if (!newer(rel.version, cur)) {
+                    if (rel.build <= curBuild) {
                         onState(UpdateState.UpToDate(cur))
                     } else {
                         installInline(a, prefs, rel, onState)
