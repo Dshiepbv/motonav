@@ -623,34 +623,9 @@ object TftLink {
             // Dày hơn nữa (6->8.5) theo yêu cầu "kể cả đường xanh".
             val linePaint = Paint().apply { color = Color.rgb(60, 140, 255); style = Paint.Style.STROKE; strokeWidth = 8.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
             c.drawPath(path, linePaint)
-            // Bỏ chấm tròn đánh dấu điểm rẽ (trước đây gây rối mắt) nhưng theo yêu cầu mới: chỉ vào
-            // đúng đoạn sắp rẽ 1 chú thích tên đường (đường kẻ mảnh nối từ điểm rẽ tới nhãn), để biết
-            // tên đường sắp rẽ vào mà không cần vẽ tên lên tất cả các nhánh (quá rối, đã bỏ ở trên).
-            val nextSt = skNextStreet
-            if (!nextSt.isNullOrBlank()) {
-                val mdx = proj.x(skManLon); val mdy = proj.y(skManLat)
-                val mrx = mdx * cosH - mdy * sinH; val mry = mdx * sinH + mdy * cosH
-                val (mx, my) = toScreen(mrx, mry)
-                val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.062f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
-                val leaderPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
-                // CHỈ tên đường sắp quẹo vào — không mũi tên/khoảng cách (thử ở bản trước nhưng theo
-                // yêu cầu bỏ lại: hướng rẽ trái/phải để nguyên bên nhãn firmware xe, chỗ này trên bản
-                // đồ chỉ cần biết TÊN đường sắp vào).
-                // Nhãn đặt lệch lên-phải điểm rẽ một khoảng cố định theo pixel (không phụ thuộc
-                // zoom), tránh đè lên tam giác xe ở giữa-dưới khung.
-                val lx = (mx + h * 0.16f).coerceAtMost(w - h * 0.02f)
-                val ly = (my - h * 0.1f).coerceAtLeast(h * 0.1f)
-                c.drawLine(mx, my, lx, ly, leaderPaint)
-                c.drawCircle(mx, my, h * 0.018f, leaderPaint)
-                val tw = labelPaint.measureText(nextSt)
-                val padX = h * 0.022f; val padY = h * 0.02f
-                val boxLeft = (lx - tw / 2f - padX).coerceAtLeast(2f)
-                val boxRight = (boxLeft + tw + padX * 2f).coerceAtMost(w - 2f)
-                val cxText = (boxLeft + boxRight) / 2f
-                c.drawRect(boxLeft, ly - h * 0.055f - padY, boxRight, ly + h * 0.018f + padY, bgPaint)
-                c.drawText(nextSt, cxText, ly, labelPaint)
-            }
+            // Bỏ nhãn tên-đường-sắp-rẽ gắn tại điểm rẽ trên bản đồ (đường kẻ nối + nền đen) — theo
+            // yêu cầu mới nhất, dời chỉ dẫn này lên CỐ ĐỊNH góc trên-trái khung (xem khối vẽ icon mũi
+            // tên + khoảng cách + tên đường ngay dưới, sau khi vẽ tam giác xe).
         }
         // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up) — to hơn trước (0.06->0.085) theo yêu
         // cầu "điểm định vị to ra chút" để dễ thấy giữa tuyến xanh/nhánh trắng.
@@ -679,8 +654,8 @@ object TftLink {
             limBottomY = cy + r
         }
         // Dưới ô giới hạn tốc độ: ETA (giờ đến), thời gian còn lại, quãng đường còn lại — giống Waze.
-        // To hơn nữa theo yêu cầu (0.068->0.085 chiều cao khung). Thêm dòng tên đường đang đi ngay
-        // dưới số km còn lại (dời từ nhãn firmware sang đây theo yêu cầu, cùng cỡ chữ các thông số).
+        // Tên đường ĐANG ĐI không còn vẽ ở đây — theo yêu cầu mới nhất, dời xuống nhãn firmware xe
+        // (cmd 3/1, xem TftLink.update()); cột phải chỉ còn 3 số liệu hành trình.
         if (skActive && skRoute != null) {
             val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.085f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
             val cx = w * 0.90f
@@ -695,42 +670,67 @@ object TftLink {
             c.drawText("$remMin ph", cx, sy, statPaint)
             sy += h * 0.1f
             c.drawText(remTxt, cx, sy, statPaint)
-            val cur = skCurrentStreet
-            if (!cur.isNullOrBlank()) {
-                // Dài quá cột hẹp bên phải thì xuống dòng (tối đa 2 dòng, dòng 2 còn dư mới cắt "…")
-                // thay vì cắt ngắn luôn — theo yêu cầu, đỡ mất chữ so với kiểu "…" một dòng cũ.
-                val maxW = w * 0.42f
-                val words = cur.split(' ').filter { it.isNotEmpty() }
-                val lines = ArrayList<String>()
-                var line = StringBuilder()
-                for (word in words) {
-                    val trial = if (line.isEmpty()) word else "$line $word"
-                    if (statPaint.measureText(trial) <= maxW || line.isEmpty()) {
-                        line = StringBuilder(trial)
-                    } else {
-                        lines.add(line.toString())
-                        line = StringBuilder(word)
-                    }
-                    if (lines.size >= 2) break
-                }
-                if (line.isNotEmpty() && lines.size < 2) lines.add(line.toString())
-                if (lines.size > 2) {
-                    while (lines.size > 2) lines.removeAt(lines.size - 1)
-                }
-                if (lines.size == 2 && statPaint.measureText(lines[1]) > maxW) {
-                    var t = lines[1]
-                    while (t.length > 2 && statPaint.measureText("$t…") > maxW) t = t.substring(0, t.length - 1)
-                    lines[1] = "$t…"
-                }
-                for (ln in lines) {
-                    sy += h * 0.1f
-                    c.drawText(ln, cx, sy, statPaint)
-                }
+        }
+        // Chỉ dẫn rẽ — icon mũi tên tự vẽ (KHÔNG ghi chữ "trái"/"phải"), khoảng cách đếm ngược và
+        // tên đường sắp quẹo vào, cố định góc trên-trái, KHÔNG nền (theo yêu cầu). Trước đây icon rẽ
+        // định gửi qua gói riêng cho xe tự vẽ (turnPacket/IconMap, cmd 4/1) nhưng mã icon đó CHƯA xác
+        // nhận hiển thị đúng trên màn thật — vẽ thẳng vào khung JPEG ở đây để chắc chắn lên hình.
+        if (skActive && skRoute != null && !skNextStreet.isNullOrBlank()) {
+            val iconCx = w * 0.13f
+            val iconCy = h * 0.17f
+            val arm = h * 0.11f
+            val angRad = Math.toRadians(Maneuver.angle(skSign).toDouble())
+            val cosA = Math.cos(angRad).toFloat(); val sinA = Math.sin(angRad).toFloat()
+            fun rot(dx: Float, dy: Float): Pair<Float, Float> =
+                Pair(iconCx + dx * cosA - dy * sinA, iconCy + dx * sinA + dy * cosA)
+            val raw = listOf(
+                0f to -arm,
+                arm * 0.5f to -arm * 0.1f,
+                arm * 0.18f to -arm * 0.1f,
+                arm * 0.18f to arm * 0.55f,
+                -arm * 0.18f to arm * 0.55f,
+                -arm * 0.18f to -arm * 0.1f,
+                -arm * 0.5f to -arm * 0.1f,
+            )
+            val arrowPath = android.graphics.Path()
+            raw.forEachIndexed { idx, (dx, dy) ->
+                val (px, py) = rot(dx, dy)
+                if (idx == 0) arrowPath.moveTo(px, py) else arrowPath.lineTo(px, py)
+            }
+            arrowPath.close()
+            val arrowPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+            c.drawPath(arrowPath, arrowPaint)
+            var iy = iconCy + arm * 1.0f
+            val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.07f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val dM = skDistanceM
+            if (dM >= 0) {
+                val distTxt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m"
+                c.drawText(distTxt, iconCx, iy, infoPaint)
+                iy += h * 0.075f
+            }
+            val streetPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.058f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+            val maxW = w * 0.26f
+            val nst = skNextStreet ?: ""
+            val words = nst.split(' ').filter { it.isNotEmpty() }
+            val lines = ArrayList<String>()
+            var line = StringBuilder()
+            for (word in words) {
+                val trial = if (line.isEmpty()) word else "$line $word"
+                if (streetPaint.measureText(trial) <= maxW || line.isEmpty()) line = StringBuilder(trial)
+                else { lines.add(line.toString()); line = StringBuilder(word) }
+                if (lines.size >= 2) break
+            }
+            if (line.isNotEmpty() && lines.size < 2) lines.add(line.toString())
+            if (lines.size == 2 && streetPaint.measureText(lines[1]) > maxW) {
+                var t = lines[1]
+                while (t.length > 2 && streetPaint.measureText("$t…") > maxW) t = t.substring(0, t.length - 1)
+                lines[1] = "$t…"
+            }
+            for (ln in lines) {
+                c.drawText(ln, iconCx, iy, streetPaint)
+                iy += h * 0.065f
             }
         }
-        // Bỏ icon thời tiết (mặt trời/nhiệt độ) và số mét đếm ngược ở góc trên-trái — theo yêu cầu
-        // (video 20261026-1450): hai thứ này thừa, dưới đã có nhãn firmware xe (cmd 3/1) lo phần chỉ
-        // dẫn/khoảng cách rồi, giữ góc này trống cho thoáng.
         val out = ByteArrayOutputStream()
         // Chất lượng thấp hơn trước (35→22): nội dung chỉ nét trắng trên nền đen, hạ chất lượng gần
         // như không đổi hình mà khung nhỏ hơn, xe tải/giải mã nhanh hơn, bớt xoay.
@@ -1456,19 +1456,15 @@ object TftLink {
      * Gọi liên tục (khoảng mỗi giây) từ dịch vụ chạy nền khi đang dẫn đường. Tự lọc trùng để
      * không gửi lại những gì chưa đổi — giữ đúng tinh thần "kênh chữ nhẹ" không nghẽn Bluetooth.
      */
-    fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, etaMinutes: Int) {
+    fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, currentStreet: String, etaMinutes: Int) {
         if (!authed) return
-        // Nhãn nguồn dưới tam giác vị trí trên xe — trước đổi theo tên đường đang đi (v6.76), nay
-        // theo yêu cầu đổi tiếp thành CHỈ DẪN ĐƯỜNG (mũi tên/khoảng cách dạng câu, "road" — tên đường
-        // đang đi dời sang vẽ trong khung ảnh, dưới số km còn lại). Rơi về "MotoNav" khi chưa dẫn
-        // đường. Tách khỏi "active" ở dưới để vẫn cập nhật được kể cả lúc không dẫn đường, chỉ gửi
-        // khi thật sự đổi để không tốn băng thông.
-        // Thêm số m đếm ngược vào trước câu chỉ dẫn, theo yêu cầu "hiện số m đếm ngược trên thanh
-        // của firmware được không" — nhãn firmware trước đây chỉ có câu chữ, không có khoảng cách.
-        val distPrefix = if (active && distanceM >= 0) {
-            if (distanceM >= 1000) String.format(java.util.Locale.US, "%.1fkm ", distanceM / 1000f) else "${distanceM}m "
-        } else ""
-        val wantName = if (active && road.isNotBlank()) "$distPrefix$road" else "MotoNav"
+        // Nhãn nguồn dưới tam giác vị trí trên xe: đã đổi qua lại vài lần qua các bản (tên đường
+        // đang đi → câu chỉ dẫn rẽ) — nay theo yêu cầu mới nhất quay về TÊN ĐƯỜNG ĐANG ĐI
+        // (currentStreet), vì phần chỉ dẫn rẽ (icon/khoảng cách/tên đường sắp quẹo) đã có chỗ riêng,
+        // tự vẽ cố định góc trên-trái khung ảnh (xem buildSketchFrame). Rơi về "MotoNav" khi chưa
+        // dẫn đường hoặc chưa map-match ra tên đường. Tách khỏi "active" ở dưới để vẫn cập nhật được
+        // kể cả lúc không dẫn đường, chỉ gửi khi thật sự đổi để không tốn băng thông.
+        val wantName = if (currentStreet.isNotBlank()) currentStreet else "MotoNav"
         if (wantName != lastSentName) {
             send(namePacket(wantName))
             lastSentName = wantName

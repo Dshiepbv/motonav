@@ -296,6 +296,7 @@ class DriveService : Service(), LocationListener {
                     roundabout = Live.maneuverSign == 6,
                     distanceM = if (Live.navMeters >= 0) Live.navMeters else 0,
                     road = Live.navInstruction ?: Live.maneuverLabel ?: "",
+                    currentStreet = Live.street ?: "",
                     etaMinutes = (Live.etaMs / 60000L).toInt(),
                 )
                 TftLink.updateSketch(
