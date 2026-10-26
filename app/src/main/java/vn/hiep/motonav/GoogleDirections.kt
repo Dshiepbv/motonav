@@ -44,7 +44,7 @@ object GoogleDirections {
                         "PERMISSION_DENIED" -> "Mã API Google không hợp lệ hoặc chưa bật Routes API ($msg)"
                         "RESOURCE_EXHAUSTED" -> "Đã hết hạn mức Google Routes trong ngày/giây"
                         "INVALID_ARGUMENT" -> "Google Routes: tham số không hợp lệ ($msg)"
-                        else -> "Google Routes: $status $msg",
+                        else -> "Google Routes: $status $msg"
                     },
                 )
             }
@@ -131,7 +131,7 @@ object GoogleDirections {
         val lons = ArrayList<Double>()
         val steps = ArrayList<Step>()
         val totalDist = r.optDouble("distanceMeters", 0.0)
-        val totalMs = parseDurationS(r.optString("duration", null)) * 1000L
+        val totalMs = parseDurationS(r.optString("duration")) * 1000L
         val legs = r.optJSONArray("legs") ?: JSONArray()
         for (li in 0 until legs.length()) {
             val leg = legs.getJSONObject(li)
