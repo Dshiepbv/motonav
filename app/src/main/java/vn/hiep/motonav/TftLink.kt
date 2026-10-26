@@ -741,24 +741,23 @@ object TftLink {
             c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
             limBottomY = cy + r
         }
-        // ETA (giờ đến), thời gian còn lại, quãng đường còn lại — theo yêu cầu mới nhất, dời sang
-        // TRÁI, đặt sát đáy khung (ngay trên thanh tên-đường của firmware xe, cmd 3/1), cỡ chữ gấp
-        // đôi trước đây (0.085->0.17) để đọc được nhanh lúc đang chạy.
+        // Thời gian còn lại + quãng đường còn lại: GIỮ NGUYÊN bên phải dưới biển tốc độ (như cũ).
+        // Chỉ riêng ETA (giờ đến) dời sang TRÁI, đặt sát đáy khung (ngay trên thanh tên-đường
+        // firmware xe), cỡ chữ gấp đôi — theo đúng yêu cầu "mang 1 mình ETA sang thôi".
         if (skActive && skRoute != null) {
-            val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.17f; textAlign = Paint.Align.LEFT; isAntiAlias = true }
-            val cx = w * 0.04f
+            val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.085f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+            val cx = w * 0.90f
             val remKm = skRemainingM / 1000.0
             val remTxt = if (remKm >= 10) "${remKm.toInt()} km" else String.format("%.1f km", remKm)
             val remMin = (skEtaMs / 60000L).toInt()
             val arriveCal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
             val etaTxt = String.format("%02d:%02d", arriveCal.get(java.util.Calendar.HOUR_OF_DAY), arriveCal.get(java.util.Calendar.MINUTE))
-            val lineH = h * 0.20f
-            var sy = h - h * 0.05f
-            c.drawText(remTxt, cx, sy, statPaint)
-            sy -= lineH
+            var sy = limBottomY + h * 0.1f
             c.drawText("$remMin ph", cx, sy, statPaint)
-            sy -= lineH
-            c.drawText(etaTxt, cx, sy, statPaint)
+            sy += h * 0.1f
+            c.drawText(remTxt, cx, sy, statPaint)
+            val etaPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.17f; textAlign = Paint.Align.LEFT; isAntiAlias = true }
+            c.drawText(etaTxt, w * 0.04f, h - h * 0.05f, etaPaint)
         }
         // Chỉ dẫn rẽ — icon mũi tên tự vẽ (KHÔNG ghi chữ "trái"/"phải"), khoảng cách đếm ngược và
         // tên đường sắp quẹo vào, cố định góc trên-trái, KHÔNG nền (theo yêu cầu). Trước đây icon rẽ
