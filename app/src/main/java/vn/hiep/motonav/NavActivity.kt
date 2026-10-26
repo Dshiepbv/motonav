@@ -2099,7 +2099,23 @@ class NavActivity : Activity() {
             } catch (_: Exception) {
                 "cam=lỗi"
             }
-            listOfNotNull(camDiag, vmDiag, styleDiag, "Thư viện: tải OK ${MapHttp.okCount}, lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog).joinToString(" · ")
+            // Hỏi thẳng dữ liệu mảnh ĐÃ TẢI VỀ ở vị trí camera hiện tại có thật sự chứa feature nào
+            // không (đường/nhà/nước) — phân biệt "mảnh tải được nhưng trống/tên lớp sai" với "chưa tải".
+            val featDiag = try {
+                val src = map?.style?.getSource("openmaptiles") as? org.maplibre.android.style.sources.VectorSource
+                if (src != null) {
+                    val w = src.querySourceFeatures(arrayOf("water")).size
+                    val b = src.querySourceFeatures(arrayOf("building")).size
+                    val t = src.querySourceFeatures(arrayOf("transportation")).size
+                    "feat water=$w building=$b transportation=$t"
+                } else {
+                    "feat: ko có nguồn openmaptiles"
+                }
+            } catch (e: Throwable) {
+                "feat lỗi: ${e.javaClass.simpleName}"
+            }
+            // Camera + feature + số mảnh tải lên ĐẦU (quan trọng nhất), vmDiag/styleDiag (đã biết ổn) để cuối vì hay bị cắt do ô chữ chỉ 3 dòng
+            listOfNotNull(camDiag, featDiag, "tải OK ${MapHttp.okCount} lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog, vmDiag, styleDiag).joinToString(" · ")
         } else null
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
             ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
