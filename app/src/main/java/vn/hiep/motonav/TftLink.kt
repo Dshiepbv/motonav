@@ -722,6 +722,16 @@ object TftLink {
                 c.drawText(lbl, wxCx, wxCy + h * 0.25f, lblPaint)
             }
         }
+        // Số mét đếm ngược tới chỗ rẽ sắp tới, cạnh icon thời tiết — theo yêu cầu "hiện số m đếm
+        // ngược như chỉ dẫn hôm qua phía tay trái, chỗ mà bỏ thay bằng thời tiết đó". Chỉ số (to,
+        // dễ đọc khi lướt mắt nhanh), không kèm lại cả mũi tên/tên đường như thẻ cũ (đã bỏ theo yêu
+        // cầu khác) — mũi tên/tên đường vẫn có ở nhãn firmware + nhãn trên bản đồ.
+        if (skActive && skDistanceM >= 0) {
+            val dTxt = if (skDistanceM >= 1000) String.format(java.util.Locale.US, "%.1f km", skDistanceM / 1000f) else "${skDistanceM} m"
+            val dCx = w * 0.34f; val dCy = h * 0.17f
+            val dPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.16f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            c.drawText(dTxt, dCx, dCy + h * 0.08f, dPaint)
+        }
         val out = ByteArrayOutputStream()
         // Chất lượng thấp hơn trước (35→22): nội dung chỉ nét trắng trên nền đen, hạ chất lượng gần
         // như không đổi hình mà khung nhỏ hơn, xe tải/giải mã nhanh hơn, bớt xoay.
@@ -1462,7 +1472,12 @@ object TftLink {
         // đang đi dời sang vẽ trong khung ảnh, dưới số km còn lại). Rơi về "MotoNav" khi chưa dẫn
         // đường. Tách khỏi "active" ở dưới để vẫn cập nhật được kể cả lúc không dẫn đường, chỉ gửi
         // khi thật sự đổi để không tốn băng thông.
-        val wantName = if (active && road.isNotBlank()) road else "MotoNav"
+        // Thêm số m đếm ngược vào trước câu chỉ dẫn, theo yêu cầu "hiện số m đếm ngược trên thanh
+        // của firmware được không" — nhãn firmware trước đây chỉ có câu chữ, không có khoảng cách.
+        val distPrefix = if (active && distanceM >= 0) {
+            if (distanceM >= 1000) String.format(java.util.Locale.US, "%.1fkm ", distanceM / 1000f) else "${distanceM}m "
+        } else ""
+        val wantName = if (active && road.isNotBlank()) "$distPrefix$road" else "MotoNav"
         if (wantName != lastSentName) {
             send(namePacket(wantName))
             lastSentName = wantName

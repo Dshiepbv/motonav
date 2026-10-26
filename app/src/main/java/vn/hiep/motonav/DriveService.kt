@@ -396,9 +396,13 @@ class DriveService : Service(), LocationListener {
         // thực tế: vừa nhấc xe đi đã cần xoay đúng hướng ngay, không phải chờ tới 20km/h).
         val accM = if (loc.hasAccuracy()) loc.accuracy.toDouble() else 10.0
         val moveThresh = accM.coerceIn(2.5, 6.0)
+        // Thêm điều kiện tốc độ (>1 m/s) cho cả nhánh tính hướng từ độ dịch chuyển — nếu không, lúc
+        // gần như đứng yên (đèn đỏ, dắt xe...) GPS vẫn trôi ngẫu nhiên trong bán kính sai số, đủ xa
+        // hơn moveThresh nhưng không phải hướng đi thật, làm bản đồ xoay lung tung dù xe không chạy
+        // (phản hồi thực tế: "thỉnh thoảng hơi xoay rồi" lúc gần như dừng).
         if (loc.hasBearing() && speedMps > 1.0) {
             heading = loc.bearing.toDouble()
-        } else if (prev != null && Geo.distance(prev.latitude, prev.longitude, lat, lon) > moveThresh) {
+        } else if (prev != null && speedMps > 1.0 && Geo.distance(prev.latitude, prev.longitude, lat, lon) > moveThresh) {
             heading = Geo.bearing(prev.latitude, prev.longitude, lat, lon)
         }
         if (prev == null || Geo.distance(prev.latitude, prev.longitude, lat, lon) > moveThresh || speedMps > 1.0) {

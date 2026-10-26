@@ -26,6 +26,9 @@ class NavEngine(
     @Volatile private var routing = false
     private var lastReroute = 0L
     private val spoken = HashSet<String>()
+    // Mốc thời gian bắt đầu "gần như đứng yên, gần đích" — dự phòng tự kết thúc chuyến khi đường
+    // không vào sát được tới điểm đến thật (cổng/bãi xe riêng...). 0 = chưa ở trạng thái đó.
+    private var nearDestSince = 0L
 
     fun start(lat: Double, lon: Double, name: String?) {
         prefs.saveTrip(lat, lon, name)
@@ -36,6 +39,7 @@ class NavEngine(
         Live.route = null
         Live.routeError = null
         seg = 0
+        nearDestSince = 0L
         spoken.clear()
         if (Live.gpsOk) requestRoute(Live.lat, Live.lon, if (Live.heading >= 0) Live.heading else null, offerChoice = true)
         else Live.routeStatus = "Đang chờ GPS để tìm đường…"
@@ -230,27 +234,53 @@ class NavEngine(
 
         // Đến nơi — chốt thêm bằng khoảng cách thẳng tới điểm đích thực tế, tránh báo "đến nơi"
         // sớm khi khớp tuyến bị nhảy nhầm tới gần cuối tuyến (ví dụ GPS nhiễu/tuyến vòng gần đích)
-        if (remaining < 30 && Geo.distance(lat, lon, Live.destLat, Live.destLon) < 40) {
+        val straightDist = Geo.distance(lat, lon, Live.destLat, Live.destLon)
+        if (remaining < 30 && straightDist < 40) {
             // Ghi log rõ lý do kết thúc tuyến — trước đây finish()/stop() không ghi gì cả, nên khi
             // tuyến tự biến mất giữa chừng (ví dụ GPS nhảy lố tới gần đích) không có cách nào phân
             // biệt được với các nguyên nhân khác (bấm nút Kết thúc, bấm nút Dừng trên màn xe...).
-            TripLog.ev("arrived", "remaining" to remaining, "straight" to Geo.distance(lat, lon, Live.destLat, Live.destLon))
+            TripLog.ev("arrived", "remaining" to remaining, "straight" to straightDist)
             alert("Đã đến nơi${Live.destName?.let { ": $it" } ?: ""}", "Đã đến nơi", false)
             finish()
             return
+        }
+        // Dự phòng: nhiều điểm đến (cổng công ty, bãi xe riêng, hẻm nhỏ...) đường trên bản đồ
+        // không vào sát được tới mốc chính xác, nên "remaining<30 & straight<40" ở trên không bao
+        // giờ đúng — xe cứ loanh quanh gần đó (đi bộ dắt xe/tìm chỗ đậu) mà app không tự kết thúc,
+        // nhìn như "dẫn đường chưa thông minh, tới nơi rồi không kết thúc mà bắt vòng ngược lại"
+        // (log thực tế: đứng/đi rất chậm ~2 phút cách đích 48-85m, không bao giờ vào được ngưỡng cũ).
+        // Nới ra: gần như đứng yên một lúc (~20s) trong bán kính rộng hơn (120m) thì coi như đã tới.
+        val now2 = SystemClock.elapsedRealtime()
+        if (straightDist < 120 && speedMps < 1.0) {
+            if (nearDestSince == 0L) nearDestSince = now2
+            if (now2 - nearDestSince > 20_000) {
+                TripLog.ev("arrived", "remaining" to remaining, "straight" to straightDist, "why" to "stationaryNearDest")
+                alert("Đã đến nơi${Live.destName?.let { ": $it" } ?: ""}", "Đã đến nơi", false)
+                finish()
+                return
+            }
+        } else {
+            nearDestSince = 0L
         }
 
         // Đi lệch tuyến (~10 m) → tìm tuyến mới (2 lần định vị liên tiếp ≈ 2 giây).
         // Chỉ khi xe THẬT SỰ đang chạy: tốc độ > 7 km/h và đã đi được ≥ 25 m kể từ lần tìm trước
         // (GPS trong nhà/đứng yên trôi vài chục mét không được tính là lệch tuyến).
-        val moving = speedMps > 2.0 && Geo.distance(lat, lon, rrLat, rrLon) >= 25
+        // Gần đích (trong 150m) thì nới ngưỡng: lúc đó thường đang đi rất chậm (dắt xe, tìm cổng/
+        // chỗ đậu trong khu dân cư/công ty), tốc độ > 7km/h gần như không bao giờ đạt nên trước đây
+        // không bao giờ tìm lại tuyến được nữa — xe cứ loanh quanh gần đích mà tuyến cũ (có khi vẽ
+        // vòng xa) không được cập nhật, nhìn như "bắt vòng ngược lại" (phản hồi thực tế).
+        val nearDest = straightDist < 150
+        val moving = (if (nearDest) speedMps > 0.5 else speedMps > 2.0) &&
+            Geo.distance(lat, lon, rrLat, rrLon) >= (if (nearDest) 12.0 else 25.0)
         if (off && moving) offCount++ else offCount = 0
         val now = SystemClock.elapsedRealtime()
         // Tìm lại liên tục nhiều lần (≥ 3 lần trong 2 phút) → giãn ra 60 giây cho đỡ tốn lượt VietMap.
-        // Nhưng nếu đã đi lệch QUÁ XA (≥ 60 m) thì luôn tìm lại nhanh (5 giây) — ưu tiên bắt theo
-        // hướng xe đang chạy tới ngay, không để xe chạy xa cả trăm mét mà app vẫn chỉ tuyến cũ phía sau.
+        // Nhưng nếu đã đi lệch QUÁ XA (≥ 60 m) hoặc đang ở gần đích thì luôn tìm lại nhanh (5 giây) —
+        // ưu tiên bắt theo hướng xe đang chạy tới ngay, không để xe chạy xa cả trăm mét mà app vẫn
+        // chỉ tuyến cũ phía sau, và đoạn cuối gần đích cần bám sát hơn bình thường.
         rerouteTimes.removeAll { now - it > 120_000 }
-        val urgent = bestD > 60
+        val urgent = bestD > 60 || nearDest
         val gap = if (urgent) 5_000 else if (rerouteTimes.size >= 3) 60_000 else 8_000
         if (moving && (offCount >= 2 || bestD > 40 || urgent) && !routing && now - lastReroute > gap) {
             rerouteTimes.add(now)
