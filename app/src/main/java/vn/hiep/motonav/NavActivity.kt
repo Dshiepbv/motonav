@@ -1160,17 +1160,11 @@ class NavActivity : Activity() {
             labelFont = findFont(s)
             addLayers(s)
             try {
-                // Mảnh bản đồ VietMap tải thủ công trên trình duyệt (api/tm/.../*.png) ra ảnh
-                // đúng → nghi style đang dùng nguồn KIỂU RASTER (ảnh PNG) chứ không phải vector
-                // (openmaptiles thường là vector). Nếu vậy brightenDark()/addLayers() (chỉ xử lý
-                // BackgroundLayer/LineLayer/FillLayer/SymbolLayer) sẽ bỏ qua hoàn toàn lớp Raster
-                // đó — kiểm tra thẳng kiểu nguồn + có lớp RasterLayer hay không.
-                val src = s.getSource("openmaptiles")
-                val srcType = src?.javaClass?.simpleName ?: "null"
-                val rl = s.layers.filterIsInstance<org.maplibre.android.style.layers.RasterLayer>()
-                val rlInfo = if (rl.isEmpty()) "ko có RasterLayer" else "RasterLayer=" + rl.joinToString(",") { it.id }
-                val counts = s.layers.groupingBy { it.javaClass.simpleName }.eachCount()
-                styleDiag = "nguồn openmaptiles kiểu=$srcType $rlInfo lớp=${s.layers.size} $counts"
+                // Đã xác nhận: nguồn "openmaptiles" là VectorSource thật, không có RasterLayer,
+                // 205 lớp đủ loại (fill/line/symbol/circle/fillExtrusion) — style hợp lệ, không
+                // phải vụ raster. Rút gọn dòng này để nhường chỗ cho feat=... (số feature thật
+                // lấy được tại đúng vị trí camera) không bị cắt mất.
+                styleDiag = "lớp=${s.layers.size} (${s.getSource("openmaptiles")?.javaClass?.simpleName})"
             } catch (e: Exception) {
                 styleDiag = "lỗi đọc style: ${e.javaClass.simpleName}"
             }
@@ -2100,10 +2094,7 @@ class NavActivity : Activity() {
             // Camera đặt lên ĐẦU vì ô chữ chỉ hiện 3 dòng, phần sau dễ bị cắt.
             val camDiag = try {
                 val cp = map?.cameraPosition
-                "cam=%.4f,%.4f z=%.1f gps=%b thật=%.4f,%.4f".format(
-                    cp?.target?.latitude ?: 0.0, cp?.target?.longitude ?: 0.0, cp?.zoom ?: -1.0,
-                    Live.gpsOk, Live.lat, Live.lon,
-                )
+                "cam=%.4f,%.4f z=%.1f".format(cp?.target?.latitude ?: 0.0, cp?.target?.longitude ?: 0.0, cp?.zoom ?: -1.0)
             } catch (_: Exception) {
                 "cam=lỗi"
             }
@@ -2122,9 +2113,8 @@ class NavActivity : Activity() {
             } catch (e: Throwable) {
                 "feat lỗi: ${e.javaClass.simpleName}"
             }
-            // Ưu tiên lên ĐẦU: camera, kiểu nguồn/lớp Raster (styleDiag giờ ngắn gọn hơn), feature thật —
-            // đây là 3 thứ đang cần biết nhất. vmDiag/số mảnh/log để cuối vì hay bị cắt do ô chữ chỉ 3 dòng.
-            listOfNotNull(camDiag, styleDiag, featDiag, "tải OK ${MapHttp.okCount} lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog, vmDiag).joinToString(" · ")
+            // Ưu tiên lên ĐẦU dòng feat=... (số feature thật ở đúng vị trí camera) — đang cần biết nhất.
+            listOfNotNull(featDiag, camDiag, "tải ${MapHttp.okCount}/${MapHttp.okCount + MapHttp.failCount}", styleDiag, MapHttp.lastTileInfo, MapHttp.lastLog, vmDiag).joinToString(" · ")
         } else null
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
             ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
