@@ -61,8 +61,12 @@ object MapHttp {
                         rounds++
                     }
                     if (lastTileInfo == null && !path.contains("fonts")) {
-                        val head = raw.take(8).joinToString(" ") { String.format("%02x", it) }
-                        lastTileInfo = "mảnh ${raw.size}B đầu [$head] gzip x$rounds, ${resp.header("Content-Type") ?: "?"}"
+                        // Lấy nhiều byte đầu hơn (8→24) + header nén/độ dài máy chủ khai báo (trước khi
+                        // interceptor này tự xoá đi ở dưới) — để so khớp xem máy chủ có báo nén gì
+                        // không, và dữ liệu nhận được có đủ dài như khai báo hay bị cắt giữa chừng.
+                        val head = raw.take(24).joinToString(" ") { String.format("%02x", it) }
+                        lastTileInfo = "mảnh ${raw.size}B đầu[$head] gzipx$rounds ct=${resp.header("Content-Type") ?: "?"} " +
+                            "ce=${resp.header("Content-Encoding") ?: "none"} cl=${resp.header("Content-Length") ?: "?"}"
                     }
                     // Dữ liệu không phải mảnh bản đồ (vd thông báo lỗi dạng chữ) → coi như mảnh trống
                     val looksText = data.isNotEmpty() && (data[0] == '{'.code.toByte() || data[0] == '<'.code.toByte())
