@@ -2108,37 +2108,10 @@ class NavActivity : Activity() {
         } else {
             etaText.text = Live.street ?: "Chọn điểm đến"
         }
-        val mapErr = MapHttp.problem() ?: styleError ?: if (true) {
-            // Chế độ VietMap: luôn hiện chẩn đoán để tìm lỗi bản đồ trắng.
-            // Camera đặt lên ĐẦU vì ô chữ chỉ hiện 3 dòng, phần sau dễ bị cắt.
-            val camDiag = try {
-                val cp = map?.cameraPosition
-                "cam=%.4f,%.4f z=%.1f".format(cp?.target?.latitude ?: 0.0, cp?.target?.longitude ?: 0.0, cp?.zoom ?: -1.0)
-            } catch (_: Exception) {
-                "cam=lỗi"
-            }
-            // Hỏi thẳng dữ liệu mảnh ĐÃ TẢI VỀ ở vị trí camera hiện tại có thật sự chứa feature nào
-            // không (đường/nhà/nước) — phân biệt "mảnh tải được nhưng trống/tên lớp sai" với "chưa tải".
-            val featDiag = try {
-                val src = map?.style?.getSource("openmaptiles") as? org.maplibre.android.style.sources.VectorSource
-                if (src != null) {
-                    val w = src.querySourceFeatures(arrayOf("water"), null).size
-                    val b = src.querySourceFeatures(arrayOf("building"), null).size
-                    val t = src.querySourceFeatures(arrayOf("transportation"), null).size
-                    "feat water=$w building=$b transportation=$t"
-                } else {
-                    "feat: ko có nguồn openmaptiles"
-                }
-            } catch (e: Throwable) {
-                "feat lỗi: ${e.javaClass.simpleName}"
-            }
-            // Đã loại bounds/maxzoom (zoom hết cỡ ra vẫn đen) — giờ cần biết nhất: app có thật sự
-            // GỬI yêu cầu tải mảnh "openmaptiles" cho khung hình hay không (số "tải OK/lỗi/tổng").
-            // Đưa lên ĐẦU, kèm mã lỗi gần nhất nếu có.
-            val netDiag = "tải OK=${MapHttp.okCount} lỗi=${MapHttp.failCount}" +
-                (if (MapHttp.failCount > 0) " (mã ${MapHttp.lastFailCode} ${MapHttp.lastFailUrl?.take(40)})" else "")
-            listOfNotNull(netDiag, featDiag, camDiag, MapHttp.lastTileInfo, MapHttp.lastLog, styleDiag, tplDiag, vmDiag).joinToString(" · ")
-        } else null
+        // Đã tìm ra nguyên nhân bản đồ trắng (lỗi "invalid tag" đọc mảnh gzip) — bỏ chẩn đoán
+        // nặng (querySourceFeatures 3 lần mỗi khung hình) vì chạy liên tục lúc dẫn đường thật dễ
+        // làm giật máy/trễ khung hình gửi qua TFT. Chỉ còn log lỗi SDK bắt được, không tính toán gì.
+        val mapErr = MapHttp.problem() ?: styleError ?: MapHttp.lastLog
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
             ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
                 .joinToString("\n")
