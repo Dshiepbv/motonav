@@ -2128,8 +2128,12 @@ class NavActivity : Activity() {
             } catch (e: Throwable) {
                 "feat lỗi: ${e.javaClass.simpleName}"
             }
-            // Ưu tiên lên ĐẦU dòng feat=... (số feature thật ở đúng vị trí camera) — đang cần biết nhất.
-            listOfNotNull(tplDiag, featDiag, "tải ${MapHttp.okCount}/${MapHttp.okCount + MapHttp.failCount}", camDiag, styleDiag, MapHttp.lastTileInfo, MapHttp.lastLog, vmDiag).joinToString(" · ")
+            // Đã loại bounds/maxzoom (zoom hết cỡ ra vẫn đen) — giờ cần biết nhất: app có thật sự
+            // GỬI yêu cầu tải mảnh "openmaptiles" cho khung hình hay không (số "tải OK/lỗi/tổng").
+            // Đưa lên ĐẦU, kèm mã lỗi gần nhất nếu có.
+            val netDiag = "tải OK=${MapHttp.okCount} lỗi=${MapHttp.failCount}" +
+                (if (MapHttp.failCount > 0) " (mã ${MapHttp.lastFailCode} ${MapHttp.lastFailUrl?.take(40)})" else "")
+            listOfNotNull(netDiag, featDiag, camDiag, MapHttp.lastTileInfo, MapHttp.lastLog, styleDiag, tplDiag, vmDiag).joinToString(" · ")
         } else null
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
             ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
