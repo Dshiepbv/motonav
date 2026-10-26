@@ -51,16 +51,6 @@ class Prefs(ctx: Context) {
         get() = sp.getString("vmkey", "") ?: ""
         set(v) = sp.edit().putString("vmkey", v.trim()).apply()
 
-    /** Mã API Google Directions (tuỳ chọn) — tìm đường thông minh hơn VietMap khi có. */
-    var googleDirKey: String
-        get() = sp.getString("gdkey", "") ?: ""
-        set(v) = sp.edit().putString("gdkey", v.trim()).apply()
-
-    /** Dùng Google Directions thay VietMap để tìm đường khi đã nhập mã. */
-    var useGoogleDirections: Boolean
-        get() = sp.getBoolean("useGoogleDir", false)
-        set(v) = sp.edit().putBoolean("useGoogleDir", v).apply()
-
     /** Đang "ghi vùng tốc độ cố định" theo đoạn đường thực tế? -1 = không ghi, khác = mức km/h đang gán. */
     var recordZoneKmh: Int
         get() = sp.getInt("recordZoneKmh", -1)

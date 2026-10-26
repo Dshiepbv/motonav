@@ -1139,7 +1139,7 @@ class NavActivity : Activity() {
     private fun loadStyle() {
         val m = map ?: return
         val night = isNight()
-        val useVm = false // Bản đồ nền luôn dùng OpenFreeMap (VietMap chỉ dùng cho tìm đường)
+        val useVm = true // Bản đồ nền VietMap (chi tiết/nhãn tiếng Việt tốt hơn); tự rơi về OpenFreeMap nếu lỗi
         val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
         loadedStyleId = "${prefs.mapSource}/$key/$night/${prefs.vietmapStyleUrl}"
         styleError = null
@@ -2058,7 +2058,7 @@ class NavActivity : Activity() {
         } else {
             etaText.text = Live.street ?: "Chọn điểm đến"
         }
-        val mapErr = MapHttp.problem() ?: styleError ?: if (false) {
+        val mapErr = MapHttp.problem() ?: styleError ?: if (true) {
             // Chế độ VietMap: luôn hiện chẩn đoán để tìm lỗi bản đồ trắng
             listOfNotNull(vmDiag, "Thư viện: tải OK ${MapHttp.okCount}, lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog).joinToString(" · ")
         } else null

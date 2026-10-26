@@ -113,25 +113,8 @@ class NavEngine(
         val reroute = Live.route != null && !offerChoice
         // Google Directions (thử nghiệm) thay VietMap khi bật + đã nhập mã — lỗi thì tự quay lại
         // VietMap (không có dữ liệu kẹt xe khi dùng Google).
-        val useGoogle = prefs.useGoogleDirections && prefs.googleDirKey.isNotBlank()
-        // Ghi lại thực sự tuyến này lấy từ đâu (để xem log biết Google có hoạt động không, hay
-        // lúc nào cũng rơi về VietMap do lỗi mã/hạn mức).
-        var lastProvider = "vietmap"
-        var lastGoogleErr: String? = null
-        fun findRoutes(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> {
-            if (useGoogle) {
-                try {
-                    val res = GoogleDirections.routes(prefs.googleDirKey, lat, lon, dLat, dLon, alt, via, prefs.avoidHighway)
-                    lastProvider = "google"
-                    return res
-                } catch (e: Exception) {
-                    lastProvider = "vietmap"
-                    lastGoogleErr = (e.message ?: e.javaClass.simpleName).take(120)
-                    // Rơi về VietMap
-                }
-            }
-            return VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway)
-        }
+        fun findRoutes(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> =
+            VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway)
         executor.execute {
             try {
                 // Luôn lấy vài tuyến để tự chọn tuyến tốt nhất (tránh kẹt xe / ngắn nhất)
@@ -164,7 +147,6 @@ class NavEngine(
                     Live.route = r
                     Live.routeVersion++
                     TripLog.route(r, if (reroute) "reroute" else if (offerChoice) "start" else "retry")
-                    TripLog.ev("routeProvider", "p" to lastProvider, "wantGoogle" to useGoogle, "err" to lastGoogleErr)
                     if (!(offerChoice && list.size == 1 && Live.routeError != null)) Live.routeError = null
                     seg = 0
                     offCount = 0
