@@ -366,6 +366,38 @@ class SettingsActivity : Activity() {
             KeyDialog.show(this, prefs) { build() }
         }
 
+        header("🧪", "Goong (thử nghiệm)")
+        val goongStatus = when {
+            prefs.goongKey.isBlank() -> "Chưa nhập mã — đang dùng VietMap định tuyến"
+            else -> "✅ Đang dùng Goong định tuyến (VietMap chỉ còn dự phòng)"
+        }
+        action(
+            "Mã API Goong",
+            goongStatus,
+            note = "Có mã REST API là app tự chuyển định tuyến sang Goong, lỗi thì tự rơi về VietMap. Chưa có né cao tốc/kẹt xe khi dùng Goong",
+        ) {
+            GoongKeyDialog.show(this, prefs) { build() }
+        }
+        val vehicles = listOf("car", "bike", "taxi", "truck", "hd")
+        choice(
+            "Loại xe gửi cho Goong",
+            null,
+            vehicles,
+            vehicles.indexOf(prefs.goongVehicle).coerceAtLeast(0),
+            note = "CHƯA XÁC NHẬN giá trị nào đúng cho xe máy — tài liệu Goong không ghi rõ. \"bike\" nhiều khả năng là xe đạp, không phải xe máy. Thử từng giá trị trên 1-2 tuyến quen thuộc, chọn cái cho tuyến đúng thực tế nhất",
+        ) {
+            prefs.goongVehicle = vehicles[it]
+        }
+        choice(
+            "Bản đồ nền",
+            null,
+            listOf("OpenFreeMap (mặc định)", "Goong (thử nghiệm)"),
+            if (prefs.mapSource == 2) 1 else 0,
+            note = "Goong cần đã nhập Map Tiles Key ở trên. Lỗi tải thì tự rơi về OpenFreeMap",
+        ) {
+            prefs.mapSource = if (it == 1) 2 else 0
+        }
+
         header("⚡", "Tốc độ giới hạn")
         choice("Loại xe", null, listOf("Mô tô (>50cc)", "Xe gắn máy (≤50cc)"), if (prefs.moped) 1 else 0) {
             prefs.moped = it == 1

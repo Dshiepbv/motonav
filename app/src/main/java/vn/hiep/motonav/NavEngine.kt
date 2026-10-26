@@ -92,9 +92,10 @@ class NavEngine(
     }
 
     private fun requestRoute(lat: Double, lon: Double, heading: Double?, offerChoice: Boolean = false, force: Boolean = false) {
-        val key = prefs.vietmapKey
-        if (key.isBlank()) {
-            Live.routeError = "Chưa nhập mã API VietMap (Cài đặt)"
+        val vmKey = prefs.vietmapKey
+        val goongKey = prefs.goongKey
+        if (vmKey.isBlank() && goongKey.isBlank()) {
+            Live.routeError = "Chưa nhập mã API VietMap hoặc Goong (Cài đặt)"
             Live.changed()
             return
         }
@@ -111,10 +112,20 @@ class NavEngine(
         val dLat = Live.destLat
         val dLon = Live.destLon
         val reroute = Live.route != null && !offerChoice
-        // Google Directions (thử nghiệm) thay VietMap khi bật + đã nhập mã — lỗi thì tự quay lại
-        // VietMap (không có dữ liệu kẹt xe khi dùng Google).
-        fun findRoutes(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> =
-            VietMap.routes(key, lat, lon, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway)
+        // Goong (thử nghiệm) thay VietMap khi đã nhập mã Goong (Cài đặt) — lỗi thì tự rơi về VietMap
+        // nếu còn mã VietMap. LƯU Ý: Goong không có né cao tốc/dữ liệu kẹt xe xác nhận được (xem
+        // comment đầu GoongMap.kt) — hai tuỳ chọn đó trong Cài đặt chỉ có tác dụng khi dùng VietMap.
+        fun findRoutes(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> {
+            if (goongKey.isNotBlank()) {
+                try {
+                    return GoongMap.routes(goongKey, lat, lon, dLat, dLon, prefs.goongVehicle, alt)
+                } catch (e: Exception) {
+                    if (vmKey.isBlank()) throw e
+                    // rơi xuống dùng VietMap bên dưới
+                }
+            }
+            return VietMap.routes(vmKey, lat, lon, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway)
+        }
         executor.execute {
             try {
                 // Luôn lấy vài tuyến để tự chọn tuyến tốt nhất (tránh kẹt xe / ngắn nhất)

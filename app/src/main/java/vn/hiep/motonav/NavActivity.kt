@@ -135,6 +135,23 @@ class NavActivity : Activity() {
             loadStyle()
         }
         mapView.addOnDidFailLoadingMapListener { msg ->
+            if (usingGoongTile) {
+                // Bản đồ Goong (thử nghiệm) lỗi tải → rơi về OpenFreeMap, không để màn trắng.
+                usingGoongTile = false
+                styleError = "Không tải được bản đồ Goong: $msg → đang dùng OpenFreeMap. Kiểm tra Map Tiles Key trong Cài đặt."
+                val ofm = if (isNight()) OFM_DARK else OFM_STYLE
+                ofmTried = ofm
+                style = null
+                map?.setStyle(Style.Builder().fromUri(ofm)) { s ->
+                    style = s
+                    shownRouteVersion = -1
+                    shownJunction = -1
+                    labelFont = findFont(s)
+                    addLayers(s)
+                    render()
+                }
+                return@addOnDidFailLoadingMapListener
+            }
             if (ofmTried == OFM_DARK) {
                 // Kiểu tối không tải được → quay về kiểu sáng
                 ofmTried = OFM_STYLE
@@ -149,7 +166,7 @@ class NavActivity : Activity() {
                 }
                 return@addOnDidFailLoadingMapListener
             }
-            styleError = "Không tải được kiểu bản đồ VietMap: $msg. Kiểm tra mã Tilemap trong Cài đặt."
+            styleError = "Không tải được kiểu bản đồ: $msg. Kiểm tra mã Tilemap trong Cài đặt."
             render()
         }
 
@@ -1159,9 +1176,11 @@ class NavActivity : Activity() {
         // tuy đôi chỗ ở VN chưa đầy đủ bằng VietMap nhưng là vector thật (chữ luôn vẽ thẳng đứng dù
         // bản đồ xoay hướng nào), miễn phí, không lệ thuộc VietMap. Việc tích hợp SDK chính chủ
         // VietMap (đọc đúng mảnh vector gốc, dữ liệu VN đầy đủ hơn) để dự án riêng (phương án A),
-        // không làm trong app này. Định tuyến/chỉ dẫn rẽ vẫn dùng API VietMap như cũ, không đổi.
+        // không làm trong app này. Goong (thử nghiệm) có thể dùng làm bản đồ nền ở ĐÂY (mapSource=2,
+        // xem bên dưới) ĐỘC LẬP với việc định tuyến đang dùng VietMap hay Goong (xem NavEngine) —
+        // hai thứ chọn riêng nhau trong Cài đặt, không bắt buộc đi cùng.
         val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
-        loadedStyleId = "${prefs.mapSource}/$key/$night/${prefs.vietmapStyleUrl}"
+        loadedStyleId = "${prefs.mapSource}/$key/${prefs.goongTileKey}/$night/${prefs.vietmapStyleUrl}"
         styleError = null
         MapHttp.reset()
         val onLoaded = { s: Style ->
@@ -1195,12 +1214,28 @@ class NavActivity : Activity() {
             }
             render()
         }
+        // Goong (thử nghiệm, Cài đặt > mapSource=2 + đã nhập Map Tiles Key): mảnh bản đồ Goong đọc
+        // được bằng MapLibre chuẩn (không như VietMap vector đang lỗi) — xem comment đầu GoongMap.kt
+        // về các điểm chưa xác nhận. Lỗi tải thì addOnDidFailLoadingMapListener bên dưới tự rơi về
+        // OpenFreeMap.
+        val goongTile = prefs.goongTileKey
+        if (prefs.mapSource == 2 && goongTile.isNotBlank()) {
+            usingGoongTile = true
+            style = null
+            m.setStyle(Style.Builder().fromUri(GoongMap.tileStyleUrl(goongTile, night))) { s -> onLoaded(s) }
+            return
+        }
+        usingGoongTile = false
         // OpenFreeMap: bản đồ OpenStreetMap miễn phí, không cần mã (xem comment ở trên hàm)
         val ofm = if (night) OFM_DARK else OFM_STYLE
         ofmTried = ofm
         style = null
         m.setStyle(Style.Builder().fromUri(ofm)) { s -> onLoaded(s) }
     }
+
+    /** Đang thử nghiệm bản đồ nền Goong thay vì OpenFreeMap — xem loadStyle(). Dùng để
+     * addOnDidFailLoadingMapListener biết rơi về OpenFreeMap đúng cách khi Goong lỗi. */
+    private var usingGoongTile = false
 
     private var vmDiag: String? = null
     private var styleDiag: String? = null
@@ -2108,7 +2143,7 @@ class NavActivity : Activity() {
         Live.addListener(listener)
         // Quay lại từ Cài đặt: đổi mã hoặc chế độ đêm thì tải lại bản đồ
         val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
-        if (map != null && loadedStyleId != null && loadedStyleId != "${prefs.mapSource}/$key/${isNight()}/${prefs.vietmapStyleUrl}") loadStyle()
+        if (map != null && loadedStyleId != null && loadedStyleId != "${prefs.mapSource}/$key/${prefs.goongTileKey}/${isNight()}/${prefs.vietmapStyleUrl}") loadStyle()
         applySaver()
         render()
     }

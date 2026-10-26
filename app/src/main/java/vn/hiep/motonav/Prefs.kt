@@ -116,7 +116,8 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("avoidHighway", false)
         set(v) = sp.edit().putBoolean("avoidHighway", v).apply()
 
-    /** 0 = OpenFreeMap (miễn phí, không cần mã), 1 = VietMap */
+    /** 0 = OpenFreeMap (miễn phí, không cần mã, mặc định), 1 = VietMap (raster, dự phòng cũ, xem
+     * NavActivity.loadStyle), 2 = Goong (thử nghiệm, cần Prefs.goongTileKey). */
     var mapSource: Int
         get() = sp.getInt("mapSource", 0)
         set(v) = sp.edit().putInt("mapSource", v).apply()
@@ -125,6 +126,24 @@ class Prefs(ctx: Context) {
     var vietmapStyleUrl: String
         get() = sp.getString("vmstyle", "") ?: ""
         set(v) = sp.edit().putString("vmstyle", v.trim()).apply()
+
+    /** Mã API REST của Goong (Directions/Geocoding/Places) — dùng để ĐỊNH TUYẾN thay VietMap khi
+     * không rỗng (xem GoongMap.kt, NavEngine.findRoutes). Có key này là tự dùng Goong, VietMap chỉ
+     * còn là phương án dự phòng khi Goong lỗi. */
+    var goongKey: String
+        get() = sp.getString("goongKey", "") ?: ""
+        set(v) = sp.edit().putString("goongKey", v.trim()).apply()
+
+    /** Mã "Map Tiles Key" riêng của Goong (hiện bản đồ nền) — khác mã REST ở trên. */
+    var goongTileKey: String
+        get() = sp.getString("goongTileKey", "") ?: ""
+        set(v) = sp.edit().putString("goongTileKey", v.trim()).apply()
+
+    /** Loại phương tiện gửi cho Goong Directions (car/bike/taxi/truck/hd) — CHƯA XÁC NHẬN giá trị
+     * nào đúng cho xe máy, xem comment ở đầu GoongMap.kt. Mặc định "car", chỉnh trong Cài đặt. */
+    var goongVehicle: String
+        get() = sp.getString("goongVehicle", "car") ?: "car"
+        set(v) = sp.edit().putString("goongVehicle", v).apply()
 
     /** Đẩy dẫn đường (dạng chữ, nhẹ) lên màn TFT của xe qua Bluetooth. */
     var tftLink: Boolean
