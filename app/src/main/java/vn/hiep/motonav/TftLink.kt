@@ -519,13 +519,14 @@ object TftLink {
             var iEnd0 = idx0
             while (iEnd0 < route.lats.size && route.cum[iEnd0] - cum0 <= drawAhead) iEnd0++
 
-            // Nhánh đường — PHƯƠNG ÁN THỬ NGHIỆM MỚI theo yêu cầu "đường chính và 2 bên đường chính
-            // 1km mỗi bên": thay vì dò way GẮN THẲNG vào tuyến chính rồi nối chuỗi theo đầu mút (cũ,
-            // hay bỏ sót đường gần tuyến nhưng không có giao lộ nối trực tiếp), giờ vẽ MỌI way có ít
-            // nhất 1 điểm nằm trong hành lang ~1km hai bên đoạn tuyến chính sắp hiện ra màn hình —
-            // kiểu "chụp khung" quanh tuyến như bản đồ thật, không cần xét way đó có nối vào tuyến
-            // hay không. Lưới ô ~250m, mỗi điểm mẫu trên tuyến tô thêm ô xung quanh trong bán kính
-            // ~1km (lưới vuông, không phải hình tròn chính xác — đủ dùng cho mục đích hiển thị).
+            // Nhánh đường — PHƯƠNG ÁN THỬ NGHIỆM theo yêu cầu "đường chính và 2 bên đường chính": thay
+            // vì dò way GẮN THẲNG vào tuyến chính rồi nối chuỗi theo đầu mút (cũ, hay bỏ sót đường gần
+            // tuyến nhưng không có giao lộ nối trực tiếp), giờ vẽ MỌI way có ít nhất 1 điểm nằm trong
+            // hành lang hai bên đoạn tuyến chính sắp hiện ra màn hình — kiểu "chụp khung" quanh tuyến
+            // như bản đồ thật, không cần xét way đó có nối vào tuyến hay không. Lưới ô ~250m, mỗi điểm
+            // mẫu trên tuyến tô thêm ô xung quanh (lưới vuông, không phải hình tròn chính xác — đủ
+            // dùng cho mục đích hiển thị). Thử giảm từ 1km xuống 500m mỗi bên theo yêu cầu, phòng khi
+            // bề rộng 1km làm máy phải xử lý/vẽ nặng quá.
             val ways = skWays
             if (ways != null) {
                 val cellDeg = 250.0 / 111320.0
@@ -535,7 +536,7 @@ object TftLink {
                     return (la shl 24) xor (lo and 0xFFFFFFL)
                 }
                 val corridorGrid = HashSet<Long>()
-                val cellSpan = 4 // ~4*250m = 1000m mỗi hướng quanh mỗi điểm mẫu trên tuyến
+                val cellSpan = 2 // ~2*250m = 500m mỗi hướng quanh mỗi điểm mẫu trên tuyến
                 var gi = idx0
                 var lastCum = -1e9
                 while (gi < iEnd0) {
