@@ -2108,10 +2108,17 @@ class NavActivity : Activity() {
         } else {
             etaText.text = Live.street ?: "Chọn điểm đến"
         }
-        // Đã tìm ra nguyên nhân bản đồ trắng (lỗi "invalid tag" đọc mảnh gzip) — bỏ chẩn đoán
-        // nặng (querySourceFeatures 3 lần mỗi khung hình) vì chạy liên tục lúc dẫn đường thật dễ
-        // làm giật máy/trễ khung hình gửi qua TFT. Chỉ còn log lỗi SDK bắt được, không tính toán gì.
-        val mapErr = MapHttp.problem() ?: styleError ?: MapHttp.lastLog
+        // Đã bỏ chẩn đoán nặng (querySourceFeatures 3 lần mỗi khung hình) vì chạy liên tục lúc dẫn
+        // đường thật dễ làm giật máy/trễ khung hình gửi qua TFT. Nghi camera bản đồ đang dừng ở
+        // (0,0) giữa biển (mảnh 404 thật đúng z13/4095/4095 = toạ độ 0,0) thay vì vị trí GPS thật —
+        // đọc vị trí camera hiện tại CHỈ 1 lần/khung (getter rẻ, không phải query nặng như trước) để
+        // xác nhận, nối thêm vào câu lỗi nếu có.
+        val mapErrBase = MapHttp.problem() ?: styleError ?: MapHttp.lastLog
+        val mapErr = if (mapErrBase != null) {
+            val cp = try { map?.cameraPosition } catch (_: Exception) { null }
+            val ct = cp?.target
+            "$mapErrBase [cam=${if (ct != null) "%.4f,%.4f z%.1f".format(ct.latitude, ct.longitude, cp.zoom) else "?"} gps=${Live.gpsOk}]"
+        } else null
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
             ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
                 .joinToString("\n")
