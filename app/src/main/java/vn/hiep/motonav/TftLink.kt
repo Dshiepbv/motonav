@@ -536,12 +536,18 @@ object TftLink {
                     return (la shl 24) xor (lo and 0xFFFFFFL)
                 }
                 val corridorGrid = HashSet<Long>()
+                // Giữ lại các điểm mẫu trên tuyến chính (không phải vị trí xe) để sau này ưu tiên vẽ
+                // way GẦN TUYẾN CHÍNH trước rồi lan dần ra 2 bên — theo yêu cầu "luôn ưu tiên load từ
+                // trong đường chính ra 2 bên" (trước đo khoảng cách tới vị trí xe, lệch tâm khi tuyến
+                // uốn cong phía trước, không đúng ý "từ chính tuyến lan ra").
+                val routeSamples = ArrayList<DoubleArray>()
                 val cellSpan = 2 // ~2*250m = 500m mỗi hướng quanh mỗi điểm mẫu trên tuyến
                 var gi = idx0
                 var lastCum = -1e9
                 while (gi < iEnd0) {
                     if (route.cum[gi] - lastCum >= 150.0 || gi == idx0) {
                         lastCum = route.cum[gi]
+                        routeSamples.add(doubleArrayOf(route.lats[gi], route.lons[gi]))
                         val baseLa = Math.floor(route.lats[gi] / cellDeg).toLong()
                         val baseLo = Math.floor(route.lons[gi] / cellDeg).toLong()
                         for (da in -cellSpan..cellSpan) for (db in -cellSpan..cellSpan) {
@@ -565,9 +571,18 @@ object TftLink {
                 // nếu dữ liệu OSM trả về theo khối/ô không gian (way ở một phía của tuyến nằm liền
                 // nhau trong mảng), việc dừng sớm theo thứ tự mảng dễ "ăn hết" toàn bộ chỉ tiêu vào MỘT
                 // phía trước khi kịp xét tới phía bên kia. SỬA: gom hết way nằm trong hành lang trước,
-                // xếp theo khoảng cách gần xe nhất, rồi mới vẽ theo thứ tự gần->xa tới khi đủ trần —
-                // đảm bảo cả 2 bên đường được ưu tiên công bằng theo khoảng cách thực, không phụ thuộc
-                // thứ tự trả về của dữ liệu.
+                // rồi vẽ theo thứ tự GẦN TUYẾN CHÍNH NHẤT trước, lan dần ra 2 bên tới khi đủ trần —
+                // đảm bảo cả 2 bên đường được ưu tiên công bằng, không phụ thuộc thứ tự trả về của dữ
+                // liệu, và luôn ưu tiên load sát tuyến chính trước thay vì đo theo vị trí xe (lệch tâm
+                // khi tuyến uốn cong phía trước).
+                fun distToRoute(lat: Double, lon: Double): Double {
+                    var best = Double.MAX_VALUE
+                    for (rp in routeSamples) {
+                        val d = Geo.distance(lat, lon, rp[0], rp[1])
+                        if (d < best) best = d
+                    }
+                    return best
+                }
                 val candidates = ArrayList<Pair<Way, Double>>()
                 for (wy in ways) {
                     if (wy.lats.isEmpty()) continue
@@ -578,7 +593,7 @@ object TftLink {
                     while (si < wy.lats.size) {
                         if (corridorGrid.contains(corridorKey(wy.lats[si], wy.lons[si]))) {
                             inCorridor = true
-                            val d = Geo.distance(skLat, skLon, wy.lats[si], wy.lons[si])
+                            val d = distToRoute(wy.lats[si], wy.lons[si])
                             if (d < nearestD) nearestD = d
                         }
                         si += sampleStep
