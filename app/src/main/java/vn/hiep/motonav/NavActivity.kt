@@ -2104,9 +2104,9 @@ class NavActivity : Activity() {
             val featDiag = try {
                 val src = map?.style?.getSource("openmaptiles") as? org.maplibre.android.style.sources.VectorSource
                 if (src != null) {
-                    val w = src.querySourceFeatures(arrayOf("water")).size
-                    val b = src.querySourceFeatures(arrayOf("building")).size
-                    val t = src.querySourceFeatures(arrayOf("transportation")).size
+                    val w = src.querySourceFeatures(arrayOf("water"), null).size
+                    val b = src.querySourceFeatures(arrayOf("building"), null).size
+                    val t = src.querySourceFeatures(arrayOf("transportation"), null).size
                     "feat water=$w building=$b transportation=$t"
                 } else {
                     "feat: ko có nguồn openmaptiles"
