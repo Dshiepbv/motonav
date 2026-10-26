@@ -1,72 +1,88 @@
 package vn.hiep.motonav
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
-import java.util.Locale
 
 /**
- * Tìm đường bằng Google Maps Directions API — thay thế VietMap khi tuyến VietMap hay dẫn vào
- * đường có chắn/không thông minh bằng Google. Cần mã API riêng của người dùng (Google Cloud
- * Console, bật Directions API + thanh toán — có hạn mức miễn phí hàng tháng).
+ * Tìm đường bằng Google Maps Routes API (computeRoutes) — thay thế VietMap khi tuyến VietMap hay
+ * dẫn vào đường có chắn/không thông minh bằng Google. Cần mã API riêng của người dùng (Google
+ * Cloud Console, bật "Routes API" + thanh toán — có hạn mức miễn phí hàng tháng).
  *
- * LƯU Ý: chưa test với API key thật (chưa có mã để gọi thử) — cần kiểm tra lại các trường hợp
- * biên (vòng xuyến, quay đầu, chỉ dẫn tiếng Việt) trên xe thật.
+ * LƯU Ý: Google đã khai tử "Directions API" (cũ) từ 1/3/2025 — project mới KHÔNG bật được API đó
+ * nữa, chỉ dùng được "Routes API" (API kế thừa). Code này gọi Routes API v2, không phải Directions
+ * API cũ (khác hẳn format request/response).
  */
 object GoogleDirections {
-    private const val BASE = "https://maps.googleapis.com/maps/api/directions/json"
+    private const val BASE = "https://routes.googleapis.com/directions/v2:computeRoutes"
+    private const val FIELD_MASK =
+        "routes.duration,routes.distanceMeters,routes.legs.steps.distanceMeters," +
+            "routes.legs.steps.polyline.encodedPolyline,routes.legs.steps.navigationInstruction"
 
-    private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
-    private fun ll(lat: Double, lon: Double) = String.format(Locale.US, "%.6f,%.6f", lat, lon)
-
-    private fun get(url: String): String {
-        val c = URL(url).openConnection() as HttpURLConnection
+    private fun post(key: String, body: JSONObject): String {
+        val c = URL(BASE).openConnection() as HttpURLConnection
         try {
+            c.requestMethod = "POST"
+            c.doOutput = true
             c.connectTimeout = 12000
             c.readTimeout = 20000
             c.setRequestProperty("User-Agent", "MotoNav/1.0 (Android)")
+            c.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            c.setRequestProperty("X-Goog-Api-Key", key)
+            c.setRequestProperty("X-Goog-FieldMask", FIELD_MASK)
+            c.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             val code = c.responseCode
             val stream = if (code in 200..299) c.inputStream else (c.errorStream ?: c.inputStream)
-            val body = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            if (code !in 200..299) throw RuntimeException("Google Directions lỗi HTTP $code")
-            return body
+            val respBody = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            if (code !in 200..299) {
+                val err = try { JSONObject(respBody).optJSONObject("error") } catch (_: Exception) { null }
+                val status = err?.optString("status") ?: "HTTP_$code"
+                val msg = err?.optString("message") ?: respBody.take(200)
+                throw RuntimeException(
+                    when (status) {
+                        "PERMISSION_DENIED" -> "Mã API Google không hợp lệ hoặc chưa bật Routes API ($msg)"
+                        "RESOURCE_EXHAUSTED" -> "Đã hết hạn mức Google Routes trong ngày/giây"
+                        "INVALID_ARGUMENT" -> "Google Routes: tham số không hợp lệ ($msg)"
+                        else -> "Google Routes: $status $msg",
+                    },
+                )
+            }
+            return respBody
         } finally {
             c.disconnect()
         }
     }
+
+    private fun latLng(lat: Double, lon: Double) = JSONObject().put(
+        "location",
+        JSONObject().put("latLng", JSONObject().put("latitude", lat).put("longitude", lon)),
+    )
 
     fun routes(
         key: String, fromLat: Double, fromLon: Double, toLat: Double, toLon: Double,
         alternative: Boolean = false, via: List<Pair<Double, Double>> = emptyList(),
         avoidHighway: Boolean = false,
     ): List<Route> {
-        val sb = StringBuilder(BASE).append("?key=").append(enc(key))
-            .append("&origin=").append(ll(fromLat, fromLon))
-            .append("&destination=").append(ll(toLat, toLon))
-            .append("&mode=driving&language=vi&units=metric")
+        val body = JSONObject()
+            .put("origin", latLng(fromLat, fromLon))
+            .put("destination", latLng(toLat, toLon))
+            .put("travelMode", "DRIVE")
+            .put("routingPreference", "TRAFFIC_AWARE")
+            .put("languageCode", "vi")
+            .put("units", "METRIC")
+            .put(
+                "routeModifiers",
+                JSONObject().put("avoidTolls", false).put("avoidFerries", true).put("avoidHighways", avoidHighway),
+            )
         if (via.isNotEmpty()) {
-            sb.append("&waypoints=").append(via.joinToString("|") { ll(it.first, it.second) })
+            body.put("intermediates", JSONArray(via.map { latLng(it.first, it.second) }))
+        } else if (alternative) {
+            body.put("computeAlternativeRoutes", true)
         }
-        if (alternative && via.isEmpty()) sb.append("&alternatives=true")
-        // Google không có "tránh phà" riêng cho avoid=ferries kết hợp tránh cao tốc — ghép bằng |.
-        val avoid = buildList {
-            add("ferries")
-            if (avoidHighway) add("highways")
-        }
-        sb.append("&avoid=").append(avoid.joinToString("|"))
-        val root = JSONObject(get(sb.toString()))
-        val status = root.optString("status", "UNKNOWN_ERROR")
-        if (status != "OK") {
-            val msg = when (status) {
-                "ZERO_RESULTS" -> "Không tìm được đường đi tới điểm này (Google)"
-                "OVER_QUERY_LIMIT" -> "Đã hết hạn mức Google Directions trong ngày/giây"
-                "REQUEST_DENIED" -> "Mã API Google không hợp lệ hoặc chưa bật Directions API (${root.optString("error_message")})"
-                else -> "Google Directions: $status ${root.optString("error_message")}"
-            }
-            throw RuntimeException(msg)
-        }
-        val routesArr = root.optJSONArray("routes") ?: throw RuntimeException("Google không trả về tuyến")
+        val root = JSONObject(post(key, body))
+        val routesArr = root.optJSONArray("routes")
+        if (routesArr == null || routesArr.length() == 0) throw RuntimeException("Không tìm được đường đi tới điểm này (Google)")
         val out = ArrayList<Route>()
         for (ri in 0 until minOf(routesArr.length(), 3)) {
             try {
@@ -78,77 +94,80 @@ object GoogleDirections {
         return out
     }
 
-    private val tagRe = Regex("<[^>]*>")
-    private val boldRe = Regex("<b>(.*?)</b>", RegexOption.DOT_MATCHES_ALL)
     private val exitNumRe = Regex("""(\d+)""")
+    // "Rẽ phải vào Nguyễn Huệ", "Đi theo Xa Lộ Hà Nội" — lấy cụm tên đường sau "vào "/"theo " cuối câu.
+    private val streetRe = Regex("""(?:vào|theo)\s+(.+)$""")
 
-    /** Tên đường/điểm đáng chú ý nhất trong câu chỉ dẫn HTML — thường là cụm cuối cùng in đậm. */
-    private fun streetFromHtml(html: String): String {
-        val bolds = boldRe.findAll(html).map { it.groupValues[1] }.toList()
-        if (bolds.isNotEmpty()) return bolds.last().trim()
-        return html.replace(tagRe, " ").replace(Regex("\\s+"), " ").trim()
+    private fun streetFromInstruction(plain: String): String {
+        val m = streetRe.find(plain)
+        return (m?.groupValues?.get(1) ?: plain).trim().trimEnd('.')
     }
 
-    /** Mã rẽ kiểu GraphHopper (dùng chung toàn app) từ chuỗi "maneuver" của Google. */
-    private fun signFromManeuver(m: String?, plainInstruction: String): Int = when (m) {
-        "turn-slight-left" -> -1
-        "turn-left" -> -2
-        "turn-sharp-left" -> -3
-        "uturn-left", "uturn-right" -> -8
-        "turn-slight-right" -> 1
-        "turn-right" -> 2
-        "turn-sharp-right" -> 3
-        "roundabout-left", "roundabout-right" -> 6
-        "merge" -> 0
-        "fork-left", "ramp-left" -> -1
-        "fork-right", "ramp-right" -> 1
-        "ferry", "ferry-train" -> 0
-        "straight", null -> 0
+    /** Mã rẽ kiểu GraphHopper (dùng chung toàn app) từ "maneuver" của Routes API. */
+    private fun signFromManeuver(m: String?): Int = when (m) {
+        "TURN_SLIGHT_LEFT" -> -1
+        "TURN_LEFT" -> -2
+        "TURN_SHARP_LEFT" -> -3
+        "UTURN_LEFT", "UTURN_RIGHT" -> -8
+        "TURN_SLIGHT_RIGHT" -> 1
+        "TURN_RIGHT" -> 2
+        "TURN_SHARP_RIGHT" -> 3
+        "ROUNDABOUT_LEFT", "ROUNDABOUT_RIGHT" -> 6
+        "MERGE" -> 0
+        "FORK_LEFT", "RAMP_LEFT" -> -1
+        "FORK_RIGHT", "RAMP_RIGHT" -> 1
+        "FERRY", "FERRY_TRAIN" -> 0
+        "STRAIGHT", "DEPART", "NAME_CHANGE", null -> 0
         else -> 0
     }
 
+    private fun parseDurationS(d: String?): Long {
+        if (d.isNullOrBlank()) return 0L
+        return d.trimEnd('s').toDoubleOrNull()?.toLong() ?: 0L
+    }
+
     private fun parseRoute(r: JSONObject): Route {
-        val legs = r.getJSONArray("legs")
         val lats = ArrayList<Double>()
         val lons = ArrayList<Double>()
         val steps = ArrayList<Step>()
-        var totalDist = 0.0
-        var totalMs = 0L
+        val totalDist = r.optDouble("distanceMeters", 0.0)
+        val totalMs = parseDurationS(r.optString("duration", null)) * 1000L
+        val legs = r.optJSONArray("legs") ?: JSONArray()
         for (li in 0 until legs.length()) {
             val leg = legs.getJSONObject(li)
-            totalDist += leg.optJSONObject("distance")?.optDouble("value", 0.0) ?: 0.0
-            totalMs += ((leg.optJSONObject("duration")?.optInt("value", 0) ?: 0) * 1000L)
-            val stepsArr = leg.getJSONArray("steps")
+            val stepsArr = leg.optJSONArray("steps") ?: JSONArray()
             for (si in 0 until stepsArr.length()) {
                 val s = stepsArr.getJSONObject(si)
                 val from = lats.size
-                val (pla, plo) = Route.decodePolyline(s.getJSONObject("polyline").getString("points"))
-                // Điểm đầu của bước sau trùng điểm cuối bước trước — bỏ điểm trùng để tuyến liền mạch.
-                val startAt = if (from > 0 && pla.isNotEmpty() &&
-                    kotlin.math.abs(pla[0] - lats.last()) < 1e-7 && kotlin.math.abs(plo[0] - lons.last()) < 1e-7
-                ) 1 else 0
-                for (i in startAt until pla.size) { lats.add(pla[i]); lons.add(plo[i]) }
-                val html = s.optString("html_instructions", "")
-                val maneuver = if (s.has("maneuver")) s.optString("maneuver") else null
-                val plain = html.replace(tagRe, " ").replace(Regex("\\s+"), " ").trim()
-                val sign = signFromManeuver(maneuver, plain)
-                val street = if (sign == 6) plain else streetFromHtml(html) // vòng xuyến: giữ cả câu để còn số lối ra
+                val enc = s.optJSONObject("polyline")?.optString("encodedPolyline", "") ?: ""
+                if (enc.isNotEmpty()) {
+                    val (pla, plo) = Route.decodePolyline(enc)
+                    val startAt = if (from > 0 && pla.isNotEmpty() &&
+                        kotlin.math.abs(pla[0] - lats.last()) < 1e-7 && kotlin.math.abs(plo[0] - lons.last()) < 1e-7
+                    ) 1 else 0
+                    for (i in startAt until pla.size) { lats.add(pla[i]); lons.add(plo[i]) }
+                }
+                val nav = s.optJSONObject("navigationInstruction")
+                val maneuver = nav?.optString("maneuver")
+                val plain = nav?.optString("instructions", "")?.trim() ?: ""
+                val sign = signFromManeuver(maneuver)
+                val street = if (sign == 6) plain else streetFromInstruction(plain)
                 val exitNum = if (sign == 6) exitNumRe.find(plain)?.groupValues?.get(1)?.toIntOrNull() ?: 0 else 0
                 steps.add(
                     Step(
                         sign = sign, text = plain, street = if (sign == 6) "" else street,
-                        distance = s.optJSONObject("distance")?.optDouble("value", 0.0) ?: 0.0,
-                        from = from, to = lats.size - 1, exitNumber = exitNum,
+                        distance = s.optDouble("distanceMeters", 0.0),
+                        from = from, to = maxOf(from, lats.size - 1), exitNumber = exitNum,
                     ),
                 )
             }
         }
-        // Bước cuối: "đến nơi" — route/v4 (VietMap) luôn có bước này, Google thì ngầm hiểu nên thêm
-        // vào để phần còn lại của app (báo "đến nơi", icon mũi tên...) hoạt động giống nhau.
+        // Bước cuối: "đến nơi" — route/v4 (VietMap) luôn có bước này, Routes API thì ngầm hiểu nên
+        // thêm vào để phần còn lại của app (báo "đến nơi", icon mũi tên...) hoạt động giống nhau.
         if (lats.isNotEmpty()) {
             steps.add(Step(sign = 4, text = "Đến nơi", street = "", distance = 0.0, from = lats.size - 1, to = lats.size - 1, exitNumber = 0))
         }
         return Route(lats.toDoubleArray(), lons.toDoubleArray(), steps, totalDist, totalMs)
-        // congestion: Google Directions chuẩn không trả mức kẹt xe theo từng đoạn, để rỗng.
+        // congestion: Routes API không trả mức kẹt xe theo từng đoạn ở field mask tối giản này, để rỗng.
     }
 }
