@@ -9,7 +9,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.PointF
 import android.graphics.Typeface
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
@@ -742,23 +741,24 @@ object TftLink {
             c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
             limBottomY = cy + r
         }
-        // Dưới ô giới hạn tốc độ: ETA (giờ đến), thời gian còn lại, quãng đường còn lại — giống Waze.
-        // Tên đường ĐANG ĐI không còn vẽ ở đây — theo yêu cầu mới nhất, dời xuống nhãn firmware xe
-        // (cmd 3/1, xem TftLink.update()); cột phải chỉ còn 3 số liệu hành trình.
+        // ETA (giờ đến), thời gian còn lại, quãng đường còn lại — theo yêu cầu mới nhất, dời sang
+        // TRÁI, đặt sát đáy khung (ngay trên thanh tên-đường của firmware xe, cmd 3/1), cỡ chữ gấp
+        // đôi trước đây (0.085->0.17) để đọc được nhanh lúc đang chạy.
         if (skActive && skRoute != null) {
-            val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.085f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-            val cx = w * 0.90f
+            val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.17f; textAlign = Paint.Align.LEFT; isAntiAlias = true }
+            val cx = w * 0.04f
             val remKm = skRemainingM / 1000.0
             val remTxt = if (remKm >= 10) "${remKm.toInt()} km" else String.format("%.1f km", remKm)
             val remMin = (skEtaMs / 60000L).toInt()
             val arriveCal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
             val etaTxt = String.format("%02d:%02d", arriveCal.get(java.util.Calendar.HOUR_OF_DAY), arriveCal.get(java.util.Calendar.MINUTE))
-            var sy = limBottomY + h * 0.1f
-            c.drawText(etaTxt, cx, sy, statPaint)
-            sy += h * 0.1f
-            c.drawText("$remMin ph", cx, sy, statPaint)
-            sy += h * 0.1f
+            val lineH = h * 0.20f
+            var sy = h - h * 0.05f
             c.drawText(remTxt, cx, sy, statPaint)
+            sy -= lineH
+            c.drawText("$remMin ph", cx, sy, statPaint)
+            sy -= lineH
+            c.drawText(etaTxt, cx, sy, statPaint)
         }
         // Chỉ dẫn rẽ — icon mũi tên tự vẽ (KHÔNG ghi chữ "trái"/"phải"), khoảng cách đếm ngược và
         // tên đường sắp quẹo vào, cố định góc trên-trái, KHÔNG nền (theo yêu cầu). Trước đây icon rẽ
@@ -774,70 +774,28 @@ object TftLink {
             // Đẩy cả bảng sát kịch góc trên-trái theo yêu cầu mới nhất.
             val iconCx = w * 0.075f
             val iconCy = arm * 0.78f
-            // Mũi tên giống hệt kiểu chỉ dẫn Waze (ảnh người dùng gửi): 1 nét DÀY đều, bo tròn, cong
-            // mượt theo đúng 1 cung tròn thật (không vuốt thon/không loe — thử trước đó đều méo ở
-            // đầu mũi tên) + 1 tam giác gọn ở chóp, xoay đúng tiếp tuyến cung tại điểm dừng nét.
-            val apexDeg = Maneuver.angle(skSign).toDouble()
-            val start = PointF(iconCx, iconCy + arm * 0.78f)
-            val shaft = android.graphics.Path()
-            shaft.moveTo(start.x, start.y)
-            val stopPt: PointF
-            val stopTangent: PointF
-            if (Math.abs(apexDeg) < 1.0) {
-                stopPt = PointF(iconCx, iconCy - arm * 0.95f * 0.80f)
-                shaft.lineTo(stopPt.x, stopPt.y)
-                stopTangent = PointF(0f, -1f)
-            } else {
-                val radius = arm * 0.60f
-                val s = if (apexDeg > 0) 1f else -1f
-                val cx = start.x + radius * s
-                val cy = start.y
-                val startDeg = if (s > 0) 180.0 else 0.0
-                val sweepStopDeg = apexDeg * 0.80 // dừng nét ở 80% góc rẽ, phần còn lại nhường đầu mũi tên
-                val n = 24
-                var lastTdx = 0f; var lastTdy = -1f
-                for (i in 1..n) {
-                    val t = i.toDouble() / n
-                    val deg = startDeg + sweepStopDeg * t
-                    val rad = Math.toRadians(deg)
-                    val px = (cx + radius * Math.cos(rad)).toFloat()
-                    val py = (cy + radius * Math.sin(rad)).toFloat()
-                    shaft.lineTo(px, py)
-                    val rx = Math.cos(rad).toFloat(); val ry = Math.sin(rad).toFloat()
-                    lastTdx = -ry * s; lastTdy = rx * s
-                }
-                val endDeg = startDeg + sweepStopDeg
-                val endRad = Math.toRadians(endDeg)
-                stopPt = PointF((cx + radius * Math.cos(endRad)).toFloat(), (cy + radius * Math.sin(endRad)).toFloat())
-                stopTangent = PointF(lastTdx, lastTdy)
-            }
-            val shaftPaint = Paint().apply {
-                color = Color.WHITE; style = Paint.Style.STROKE
-                strokeWidth = arm * 0.30f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
-                isAntiAlias = true
-            }
-            c.drawPath(shaft, shaftPaint)
-            val nx = -stopTangent.y; val ny = stopTangent.x
-            val headLen = arm * 0.46f; val headW = arm * 0.5f
-            val tipX = stopPt.x + stopTangent.x * headLen; val tipY = stopPt.y + stopTangent.y * headLen
-            val backX = stopPt.x - stopTangent.x * headW * 0.22f; val backY = stopPt.y - stopTangent.y * headW * 0.22f
-            val headPath = android.graphics.Path().apply {
-                moveTo(tipX, tipY)
-                lineTo(backX + nx * headW * 0.5f, backY + ny * headW * 0.5f)
-                lineTo(backX - nx * headW * 0.5f, backY - ny * headW * 0.5f)
+            // Bỏ icon tự vẽ (bezier/cung tròn) — quay lại tam giác đơn giản xoay theo góc rẽ, đúng
+            // kiểu bản đầu tiên (v6.77) theo yêu cầu "chỉ tam giác như lúc đầu".
+            val apexDeg = Maneuver.angle(skSign)
+            val arrowR = arm * 0.62f
+            c.save()
+            c.rotate(apexDeg, iconCx, iconCy)
+            val arrowPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+            val arrowPath = android.graphics.Path().apply {
+                moveTo(iconCx, iconCy - arrowR)
+                lineTo(iconCx - arrowR * 0.8f, iconCy + arrowR * 0.7f)
+                lineTo(iconCx, iconCy + arrowR * 0.3f)
+                lineTo(iconCx + arrowR * 0.8f, iconCy + arrowR * 0.7f)
                 close()
             }
-            val headPaint = Paint().apply {
-                color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true
-                pathEffect = android.graphics.CornerPathEffect(headW * 0.18f)
-            }
-            c.drawPath(headPath, headPaint)
-            // Khối chữ bắt đầu ngay bên phải icon, căn trái. Theo yêu cầu: chỉ tên đường tô xanh
-            // (routeBlue) — icon và số mét giữ màu trắng.
-            val textX = iconCx + arm * 1.35f
+            c.drawPath(arrowPath, arrowPaint)
+            c.restore()
+            // Khối chữ bắt đầu sát icon hơn (dịch trái theo yêu cầu), căn trái. Chỉ tên đường tô
+            // xanh (routeBlue) — icon và số mét giữ màu trắng; tên đường to + đậm hơn.
+            val textX = iconCx + arm * 0.95f
             val maxW = (w * 0.62f - textX).coerceAtLeast(w * 0.2f)
             val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            val streetPaint = Paint().apply { color = routeBlue; textSize = h * 0.085f; textAlign = Paint.Align.LEFT; isAntiAlias = true }
+            val streetPaint = Paint().apply { color = routeBlue; textSize = h * 0.105f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val nst = skNextStreet ?: ""
             val words = nst.split(' ').filter { it.isNotEmpty() }
             val lines = ArrayList<String>()
@@ -857,7 +815,7 @@ object TftLink {
             // Căn khối chữ theo chiều dọc quanh tâm icon (1 dòng khoảng cách to + tối đa 2 dòng tên
             // đường nhỏ hơn) để cả khối trông cân đối với icon, giống bố cục Waze.
             val distLineH = h * 0.125f
-            val streetLineH = h * 0.085f
+            val streetLineH = h * 0.105f
             val totalH = distLineH + streetLineH * lines.size
             var ty = iconCy - totalH / 2f + distLineH * 0.78f
             val dM = skDistanceM
