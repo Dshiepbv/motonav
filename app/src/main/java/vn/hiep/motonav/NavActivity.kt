@@ -1160,11 +1160,20 @@ class NavActivity : Activity() {
             labelFont = findFont(s)
             addLayers(s)
             try {
-                val srcIds = s.sources.map { it.id }
-                val layerTypes = s.layers.groupingBy { it.javaClass.simpleName }.eachCount()
-                styleDiag = "nguồn=$srcIds lớp=${s.layers.size} $layerTypes"
-            } catch (_: Exception) {
-                styleDiag = "lỗi đọc style"
+                // Mảnh bản đồ VietMap tải thủ công trên trình duyệt (api/tm/.../*.png) ra ảnh
+                // đúng → nghi style đang dùng nguồn KIỂU RASTER (ảnh PNG) chứ không phải vector
+                // (openmaptiles thường là vector). Nếu vậy brightenDark()/addLayers() (chỉ xử lý
+                // BackgroundLayer/LineLayer/FillLayer/SymbolLayer) sẽ bỏ qua hoàn toàn lớp Raster
+                // đó — kiểm tra thẳng kiểu nguồn + có lớp RasterLayer hay không.
+                val src = s.getSource("openmaptiles")
+                val srcType = src?.javaClass?.simpleName ?: "null"
+                val rl = s.layers.filterIsInstance<org.maplibre.android.style.layers.RasterLayer>()
+                val rlInfo = if (rl.isEmpty()) "ko có RasterLayer" else
+                    rl.joinToString(";") { "${it.id}@${it.sourceLayer ?: it.sourceId}" }
+                val counts = s.layers.groupingBy { it.javaClass.simpleName }.eachCount()
+                styleDiag = "nguồn openmaptiles kiểu=$srcType $rlInfo lớp=${s.layers.size} $counts"
+            } catch (e: Exception) {
+                styleDiag = "lỗi đọc style: ${e.javaClass.simpleName}"
             }
             // Chưa có vị trí GPS: camera mặc định của MapLibre nằm giữa biển (0,0) nên bản đồ
             // trông như trống trơn (chỉ có màu nền) dù tải style/mảnh OK. Đưa tạm về vị trí mặc định
@@ -2114,8 +2123,9 @@ class NavActivity : Activity() {
             } catch (e: Throwable) {
                 "feat lỗi: ${e.javaClass.simpleName}"
             }
-            // Camera + feature + số mảnh tải lên ĐẦU (quan trọng nhất), vmDiag/styleDiag (đã biết ổn) để cuối vì hay bị cắt do ô chữ chỉ 3 dòng
-            listOfNotNull(camDiag, featDiag, "tải OK ${MapHttp.okCount} lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog, vmDiag, styleDiag).joinToString(" · ")
+            // Ưu tiên lên ĐẦU: camera, kiểu nguồn/lớp Raster (styleDiag giờ ngắn gọn hơn), feature thật —
+            // đây là 3 thứ đang cần biết nhất. vmDiag/số mảnh/log để cuối vì hay bị cắt do ô chữ chỉ 3 dòng.
+            listOfNotNull(camDiag, styleDiag, featDiag, "tải OK ${MapHttp.okCount} lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog, vmDiag).joinToString(" · ")
         } else null
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
             ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
