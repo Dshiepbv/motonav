@@ -565,14 +565,11 @@ object TftLink {
                 }
                 val globalVisited = HashSet<Long>()
                 var drawnWays = 0
-                for (seed in ways) {
-                    if (drawnWays >= 40) break
-                    if (seed.lats.isEmpty() || seed.id in globalVisited) continue
-                    var touchesRoute = false
-                    for (k in seed.lats.indices) {
-                        if (routeGrid.contains(cellKey(seed.lats[k], seed.lons[k]))) { touchesRoute = true; break }
-                    }
-                    if (!touchesRoute) continue
+                // Giới hạn số nhánh vẽ — nâng lên (40->90) cùng với tầng cấp-2 bên dưới, theo yêu cầu
+                // "load khoảng dài dài để phủ tương đối kín màn hình" (trước hay bị cắt sớm, màn
+                // trống nhiều quanh tuyến chính).
+                val wayCap = 90
+                fun chainFrom(seed: Way): List<Way> {
                     // Chuỗi way nối tiếp nhau, bắt đầu từ seed, kéo dài về phía đầu mút XA vị trí xe
                     // hơn (đầu mút gần coi như phía giao lộ, không cần nối thêm về hướng đó).
                     val chain = ArrayList<Way>()
@@ -584,7 +581,7 @@ object TftLink {
                     if (dEnd0 > dStart0) { curLat = seed.lats[seed.lats.size - 1]; curLon = seed.lons[seed.lats.size - 1] }
                     else { curLat = seed.lats[0]; curLon = seed.lons[0] }
                     var hops = 0
-                    while (hops < 12) {
+                    while (hops < 16) {
                         hops++
                         val cands = endpointMap[endKey(curLat, curLon)] ?: break
                         val next = cands.firstOrNull { it.id !in globalVisited && it.lats.isNotEmpty() } ?: break
@@ -595,8 +592,11 @@ object TftLink {
                         if (nd0 <= nd1) { curLat = next.lats[next.lats.size - 1]; curLon = next.lons[next.lats.size - 1] }
                         else { curLat = next.lats[0]; curLon = next.lons[0] }
                     }
+                    return chain
+                }
+                fun drawChain(chain: List<Way>) {
                     for (wy in chain) {
-                        if (drawnWays >= 40) break
+                        if (drawnWays >= wayCap) break
                         val bp = android.graphics.Path()
                         var bStarted = false
                         var any = false
@@ -615,6 +615,36 @@ object TftLink {
                             j += step
                         }
                         if (any) { c.drawPath(bp, branchPaintFor(wy.highway)); drawnWays++ }
+                    }
+                }
+                // Cấp 1: các way gắn thẳng vào tuyến chính.
+                val level1Ways = ArrayList<Way>()
+                for (seed in ways) {
+                    if (drawnWays >= wayCap) break
+                    if (seed.lats.isEmpty() || seed.id in globalVisited) continue
+                    var touchesRoute = false
+                    for (k in seed.lats.indices) {
+                        if (routeGrid.contains(cellKey(seed.lats[k], seed.lons[k]))) { touchesRoute = true; break }
+                    }
+                    if (!touchesRoute) continue
+                    val chain = chainFrom(seed)
+                    level1Ways.addAll(chain)
+                    drawChain(chain)
+                }
+                // Cấp 2: way gắn vào các nhánh cấp 1 vừa tìm (không chạm thẳng tuyến chính) — theo
+                // yêu cầu "cấp 2 gắn cấp 1", thêm một tầng kết nối xa hơn để bản đồ đỡ trống.
+                if (drawnWays < wayCap && level1Ways.isNotEmpty()) {
+                    val level1Grid = HashSet<Long>()
+                    for (wy in level1Ways) for (k in wy.lats.indices) level1Grid.add(cellKey(wy.lats[k], wy.lons[k]))
+                    for (seed in ways) {
+                        if (drawnWays >= wayCap) break
+                        if (seed.lats.isEmpty() || seed.id in globalVisited) continue
+                        var touchesL1 = false
+                        for (k in seed.lats.indices) {
+                            if (level1Grid.contains(cellKey(seed.lats[k], seed.lons[k]))) { touchesL1 = true; break }
+                        }
+                        if (!touchesL1) continue
+                        drawChain(chainFrom(seed))
                     }
                 }
             }
@@ -653,16 +683,17 @@ object TftLink {
             // Nhãn tên-đường-sắp-rẽ gắn trên bản đồ (đường kẻ nối + nền đen) — giữ lại kiểu chỉ này
             // theo yêu cầu, nhưng bỏ chấm tròn ở đầu đường kẻ, và neo KHÔNG còn đúng tại điểm rẽ
             // (skManLat/skManLon) nữa — ở đó nhiều đường giao cắt chồng lên nhau trên hình, chấm/đường
-            // kẻ trông mơ hồ không rõ đang chỉ con đường nào. Lùi neo về trước điểm rẽ ~50m, DỌC THEO
-            // chính tuyến đang vẽ (route.cum) — vẫn nằm trên đúng đoạn đường sắp quẹo, chỉ là tránh xa
-            // hẳn chỗ rối ở ngã tư.
+            // kẻ trông mơ hồ không rõ đang chỉ con đường nào. SỬA LẠI theo yêu cầu: neo không lùi về
+            // phía đường ĐANG ĐI nữa (hướng cũ, sai) mà tiến TỚI khoảng 50m vào ĐƯỜNG SẮP QUẸO (đoạn
+            // tuyến sau điểm rẽ) — đúng là "cọc chỉ dẫn" cắm trên con đường sắp đi tới, không phải
+            // con đường hiện tại.
             val nextSt = skNextStreet
             if (!nextSt.isNullOrBlank()) {
                 val turnCumTarget = cum0 + (skDistanceM.takeIf { it >= 0 }?.toDouble() ?: 0.0)
                 var mIdx = idx0
                 while (mIdx < iEnd0 - 1 && route.cum[mIdx] < turnCumTarget) mIdx++
                 var aIdx = mIdx
-                while (aIdx > idx0 && route.cum[mIdx] - route.cum[aIdx] < 50.0) aIdx--
+                while (aIdx < iEnd0 - 1 && route.cum[aIdx] - route.cum[mIdx] < 50.0) aIdx++
                 val mdx = proj.x(route.lons[aIdx]); val mdy = proj.y(route.lats[aIdx])
                 val mrx = mdx * cosH - mdy * sinH; val mry = mdx * sinH + mdy * cosH
                 val (mx, my) = toScreen(mrx, mry)
@@ -733,39 +764,57 @@ object TftLink {
         // xếp dọc bên PHẢI icon (không còn xếp dọc dưới icon như trước) — chỉ khác Waze ở chỗ KHÔNG
         // có khung nền tối phía sau, theo đúng yêu cầu ban đầu "ko nền".
         if (skActive && skRoute != null && !skNextStreet.isNullOrBlank()) {
-            val iconCx = w * 0.085f
-            val iconCy = h * 0.165f
-            val arm = h * 0.135f
-            val angRad = Math.toRadians(Maneuver.angle(skSign).toDouble())
-            val cosA = Math.cos(angRad).toFloat(); val sinA = Math.sin(angRad).toFloat()
-            fun rot(dx: Float, dy: Float): Pair<Float, Float> =
-                Pair(iconCx + dx * cosA - dy * sinA, iconCy + dx * sinA + dy * cosA)
-            val raw = listOf(
-                0f to -arm,
-                arm * 0.5f to -arm * 0.1f,
-                arm * 0.18f to -arm * 0.1f,
-                arm * 0.18f to arm * 0.55f,
-                -arm * 0.18f to arm * 0.55f,
-                -arm * 0.18f to -arm * 0.1f,
-                -arm * 0.5f to -arm * 0.1f,
-            )
-            val arrowPath = android.graphics.Path()
-            raw.forEachIndexed { idx, (dx, dy) ->
-                val (px, py) = rot(dx, dy)
-                if (idx == 0) arrowPath.moveTo(px, py) else arrowPath.lineTo(px, py)
+            val routeBlue = Color.rgb(60, 140, 255)
+            val iconCx = w * 0.10f
+            val iconCy = h * 0.185f
+            // To hơn nữa theo yêu cầu "cho cái icon to to tí" (0.135->0.17).
+            val arm = h * 0.17f
+            // Mũi tên cong mềm mại kiểu bộ icon người dùng gửi (nét cong dày, đầu mũi tên gọn) thay
+            // vì khối đa giác nhọn trước đây — vẽ bằng 1 nét cong bezier (quadTo) từ gốc lên tới đỉnh
+            // theo đúng góc rẽ [Maneuver.angle], rồi gắn đầu mũi tên tam giác xoay theo hướng nét cong
+            // tại đỉnh.
+            val apexDeg = Maneuver.angle(skSign).toDouble()
+            val apexRad = Math.toRadians(apexDeg)
+            val ex = (Math.sin(apexRad) * arm * 0.95).toFloat()
+            val ey = (-Math.cos(apexRad) * arm * 0.95).toFloat()
+            val bx = 0f; val by = arm * 0.75f
+            val ctrlX = 0f; val ctrlY = by - arm * 0.55f
+            val shaft = android.graphics.Path()
+            shaft.moveTo(iconCx + bx, iconCy + by)
+            shaft.quadTo(iconCx + ctrlX, iconCy + ctrlY, iconCx + ex, iconCy + ey)
+            val shaftPaint = Paint().apply {
+                color = Color.WHITE; style = Paint.Style.STROKE
+                strokeWidth = arm * 0.3f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+                isAntiAlias = true
             }
-            arrowPath.close()
-            // Bo tròn các góc mũi tên cho "mềm mại" thay vì nhọn cứng như trước.
-            val arrowPaint = Paint().apply {
+            c.drawPath(shaft, shaftPaint)
+            // Hướng tiếp tuyến tại đỉnh (xấp xỉ bằng vector từ điểm điều khiển tới đỉnh) để xoay đầu
+            // mũi tên đúng theo nét cong, không chỉ theo góc rẽ thô.
+            var tdx = ex - ctrlX; var tdy = ey - ctrlY
+            val tlen = Math.hypot(tdx.toDouble(), tdy.toDouble()).toFloat().coerceAtLeast(0.001f)
+            tdx /= tlen; tdy /= tlen
+            val px = -tdy; val py = tdx
+            val headLen = arm * 0.52f; val headW = arm * 0.46f
+            val tipX = iconCx + ex + tdx * headLen * 0.55f; val tipY = iconCy + ey + tdy * headLen * 0.55f
+            val baseCx = iconCx + ex - tdx * headLen * 0.45f; val baseCy = iconCy + ey - tdy * headLen * 0.45f
+            val headPath = android.graphics.Path().apply {
+                moveTo(tipX, tipY)
+                lineTo(baseCx + px * headW * 0.5f, baseCy + py * headW * 0.5f)
+                lineTo(baseCx - px * headW * 0.5f, baseCy - py * headW * 0.5f)
+                close()
+            }
+            val headPaint = Paint().apply {
                 color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true
-                pathEffect = android.graphics.CornerPathEffect(arm * 0.22f)
+                pathEffect = android.graphics.CornerPathEffect(headW * 0.22f)
             }
-            c.drawPath(arrowPath, arrowPaint)
+            c.drawPath(headPath, headPaint)
             // Khối chữ bắt đầu ngay bên phải icon, căn trái (không căn giữa dưới icon như trước).
-            val textX = iconCx + arm * 1.3f
+            // Theo yêu cầu: số khoảng cách to hẳn lên, chữ tên đường to lên, cả hai đổi màu xanh
+            // giống màu tuyến đường (routeBlue) thay vì trắng.
+            val textX = iconCx + arm * 1.35f
             val maxW = (w * 0.62f - textX).coerceAtLeast(w * 0.2f)
-            val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.095f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            val streetPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.07f; textAlign = Paint.Align.LEFT; isAntiAlias = true }
+            val infoPaint = Paint().apply { color = routeBlue; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val streetPaint = Paint().apply { color = routeBlue; textSize = h * 0.085f; textAlign = Paint.Align.LEFT; isAntiAlias = true }
             val nst = skNextStreet ?: ""
             val words = nst.split(' ').filter { it.isNotEmpty() }
             val lines = ArrayList<String>()
@@ -782,20 +831,21 @@ object TftLink {
                 while (t.length > 2 && streetPaint.measureText("$t…") > maxW) t = t.substring(0, t.length - 1)
                 lines[1] = "$t…"
             }
-            // Căn khối chữ theo chiều dọc quanh tâm icon (1 dòng khoảng cách + tối đa 2 dòng tên
-            // đường) để cả khối trông cân đối với icon, giống bố cục Waze.
-            val lineH = h * 0.078f
-            val totalH = lineH * (1 + lines.size)
-            var ty = iconCy - totalH / 2f + lineH * 0.8f
+            // Căn khối chữ theo chiều dọc quanh tâm icon (1 dòng khoảng cách to + tối đa 2 dòng tên
+            // đường nhỏ hơn) để cả khối trông cân đối với icon, giống bố cục Waze.
+            val distLineH = h * 0.125f
+            val streetLineH = h * 0.085f
+            val totalH = distLineH + streetLineH * lines.size
+            var ty = iconCy - totalH / 2f + distLineH * 0.78f
             val dM = skDistanceM
             if (dM >= 0) {
                 val distTxt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m"
                 c.drawText(distTxt, textX, ty, infoPaint)
             }
-            ty += lineH
+            ty += distLineH
             for (ln in lines) {
                 c.drawText(ln, textX, ty, streetPaint)
-                ty += lineH
+                ty += streetLineH
             }
         }
         val out = ByteArrayOutputStream()
