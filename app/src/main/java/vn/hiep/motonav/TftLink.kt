@@ -559,20 +559,36 @@ object TftLink {
                     "secondary", "tertiary", "secondary_link", "tertiary_link" -> branchPaintMid
                     else -> branchPaintMinor // residential/unclassified/service/living_street/track/hẻm...
                 }
-                var drawnWays = 0
-                val wayCap = 140 // hành lang bắt nhiều way hơn kiểu nối-chuỗi cũ, nới trần lên tương ứng
+                // BUG đã gặp trên máy thật: chỉ hiện nhánh đường bên TRÁI, bên phải trống trơn. Nguyên
+                // nhân — trước đây duyệt `ways` ĐÚNG THỨ TỰ mảng trả về và dừng ngay khi đủ [wayCap]:
+                // nếu dữ liệu OSM trả về theo khối/ô không gian (way ở một phía của tuyến nằm liền
+                // nhau trong mảng), việc dừng sớm theo thứ tự mảng dễ "ăn hết" toàn bộ chỉ tiêu vào MỘT
+                // phía trước khi kịp xét tới phía bên kia. SỬA: gom hết way nằm trong hành lang trước,
+                // xếp theo khoảng cách gần xe nhất, rồi mới vẽ theo thứ tự gần->xa tới khi đủ trần —
+                // đảm bảo cả 2 bên đường được ưu tiên công bằng theo khoảng cách thực, không phụ thuộc
+                // thứ tự trả về của dữ liệu.
+                val candidates = ArrayList<Pair<Way, Double>>()
                 for (wy in ways) {
-                    if (drawnWays >= wayCap) break
                     if (wy.lats.isEmpty()) continue
-                    // Chỉ cần 1 điểm (lấy mẫu thưa cho nhanh) rơi vào hành lang là vẽ cả way.
                     var inCorridor = false
+                    var nearestD = Double.MAX_VALUE
                     val sampleStep = (wy.lats.size / 6).coerceAtLeast(1)
                     var si = 0
                     while (si < wy.lats.size) {
-                        if (corridorGrid.contains(corridorKey(wy.lats[si], wy.lons[si]))) { inCorridor = true; break }
+                        if (corridorGrid.contains(corridorKey(wy.lats[si], wy.lons[si]))) {
+                            inCorridor = true
+                            val d = Geo.distance(skLat, skLon, wy.lats[si], wy.lons[si])
+                            if (d < nearestD) nearestD = d
+                        }
                         si += sampleStep
                     }
-                    if (!inCorridor) continue
+                    if (inCorridor) candidates.add(wy to nearestD)
+                }
+                candidates.sortBy { it.second }
+                var drawnWays = 0
+                val wayCap = 220 // hành lang bắt nhiều way hơn kiểu nối-chuỗi cũ, nới trần lên tương ứng
+                for ((wy, _) in candidates) {
+                    if (drawnWays >= wayCap) break
                     val bp = android.graphics.Path()
                     var bStarted = false
                     var any = false
