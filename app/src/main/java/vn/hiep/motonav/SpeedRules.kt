@@ -36,11 +36,17 @@ object SpeedRules {
             }
         }
         if (!prefs.estimate) return null
+        // Theo yêu cầu: có dữ liệu biển -> dùng biển (đã xử lý ở trên); có dữ liệu trong/ngoài khu
+        // dân cư (ranh giới hành chính Phường/Thị trấn/Xã trong OsmData, hoặc người dùng tự chọn ở
+        // Cài đặt) -> áp công thức Thông tư 38/2024; HOÀN TOÀN không có dữ liệu gì (urbanArea null,
+        // areaMode tự động) -> để thẳng 50, không đoán mò theo loại đường (trước đây đoán sai lệch
+        // khi gặp đường ngoài KDC chưa xác định được ranh giới).
         val urban = when (prefs.areaMode) {
             Prefs.AREA_URBAN -> true
             Prefs.AREA_RURAL -> false
-            else -> urbanArea ?: !(way.highway.startsWith("motorway") || way.highway.startsWith("trunk"))
+            else -> urbanArea
         }
+        if (urban == null) return LimitResult(min(50, vehicleCap), true)
         return LimitResult(min(estimateValue(way, urban), vehicleCap), true)
     }
 
