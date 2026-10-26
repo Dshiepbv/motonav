@@ -96,10 +96,14 @@ class NavActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
-        MapLibre.getInstance(this)
+        // QUAN TRỌNG: phải gắn bộ tải mạng riêng (tự giải nén gzip mảnh bản đồ) TRƯỚC khi gọi
+        // MapLibre.getInstance() — gọi sau là trễ, thư viện bản đồ lỡ dùng bộ tải mạng mặc định
+        // của nó (không tự giải nén gzip) cho các mảnh thật, nên "tải được" nhưng đọc dữ liệu ra
+        // lỗi "invalid tag" (đọc nhầm byte gzip thành protobuf) → bản đồ đen dù tải mảnh "OK".
         MapHttp.key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
         MapHttp.install()
         try { MapHttp.captureLogs() } catch (_: Exception) {}
+        MapLibre.getInstance(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.statusBarColor = bg
         window.navigationBarColor = bg
