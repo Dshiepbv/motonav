@@ -1151,7 +1151,15 @@ class NavActivity : Activity() {
     private fun loadStyle() {
         val m = map ?: return
         val night = isNight()
-        val useVm = true // Bản đồ nền VietMap (chi tiết/nhãn tiếng Việt tốt hơn); tự rơi về OpenFreeMap nếu lỗi
+        // Bản đồ nền: dùng OpenFreeMap (MapLibre + dữ liệu OpenStreetMap) thay vì VietMap. Mảnh
+        // vector gốc "vlc-vt-sdk" của VietMap là định dạng riêng (đã xác nhận bằng phân tích byte
+        // thật, không phải MVT chuẩn) — MapLibre không đọc được, lỗi "invalid tag" không sửa được
+        // ở tầng app/mạng. Thử tạm ảnh raster .png của VietMap thay thế thì chữ trên nền bị xoay
+        // lộn xộn khi app xoay bản đồ theo hướng xe chạy (heading-up) — xấu, khó đọc. OpenStreetMap
+        // tuy đôi chỗ ở VN chưa đầy đủ bằng VietMap nhưng là vector thật (chữ luôn vẽ thẳng đứng dù
+        // bản đồ xoay hướng nào), miễn phí, không lệ thuộc VietMap. Việc tích hợp SDK chính chủ
+        // VietMap (đọc đúng mảnh vector gốc, dữ liệu VN đầy đủ hơn) để dự án riêng (phương án A),
+        // không làm trong app này. Định tuyến/chỉ dẫn rẽ vẫn dùng API VietMap như cũ, không đổi.
         val key = prefs.vietmapTileKey.ifBlank { prefs.vietmapKey }
         loadedStyleId = "${prefs.mapSource}/$key/$night/${prefs.vietmapStyleUrl}"
         styleError = null
@@ -1187,25 +1195,11 @@ class NavActivity : Activity() {
             }
             render()
         }
-        if (!useVm || key.isBlank()) {
-            // OpenFreeMap: bản đồ OpenStreetMap miễn phí, không cần mã
-            val ofm = if (night) OFM_DARK else OFM_STYLE
-            ofmTried = ofm
-            style = null
-            m.setStyle(Style.Builder().fromUri(ofm)) { s -> onLoaded(s) }
-            return
-        }
-        MapHttp.key = key
-        // PHƯƠNG ÁN B (tạm): mảnh vector "vlc-vt-sdk" của VietMap là định dạng riêng, không phải
-        // MVT chuẩn — đã xác nhận bằng phân tích byte thật (xem VietMap.rasterStyleJson), không
-        // thể sửa ở tầng app/mạng. Chuyển sang ảnh raster .png của VietMap: tự dựng style JSON tại
-        // máy, KHÔNG cần gọi API lấy style.json qua mạng nữa (bỏ VietMap.findWorkingStyle ở đây).
-        // Phương án C (OpenFreeMap) vẫn giữ nguyên làm phương án dự phòng phía trên (key rỗng) và
-        // trong addOnDidFailLoadingMapListener nếu ảnh VietMap cũng lỗi. Phương án A (SDK chính
-        // chủ VietMap, thay cả bộ máy vẽ bản đồ) để dự án riêng, không đụng ở đây.
-        vmDiag = "VietMap: raster /api/${if (night) "dm" else "tm"}/{z}/{x}/{y}.png (tạm, chờ SDK chính chủ)"
-        val rasterJson = VietMap.rasterStyleJson(key, night)
-        m.setStyle(Style.Builder().fromJson(rasterJson)) { s -> onLoaded(s) }
+        // OpenFreeMap: bản đồ OpenStreetMap miễn phí, không cần mã (xem comment ở trên hàm)
+        val ofm = if (night) OFM_DARK else OFM_STYLE
+        ofmTried = ofm
+        style = null
+        m.setStyle(Style.Builder().fromUri(ofm)) { s -> onLoaded(s) }
     }
 
     private var vmDiag: String? = null
