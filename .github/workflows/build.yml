@@ -28,6 +28,12 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      # Số phiên bản tạm thời theo lượt build (0.<run_number>), khỏi phải tự tay bump mỗi lần.
+      - name: Set version from build number
+        run: |
+          sed -i "s/versionCode = .*/versionCode = ${{ github.run_number }}/" app/build.gradle.kts
+          sed -i "s/versionName = \".*\"/versionName = \"0.${{ github.run_number }}\"/" app/build.gradle.kts
+
       - name: Build
         run: gradle assembleRelease --no-daemon --stacktrace
 
