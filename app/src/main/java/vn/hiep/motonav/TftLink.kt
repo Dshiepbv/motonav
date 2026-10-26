@@ -793,7 +793,7 @@ object TftLink {
             val textX = iconCx + arm * 0.95f
             val maxW = (w * 0.62f - textX).coerceAtLeast(w * 0.2f)
             val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            val streetPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.105f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val streetPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.088f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val nst = skNextStreet ?: ""
             val words = nst.split(' ').filter { it.isNotEmpty() }
             val lines = ArrayList<String>()
@@ -813,7 +813,7 @@ object TftLink {
             // Căn khối chữ theo chiều dọc quanh tâm icon (1 dòng khoảng cách to + tối đa 2 dòng tên
             // đường nhỏ hơn) để cả khối trông cân đối với icon, giống bố cục Waze.
             val distLineH = h * 0.125f
-            val streetLineH = h * 0.105f
+            val streetLineH = h * 0.088f
             val totalH = distLineH + streetLineH * lines.size
             var ty = iconCy - totalH / 2f + distLineH * 0.78f
             val dM = skDistanceM
