@@ -558,13 +558,18 @@ object TftLink {
                 }
                 // Phân cấp đường như bản đồ thật: đường lớn (quốc lộ/trục chính) dày+trắng sáng rõ,
                 // đường vừa (khu vực) dày vừa, đường nhỏ/hẻm/nội bộ mảnh+xám mờ hơn.
-                val branchPaintMajor = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3.2f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintMid = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2.2f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintMinor = Paint().apply { color = Color.rgb(140, 140, 140); style = Paint.Style.STROKE; strokeWidth = 1.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                // Theo yêu cầu: TẤT CẢ nhánh đường đều màu trắng (màu xám trước đây khó thấy giữa
+                // ban ngày, trời nắng) — chỉ còn phân biệt bằng ĐỘ DÀY tương ứng với bề rộng thực tế
+                // ngoài đời (quốc lộ/trục chính rộng nhất -> hẻm/đường nội bộ hẹp nhất).
+                val branchPaintMajor = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMid = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMinor = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.7f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintTiny = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.1f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 fun branchPaintFor(highway: String): Paint = when (highway) {
                     "motorway", "trunk", "primary", "motorway_link", "trunk_link", "primary_link" -> branchPaintMajor
                     "secondary", "tertiary", "secondary_link", "tertiary_link" -> branchPaintMid
-                    else -> branchPaintMinor // residential/unclassified/service/living_street/track/hẻm...
+                    "residential", "unclassified", "living_street" -> branchPaintMinor
+                    else -> branchPaintTiny // service/track/alley/hẻm nhỏ/footway lẫn trong dữ liệu...
                 }
                 // BUG đã gặp trên máy thật: chỉ hiện nhánh đường bên TRÁI, bên phải trống trơn. Nguyên
                 // nhân — trước đây duyệt `ways` ĐÚNG THỨ TỰ mảng trả về và dừng ngay khi đủ [wayCap]:
