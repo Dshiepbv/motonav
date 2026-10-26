@@ -299,6 +299,10 @@ object TftLink {
     // Zoom thủ công bằng nút vật lý trên xe (51 lên = xa hơn, 52 xuống = gần hơn), cộng dồn vào
     // công thức maxAhead theo tốc độ. -3..+3, 0 = mặc định.
     @Volatile private var skZoomStep: Int = 0
+    // Mức zoom theo tốc độ (0=xa/>=40, 1=vừa/20-39, 2=gần/<20) — nhớ lại mức trước đó và chỉ đổi
+    // khi tốc độ vượt hẳn qua ngưỡng (có biên trễ ~2-3km/h mỗi bên) để đứng yên/chạy chậm quanh
+    // mốc 20km/h không làm bản đồ zoom ra zoom vào liên tục do nhiễu tốc độ GPS.
+    @Volatile private var skSpdTier: Int = 2
     // "Ghim" chỉ số điểm gần nhất tìm được ở khung trước, để khung sau chỉ dò quanh đó thay vì
     // quét lại toàn tuyến — tránh nhảy lung tung sang điểm xa (một đoạn đường khác của tuyến tình
     // cờ ở gần) làm đường xanh biến mất/vẽ sai rồi tự "sửa" lại ở khung sau.
@@ -417,9 +421,22 @@ object TftLink {
             // Theo yêu cầu: dưới 20km/h phóng to 300% (maxAhead còn 1/3), dưới 40km/h phóng to gấp
             // đôi — tốc độ thấp thường là đường nhỏ/khu đông dân cư/vòng xoay, cần thấy rõ chi tiết
             // gần hơn là nhìn xa.
-            val spdMul = when {
-                skSpeedKmh in 1..19 -> 1.0 / 3.0
-                skSpeedKmh in 20..39 -> 0.5
+            // Đứng yên hoặc đi chậm quanh mốc 20/40km/h: tốc độ GPS hay nhiễu nhảy quanh 0 hoặc
+            // quanh ngưỡng, nếu xét trực tiếp mỗi khung sẽ làm "zoom ra zoom vào" liên tục không
+            // để làm gì (theo phản hồi thực tế). Dùng mức đã nhớ + biên trễ: chỉ đổi mức khi tốc độ
+            // vượt hẳn qua ngưỡng (không chỉ chạm mép), và đứng yên (0km/h) giữ nguyên mức "gần" như
+            // đang đi chậm, không nhảy về mức "xa" của khi không có skSpeedKmh hợp lệ.
+            val v = skSpeedKmh
+            if (v >= 0) {
+                skSpdTier = when (skSpdTier) {
+                    2 -> if (v > 22) (if (v > 42) 0 else 1) else 2
+                    1 -> if (v > 42) 0 else if (v < 18) 2 else 1
+                    else -> if (v < 38) (if (v < 18) 2 else 1) else 0
+                }
+            }
+            val spdMul = when (skSpdTier) {
+                2 -> 1.0 / 3.0
+                1 -> 0.5
                 else -> 1.0
             }
             val maxAhead = (1800.0 * zoomMul * spdMul).coerceIn(400.0, 3600.0)

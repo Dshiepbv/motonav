@@ -289,10 +289,28 @@ class NavEngine(
         if (next == null) return
         val mIdx = min(next.from, n - 1)
         val toTurn = max(0.0, r.cum[mIdx] - progress)
-        val phrase = Maneuver.phrase(next)
+        var phrase = Maneuver.phrase(next)
+        if (next.sign == 4) {
+            // "Đến nơi" báo từ xa (còn 200-300m, tuyến xanh vẫn đang dẫn) nghe như đã tới rồi —
+            // gây hiểu lầm (phản hồi thực tế). Thay bằng kiểu Google Maps: định vị điểm đến THẬT
+            // (Live.destLat/Lon — chính xác hơn điểm cuối tuyến đã snap vào đường) nằm bên nào so
+            // với hướng xe đang chạy tới, rồi báo đếm ngược khoảng cách như chỉ dẫn rẽ bình thường.
+            // Câu "Đã đến nơi" chỉ nói đúng lúc tới thật, ở nhánh remaining<30 phía trên.
+            val pIdx = max(0, mIdx - 1)
+            val roadBrg = if (r.lats[pIdx] != r.lats[mIdx] || r.lons[pIdx] != r.lons[mIdx])
+                Geo.bearing(r.lats[pIdx], r.lons[pIdx], r.lats[mIdx], r.lons[mIdx]) else null
+            phrase = if (roadBrg != null && (Live.destLat != 0.0 || Live.destLon != 0.0)) {
+                val toDestBrg = Geo.bearing(r.lats[mIdx], r.lons[mIdx], Live.destLat, Live.destLon)
+                when (val side = Geo.signedAngle(roadBrg, toDestBrg)) {
+                    in 25.0..180.0 -> "Điểm đến bên phải"
+                    in -180.0..-25.0 -> "Điểm đến bên trái"
+                    else -> "Điểm đến phía trước"
+                }
+            } else "Điểm đến"
+        }
         Live.maneuverLat = r.lats[mIdx]
         Live.maneuverLon = r.lons[mIdx]
-        Live.maneuverLabel = if (next.street.isNotBlank()) next.street else Maneuver.verb(next.sign)
+        Live.maneuverLabel = if (next.sign == 4) phrase else if (next.street.isNotBlank()) next.street else Maneuver.verb(next.sign)
         Live.maneuverSign = next.sign
         Live.maneuverStreet = next.street.ifBlank { null }
 

@@ -42,6 +42,16 @@ object Geo {
         if (d > 180) d = 360 - d
         return d
     }
+
+    /** Lệch góc CÓ DẤU từ hướng [from] sang hướng [to]: dương = lệch phải (theo chiều kim đồng
+     * hồ), âm = lệch trái. Phạm vi (-180, 180]. Dùng để xác định điểm đến nằm bên nào so với
+     * hướng đường đang đi tới. */
+    fun signedAngle(from: Double, to: Double): Double {
+        var d = (to - from) % 360.0
+        if (d > 180) d -= 360
+        if (d <= -180) d += 360
+        return d
+    }
 }
 
 /** Phép chiếu phẳng quanh vị trí hiện tại, đủ chính xác trong bán kính vài km. */
