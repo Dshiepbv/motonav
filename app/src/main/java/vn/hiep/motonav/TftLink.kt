@@ -195,9 +195,12 @@ object TftLink {
 
     // Thời gian tối đa chờ ACK trước khi [sendFrame] bỏ chờ, theo yêu cầu "gửi sau 1-2s mà chưa
     // qua thì hủy lệnh gửi hình mới luôn" — ưu tiên độ liền lạc (khung mới liên tục) hơn xác nhận
-    // từng khung đã tới xe. App gốc (NConnect) chờ tới 6s; rút còn 1,5s là thử nghiệm riêng của
-    // MotoNav, cần quan sát thực tế xem xe có dồn khung/tệ hơn không.
-    private const val ACK_WAIT_MS = 1500L
+    // từng khung đã tới xe. App gốc (NConnect) chờ tới 6s; rút còn 1,5s rồi 1s là thử nghiệm riêng
+    // của MotoNav. Đối chiếu log thực tế (26/10): các lần "xoay" kéo dài (7-23s liên tục mất ACK)
+    // xảy ra ngay cả khi GPS/app vẫn chạy bình thường — là xe không ACK kịp (giới hạn phần cứng),
+    // không phải do App chờ lâu — nên rút ngắn thêm chỉ giúp bỏ chờ sớm hơn ở MỖI khung lẻ, không
+    // chữa được chuỗi dài; vẫn rút theo yêu cầu để nhịp gửi bám sát 1-2s hơn.
+    private const val ACK_WAIT_MS = 1000L
 
     /**
      * Gửi một khung ảnh JPEG lên màn xe (cmd 0 / sub 1 — dò được từ NConnect: payload =
