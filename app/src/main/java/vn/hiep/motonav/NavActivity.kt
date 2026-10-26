@@ -1168,8 +1168,7 @@ class NavActivity : Activity() {
                 val src = s.getSource("openmaptiles")
                 val srcType = src?.javaClass?.simpleName ?: "null"
                 val rl = s.layers.filterIsInstance<org.maplibre.android.style.layers.RasterLayer>()
-                val rlInfo = if (rl.isEmpty()) "ko có RasterLayer" else
-                    rl.joinToString(";") { "${it.id}@${it.sourceLayer ?: it.sourceId}" }
+                val rlInfo = if (rl.isEmpty()) "ko có RasterLayer" else "RasterLayer=" + rl.joinToString(",") { it.id }
                 val counts = s.layers.groupingBy { it.javaClass.simpleName }.eachCount()
                 styleDiag = "nguồn openmaptiles kiểu=$srcType $rlInfo lớp=${s.layers.size} $counts"
             } catch (e: Exception) {
