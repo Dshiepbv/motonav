@@ -423,10 +423,10 @@ object TftLink {
             val zoomMul = when (skZoomStep) {
                 -3 -> 0.4; -2 -> 0.55; -1 -> 0.75; 1 -> 1.3; 2 -> 1.65; 3 -> 2.0; else -> 1.0
             }
-            // Theo yêu cầu: dưới 40km/h phóng to 300% (maxAhead còn 1/3), 40-55km/h phóng to 200%
+            // Theo yêu cầu: dưới 50km/h phóng to 300% (maxAhead còn 1/3), 50-60km/h phóng to 200%
             // (còn 1/2), trên đó về mức bình thường — tốc độ thấp thường là đường nhỏ/khu đông dân
             // cư/vòng xoay, cần thấy rõ chi tiết gần hơn là nhìn xa.
-            // Đứng yên hoặc đi lăng quăng quanh mốc 40/55km/h: tốc độ GPS hay nhiễu nhảy quanh 0 hoặc
+            // Đứng yên hoặc đi lăng quăng quanh mốc 50/60km/h: tốc độ GPS hay nhiễu nhảy quanh 0 hoặc
             // quanh ngưỡng, nếu xét trực tiếp mỗi khung sẽ làm "zoom ra zoom vào" liên tục không để
             // làm gì (theo phản hồi thực tế). Dùng mức đã nhớ + biên trễ: chỉ đổi mức khi tốc độ vượt
             // hẳn qua ngưỡng (không chỉ chạm mép), và đứng yên (0km/h) giữ nguyên mức "gần" (300%)
@@ -434,9 +434,9 @@ object TftLink {
             val v = skSpeedKmh
             if (v >= 0) {
                 skSpdTier = when (skSpdTier) {
-                    2 -> if (v > 42) (if (v > 57) 0 else 1) else 2
-                    1 -> if (v > 57) 0 else if (v < 38) 2 else 1
-                    else -> if (v < 53) (if (v < 38) 2 else 1) else 0
+                    2 -> if (v > 52) (if (v > 62) 0 else 1) else 2
+                    1 -> if (v > 62) 0 else if (v < 48) 2 else 1
+                    else -> if (v < 58) (if (v < 48) 2 else 1) else 0
                 }
             }
             val spdMul = when (skSpdTier) {
@@ -614,35 +614,22 @@ object TftLink {
                 val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.062f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
                 val leaderPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
-                // Dòng hướng rẽ (mũi tên) + khoảng cách đếm ngược, phía trên tên đường — theo yêu
-                // cầu "chỉ dẫn đường cần có hướng và đếm ngược khoảng cách". Thẻ rẽ to ở góc màn đã
-                // bỏ ở bản trước vì trùng chữ với nhãn firmware xe, nhưng nhãn đó chỉ có CHỮ (câu
-                // chỉ dẫn), không có mũi tên/khoảng cách — thêm lại gọn ngay tại điểm rẽ trên bản đồ,
-                // để phân biệt được lúc 2 chỗ rẽ gần nhau (rẽ phải rồi rẽ trái liền) thay vì chỉ nhìn
-                // hình dạng đường rất dễ lẫn ở màn nhỏ.
-                val dM = skDistanceM
-                val distTxt = if (dM >= 0) (if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m") else ""
-                val dirTxt = (Maneuver.glyph(skSign) + (if (distTxt.isNotEmpty()) " $distTxt" else "")).trim()
-                val dirPaint = Paint().apply { color = Color.rgb(255, 210, 60); textSize = h * 0.072f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                // CHỈ tên đường sắp quẹo vào — không mũi tên/khoảng cách (thử ở bản trước nhưng theo
+                // yêu cầu bỏ lại: hướng rẽ trái/phải để nguyên bên nhãn firmware xe, chỗ này trên bản
+                // đồ chỉ cần biết TÊN đường sắp vào).
                 // Nhãn đặt lệch lên-phải điểm rẽ một khoảng cố định theo pixel (không phụ thuộc
                 // zoom), tránh đè lên tam giác xe ở giữa-dưới khung.
                 val lx = (mx + h * 0.16f).coerceAtMost(w - h * 0.02f)
-                val ly = (my - h * 0.1f).coerceAtLeast(h * 0.2f)
+                val ly = (my - h * 0.1f).coerceAtLeast(h * 0.1f)
                 c.drawLine(mx, my, lx, ly, leaderPaint)
                 c.drawCircle(mx, my, h * 0.018f, leaderPaint)
-                val tw1 = if (dirTxt.isNotEmpty()) dirPaint.measureText(dirTxt) else 0f
-                val tw2 = labelPaint.measureText(nextSt)
-                val tw = maxOf(tw1, tw2)
-                val padX = h * 0.022f; val padY = h * 0.018f
+                val tw = labelPaint.measureText(nextSt)
+                val padX = h * 0.022f; val padY = h * 0.02f
                 val boxLeft = (lx - tw / 2f - padX).coerceAtLeast(2f)
                 val boxRight = (boxLeft + tw + padX * 2f).coerceAtMost(w - 2f)
                 val cxText = (boxLeft + boxRight) / 2f
-                val boxBottom = ly + h * 0.018f + padY
-                val lineH = if (dirTxt.isNotEmpty()) h * 0.16f else h * 0.077f
-                val boxTop = boxBottom - lineH - padY * 2
-                c.drawRect(boxLeft, boxTop, boxRight, boxBottom, bgPaint)
-                if (dirTxt.isNotEmpty()) c.drawText(dirTxt, cxText, boxTop + h * 0.085f, dirPaint)
-                c.drawText(nextSt, cxText, boxBottom - padY, labelPaint)
+                c.drawRect(boxLeft, ly - h * 0.055f - padY, boxRight, ly + h * 0.018f + padY, bgPaint)
+                c.drawText(nextSt, cxText, ly, labelPaint)
             }
         }
         // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up) — to hơn trước (0.06->0.085) theo yêu
