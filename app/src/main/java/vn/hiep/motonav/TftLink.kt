@@ -729,12 +729,13 @@ object TftLink {
         // tên đường sắp quẹo vào, cố định góc trên-trái, KHÔNG nền (theo yêu cầu). Trước đây icon rẽ
         // định gửi qua gói riêng cho xe tự vẽ (turnPacket/IconMap, cmd 4/1) nhưng mã icon đó CHƯA xác
         // nhận hiển thị đúng trên màn thật — vẽ thẳng vào khung JPEG ở đây để chắc chắn lên hình.
-        // Theo phản hồi: icon to + mềm mại hơn (bo tròn góc thay vì nhọn), khoảng cách + tên đường
-        // chữ to hơn hẳn, cả khối đẩy sát lên góc trên-trái (trước còn hơi thấp/giữa màn).
+        // Bố cục theo kiểu Waze (ảnh người dùng gửi): icon bên TRÁI, chữ khoảng cách + tên đường
+        // xếp dọc bên PHẢI icon (không còn xếp dọc dưới icon như trước) — chỉ khác Waze ở chỗ KHÔNG
+        // có khung nền tối phía sau, theo đúng yêu cầu ban đầu "ko nền".
         if (skActive && skRoute != null && !skNextStreet.isNullOrBlank()) {
-            val iconCx = w * 0.14f
-            val iconCy = h * 0.13f
-            val arm = h * 0.15f
+            val iconCx = w * 0.085f
+            val iconCy = h * 0.165f
+            val arm = h * 0.135f
             val angRad = Math.toRadians(Maneuver.angle(skSign).toDouble())
             val cosA = Math.cos(angRad).toFloat(); val sinA = Math.sin(angRad).toFloat()
             fun rot(dx: Float, dy: Float): Pair<Float, Float> =
@@ -760,16 +761,11 @@ object TftLink {
                 pathEffect = android.graphics.CornerPathEffect(arm * 0.22f)
             }
             c.drawPath(arrowPath, arrowPaint)
-            var iy = iconCy + arm * 1.05f
-            val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.095f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            val dM = skDistanceM
-            if (dM >= 0) {
-                val distTxt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m"
-                c.drawText(distTxt, iconCx, iy, infoPaint)
-                iy += h * 0.095f
-            }
-            val streetPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.072f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-            val maxW = w * 0.3f
+            // Khối chữ bắt đầu ngay bên phải icon, căn trái (không căn giữa dưới icon như trước).
+            val textX = iconCx + arm * 1.3f
+            val maxW = (w * 0.62f - textX).coerceAtLeast(w * 0.2f)
+            val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.095f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val streetPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.07f; textAlign = Paint.Align.LEFT; isAntiAlias = true }
             val nst = skNextStreet ?: ""
             val words = nst.split(' ').filter { it.isNotEmpty() }
             val lines = ArrayList<String>()
@@ -786,9 +782,20 @@ object TftLink {
                 while (t.length > 2 && streetPaint.measureText("$t…") > maxW) t = t.substring(0, t.length - 1)
                 lines[1] = "$t…"
             }
+            // Căn khối chữ theo chiều dọc quanh tâm icon (1 dòng khoảng cách + tối đa 2 dòng tên
+            // đường) để cả khối trông cân đối với icon, giống bố cục Waze.
+            val lineH = h * 0.078f
+            val totalH = lineH * (1 + lines.size)
+            var ty = iconCy - totalH / 2f + lineH * 0.8f
+            val dM = skDistanceM
+            if (dM >= 0) {
+                val distTxt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m"
+                c.drawText(distTxt, textX, ty, infoPaint)
+            }
+            ty += lineH
             for (ln in lines) {
-                c.drawText(ln, iconCx, iy, streetPaint)
-                iy += h * 0.08f
+                c.drawText(ln, textX, ty, streetPaint)
+                ty += lineH
             }
         }
         val out = ByteArrayOutputStream()
