@@ -742,8 +742,8 @@ object TftLink {
             limBottomY = cy + r
         }
         // Thời gian còn lại + quãng đường còn lại: GIỮ NGUYÊN bên phải dưới biển tốc độ (như cũ).
-        // Chỉ riêng ETA (giờ đến) dời sang TRÁI, đặt sát đáy khung (ngay trên thanh tên-đường
-        // firmware xe), cỡ chữ gấp đôi — theo đúng yêu cầu "mang 1 mình ETA sang thôi".
+        // Riêng ETA (giờ đến) ở bên TRÁI, cỡ chữ gấp đôi — dịch LÊN ngang hàng với tam giác vị trí
+        // xe (anchorY) theo yêu cầu mới nhất (trước đặt sát đáy khung).
         if (skActive && skRoute != null) {
             val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.085f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
             val cx = w * 0.90f
@@ -757,7 +757,7 @@ object TftLink {
             sy += h * 0.1f
             c.drawText(remTxt, cx, sy, statPaint)
             val etaPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.17f; textAlign = Paint.Align.LEFT; isAntiAlias = true }
-            c.drawText(etaTxt, w * 0.04f, h - h * 0.05f, etaPaint)
+            c.drawText(etaTxt, w * 0.04f, anchorY + h * 0.03f, etaPaint)
         }
         // Chỉ dẫn rẽ — icon mũi tên tự vẽ (KHÔNG ghi chữ "trái"/"phải"), khoảng cách đếm ngược và
         // tên đường sắp quẹo vào, cố định góc trên-trái, KHÔNG nền (theo yêu cầu). Trước đây icon rẽ
@@ -767,7 +767,6 @@ object TftLink {
         // xếp dọc bên PHẢI icon (không còn xếp dọc dưới icon như trước) — chỉ khác Waze ở chỗ KHÔNG
         // có khung nền tối phía sau, theo đúng yêu cầu ban đầu "ko nền".
         if (skActive && skRoute != null && !skNextStreet.isNullOrBlank()) {
-            val routeBlue = Color.rgb(60, 140, 255)
             // To hơn nữa theo yêu cầu "cho cái icon to to tí" (0.135->0.17).
             val arm = h * 0.17f
             // Đẩy cả bảng sát kịch góc trên-trái theo yêu cầu mới nhất.
@@ -789,12 +788,12 @@ object TftLink {
             }
             c.drawPath(arrowPath, arrowPaint)
             c.restore()
-            // Khối chữ bắt đầu sát icon hơn (dịch trái theo yêu cầu), căn trái. Chỉ tên đường tô
-            // xanh (routeBlue) — icon và số mét giữ màu trắng; tên đường to + đậm hơn.
+            // Khối chữ bắt đầu sát icon hơn (dịch trái theo yêu cầu), căn trái. Tên đường về lại
+            // màu trắng đậm (theo yêu cầu mới nhất), to hơn trước.
             val textX = iconCx + arm * 0.95f
             val maxW = (w * 0.62f - textX).coerceAtLeast(w * 0.2f)
             val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            val streetPaint = Paint().apply { color = routeBlue; textSize = h * 0.105f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val streetPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.105f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val nst = skNextStreet ?: ""
             val words = nst.split(' ').filter { it.isNotEmpty() }
             val lines = ArrayList<String>()
