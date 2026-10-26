@@ -2088,8 +2088,18 @@ class NavActivity : Activity() {
             etaText.text = Live.street ?: "Chọn điểm đến"
         }
         val mapErr = MapHttp.problem() ?: styleError ?: if (true) {
-            // Chế độ VietMap: luôn hiện chẩn đoán để tìm lỗi bản đồ trắng
-            listOfNotNull(vmDiag, styleDiag, "Thư viện: tải OK ${MapHttp.okCount}, lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog).joinToString(" · ")
+            // Chế độ VietMap: luôn hiện chẩn đoán để tìm lỗi bản đồ trắng.
+            // Camera đặt lên ĐẦU vì ô chữ chỉ hiện 3 dòng, phần sau dễ bị cắt.
+            val camDiag = try {
+                val cp = map?.cameraPosition
+                "cam=%.4f,%.4f z=%.1f gps=%b thật=%.4f,%.4f".format(
+                    cp?.target?.latitude ?: 0.0, cp?.target?.longitude ?: 0.0, cp?.zoom ?: -1.0,
+                    Live.gpsOk, Live.lat, Live.lon,
+                )
+            } catch (_: Exception) {
+                "cam=lỗi"
+            }
+            listOfNotNull(camDiag, vmDiag, styleDiag, "Thư viện: tải OK ${MapHttp.okCount}, lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog).joinToString(" · ")
         } else null
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
             ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
