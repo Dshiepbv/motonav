@@ -314,12 +314,17 @@ class NavEngine(
             return
         }
 
-        // Chỗ rẽ tiếp theo: bước đầu tiên có điểm bắt đầu nằm phía trước
+        // Chỗ rẽ tiếp theo: bước đầu tiên có điểm bắt đầu (= điểm cuối đoạn đường ĐANG đi) nằm từ vị
+        // trí hiện tại trở về sau. Trước dùng "s.from > bestI" (lớn hơn NGHIÊM NGẶT) — tới đúng lúc
+        // xe ở sát điểm rẽ (bestI chạm đúng s.from) thì điều kiện đã sai, app nhảy luôn qua báo chỗ
+        // rẽ KẾ TIẾP, khoảng cách đếm ngược của chỗ rẽ hiện tại không bao giờ chạy về 0 mà bị cắt
+        // ngang sớm. Đổi thành ">=" để điểm cuối đoạn đường đang đi (= điểm bắt đầu quẹo) vẫn được
+        // tính đúng tới khi còn 0 m rồi mới chuyển sang chỗ rẽ tiếp theo.
         var next: Step? = null
         var nextIdx = -1
         for ((k, s) in r.steps.withIndex()) {
             if (k == 0) continue
-            if (s.from > bestI) { next = s; nextIdx = k; break }
+            if (s.from >= bestI) { next = s; nextIdx = k; break }
         }
         if (next == null) {
             // còn lại chỉ là về đích
