@@ -389,19 +389,25 @@ class DriveService : Service(), LocationListener {
         val speedKmh = (speedMps * 3.6).roundToInt()
 
         // Hướng đi
-        if (loc.hasBearing() && speedMps > 1.5) {
+        // Ngưỡng dịch chuyển tối thiểu để tin là đang đi thật (không phải GPS trôi khi đứng yên):
+        // theo độ chính xác GPS báo về, thay vì mốc cố định 6m — mốc cố định đó ở tần suất đọc vị
+        // trí ~1 lần/giây nghĩa là phải chạy ~20km/h mới đủ xa để bắt hướng xoay bản đồ (phản hồi
+        // thực tế: vừa nhấc xe đi đã cần xoay đúng hướng ngay, không phải chờ tới 20km/h).
+        val accM = if (loc.hasAccuracy()) loc.accuracy.toDouble() else 10.0
+        val moveThresh = accM.coerceIn(2.5, 6.0)
+        if (loc.hasBearing() && speedMps > 1.0) {
             heading = loc.bearing.toDouble()
-        } else if (prev != null && Geo.distance(prev.latitude, prev.longitude, lat, lon) > 6) {
+        } else if (prev != null && Geo.distance(prev.latitude, prev.longitude, lat, lon) > moveThresh) {
             heading = Geo.bearing(prev.latitude, prev.longitude, lat, lon)
         }
-        if (prev == null || Geo.distance(prev.latitude, prev.longitude, lat, lon) > 3 || speedMps > 1.5) {
+        if (prev == null || Geo.distance(prev.latitude, prev.longitude, lat, lon) > moveThresh || speedMps > 1.0) {
             prevLoc = loc
         }
         val movingHeading: Double? = if (speedMps > 2.0 && heading >= 0) heading else null
 
         Live.lat = lat
         Live.lon = lon
-        Live.heading = if (speedMps > 1.5) heading else -1.0
+        Live.heading = if (speedMps > 1.0) heading else -1.0
         Live.speedKmh = speedKmh
         Live.gpsOk = true
 

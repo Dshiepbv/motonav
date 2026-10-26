@@ -418,20 +418,20 @@ object TftLink {
             val zoomMul = when (skZoomStep) {
                 -3 -> 0.4; -2 -> 0.55; -1 -> 0.75; 1 -> 1.3; 2 -> 1.65; 3 -> 2.0; else -> 1.0
             }
-            // Theo yêu cầu: dưới 20km/h phóng to 300% (maxAhead còn 1/3), dưới 40km/h phóng to gấp
-            // đôi — tốc độ thấp thường là đường nhỏ/khu đông dân cư/vòng xoay, cần thấy rõ chi tiết
-            // gần hơn là nhìn xa.
-            // Đứng yên hoặc đi chậm quanh mốc 20/40km/h: tốc độ GPS hay nhiễu nhảy quanh 0 hoặc
-            // quanh ngưỡng, nếu xét trực tiếp mỗi khung sẽ làm "zoom ra zoom vào" liên tục không
-            // để làm gì (theo phản hồi thực tế). Dùng mức đã nhớ + biên trễ: chỉ đổi mức khi tốc độ
-            // vượt hẳn qua ngưỡng (không chỉ chạm mép), và đứng yên (0km/h) giữ nguyên mức "gần" như
-            // đang đi chậm, không nhảy về mức "xa" của khi không có skSpeedKmh hợp lệ.
+            // Theo yêu cầu: dưới 40km/h phóng to 300% (maxAhead còn 1/3), 40-55km/h phóng to 200%
+            // (còn 1/2), trên đó về mức bình thường — tốc độ thấp thường là đường nhỏ/khu đông dân
+            // cư/vòng xoay, cần thấy rõ chi tiết gần hơn là nhìn xa.
+            // Đứng yên hoặc đi lăng quăng quanh mốc 40/55km/h: tốc độ GPS hay nhiễu nhảy quanh 0 hoặc
+            // quanh ngưỡng, nếu xét trực tiếp mỗi khung sẽ làm "zoom ra zoom vào" liên tục không để
+            // làm gì (theo phản hồi thực tế). Dùng mức đã nhớ + biên trễ: chỉ đổi mức khi tốc độ vượt
+            // hẳn qua ngưỡng (không chỉ chạm mép), và đứng yên (0km/h) giữ nguyên mức "gần" (300%)
+            // như đang đi chậm, không nhảy về mức "xa" của khi không có skSpeedKmh hợp lệ.
             val v = skSpeedKmh
             if (v >= 0) {
                 skSpdTier = when (skSpdTier) {
-                    2 -> if (v > 22) (if (v > 42) 0 else 1) else 2
-                    1 -> if (v > 42) 0 else if (v < 18) 2 else 1
-                    else -> if (v < 38) (if (v < 18) 2 else 1) else 0
+                    2 -> if (v > 42) (if (v > 57) 0 else 1) else 2
+                    1 -> if (v > 57) 0 else if (v < 38) 2 else 1
+                    else -> if (v < 53) (if (v < 38) 2 else 1) else 0
                 }
             }
             val spdMul = when (skSpdTier) {
