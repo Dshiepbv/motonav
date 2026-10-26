@@ -745,18 +745,21 @@ object TftLink {
         // Riêng ETA (giờ đến) ở bên TRÁI, cỡ chữ gấp đôi — dịch LÊN ngang hàng với tam giác vị trí
         // xe (anchorY) theo yêu cầu mới nhất (trước đặt sát đáy khung).
         if (skActive && skRoute != null) {
-            val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.085f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+            // Thời gian/quãng đường còn lại to hơn trước (0.085->0.11) theo yêu cầu.
+            val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.11f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
             val cx = w * 0.90f
             val remKm = skRemainingM / 1000.0
             val remTxt = if (remKm >= 10) "${remKm.toInt()} km" else String.format("%.1f km", remKm)
             val remMin = (skEtaMs / 60000L).toInt()
             val arriveCal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
             val etaTxt = String.format("%02d:%02d", arriveCal.get(java.util.Calendar.HOUR_OF_DAY), arriveCal.get(java.util.Calendar.MINUTE))
-            var sy = limBottomY + h * 0.1f
+            var sy = limBottomY + h * 0.12f
             c.drawText("$remMin ph", cx, sy, statPaint)
-            sy += h * 0.1f
+            sy += h * 0.12f
             c.drawText(remTxt, cx, sy, statPaint)
-            val etaPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.17f; textAlign = Paint.Align.LEFT; isAntiAlias = true }
+            // ETA bé lại chút (0.17->0.14) + đổi màu đỏ theo yêu cầu.
+            val redColor = Color.rgb(230, 45, 45)
+            val etaPaint = Paint().apply { color = redColor; textSize = h * 0.14f; textAlign = Paint.Align.LEFT; isAntiAlias = true }
             c.drawText(etaTxt, w * 0.04f, anchorY + h * 0.03f, etaPaint)
         }
         // Chỉ dẫn rẽ — icon mũi tên tự vẽ (KHÔNG ghi chữ "trái"/"phải"), khoảng cách đếm ngược và
@@ -792,7 +795,7 @@ object TftLink {
             // icon theo chiều dọc (tên đường giờ chỉ còn hiện trên bản đồ, xem nhãn gắn tuyến bên
             // dưới, đã phóng to).
             val textX = iconCx + arm * 0.95f
-            val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val infoPaint = Paint().apply { color = Color.rgb(230, 45, 45); textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val dM = skDistanceM
             if (dM >= 0) {
                 val distTxt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m"
