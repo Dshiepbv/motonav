@@ -1207,6 +1207,16 @@ class NavActivity : Activity() {
             }
             ui.post {
                 vmDiag = "VietMap: " + res.url.substringAfter("vietmap.vn").substringBefore("?") + " · " + res.log
+                // In thẳng link mẫu mảnh bản đồ (tiles[0]) của nguồn "openmaptiles" trong JSON thật
+                // sẽ nạp vào máy vẽ — để xem có đúng link/mã như lúc "mảnh 200" test hay bị hỏng
+                // (vd mất mã, placeholder {z}/{x}/{y} sai, rỗng) ngay trước khi đưa cho MapLibre.
+                tplDiag = try {
+                    val src = org.json.JSONObject(res.json).optJSONObject("sources")?.optJSONObject("openmaptiles")
+                    val tiles0 = src?.optJSONArray("tiles")?.optString(0)
+                    "tiles[0]=" + (tiles0?.take(90) ?: "KHÔNG CÓ (nguồn=${src?.toString()?.take(60)})")
+                } catch (e: Exception) {
+                    "tplDiag lỗi: ${e.javaClass.simpleName}"
+                }
                 m.setStyle(Style.Builder().fromJson(res.json)) { s -> onLoaded(s) }
             }
         }
@@ -1214,6 +1224,7 @@ class NavActivity : Activity() {
 
     private var vmDiag: String? = null
     private var styleDiag: String? = null
+    private var tplDiag: String? = null
     private var ofmTried: String? = null
 
     /** Lấy font chữ có sẵn trong kiểu bản đồ VietMap để nhãn tên đường hiển thị được. */
@@ -2114,7 +2125,7 @@ class NavActivity : Activity() {
                 "feat lỗi: ${e.javaClass.simpleName}"
             }
             // Ưu tiên lên ĐẦU dòng feat=... (số feature thật ở đúng vị trí camera) — đang cần biết nhất.
-            listOfNotNull(featDiag, camDiag, "tải ${MapHttp.okCount}/${MapHttp.okCount + MapHttp.failCount}", styleDiag, MapHttp.lastTileInfo, MapHttp.lastLog, vmDiag).joinToString(" · ")
+            listOfNotNull(tplDiag, featDiag, "tải ${MapHttp.okCount}/${MapHttp.okCount + MapHttp.failCount}", camDiag, styleDiag, MapHttp.lastTileInfo, MapHttp.lastLog, vmDiag).joinToString(" · ")
         } else null
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
             ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
