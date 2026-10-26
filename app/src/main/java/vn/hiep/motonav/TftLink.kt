@@ -650,9 +650,36 @@ object TftLink {
             // Dày hơn nữa (6->8.5) theo yêu cầu "kể cả đường xanh".
             val linePaint = Paint().apply { color = Color.rgb(60, 140, 255); style = Paint.Style.STROKE; strokeWidth = 8.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
             c.drawPath(path, linePaint)
-            // Bỏ nhãn tên-đường-sắp-rẽ gắn tại điểm rẽ trên bản đồ (đường kẻ nối + nền đen) — theo
-            // yêu cầu mới nhất, dời chỉ dẫn này lên CỐ ĐỊNH góc trên-trái khung (xem khối vẽ icon mũi
-            // tên + khoảng cách + tên đường ngay dưới, sau khi vẽ tam giác xe).
+            // Nhãn tên-đường-sắp-rẽ gắn trên bản đồ (đường kẻ nối + nền đen) — giữ lại kiểu chỉ này
+            // theo yêu cầu, nhưng bỏ chấm tròn ở đầu đường kẻ, và neo KHÔNG còn đúng tại điểm rẽ
+            // (skManLat/skManLon) nữa — ở đó nhiều đường giao cắt chồng lên nhau trên hình, chấm/đường
+            // kẻ trông mơ hồ không rõ đang chỉ con đường nào. Lùi neo về trước điểm rẽ ~50m, DỌC THEO
+            // chính tuyến đang vẽ (route.cum) — vẫn nằm trên đúng đoạn đường sắp quẹo, chỉ là tránh xa
+            // hẳn chỗ rối ở ngã tư.
+            val nextSt = skNextStreet
+            if (!nextSt.isNullOrBlank()) {
+                val turnCumTarget = cum0 + (skDistanceM.takeIf { it >= 0 }?.toDouble() ?: 0.0)
+                var mIdx = idx0
+                while (mIdx < iEnd0 - 1 && route.cum[mIdx] < turnCumTarget) mIdx++
+                var aIdx = mIdx
+                while (aIdx > idx0 && route.cum[mIdx] - route.cum[aIdx] < 50.0) aIdx--
+                val mdx = proj.x(route.lons[aIdx]); val mdy = proj.y(route.lats[aIdx])
+                val mrx = mdx * cosH - mdy * sinH; val mry = mdx * sinH + mdy * cosH
+                val (mx, my) = toScreen(mrx, mry)
+                val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.062f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
+                val leaderPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
+                val lx = (mx + h * 0.16f).coerceAtMost(w - h * 0.02f)
+                val ly = (my - h * 0.1f).coerceAtLeast(h * 0.1f)
+                c.drawLine(mx, my, lx, ly, leaderPaint)
+                val tw = labelPaint.measureText(nextSt)
+                val padX = h * 0.022f; val padY = h * 0.02f
+                val boxLeft = (lx - tw / 2f - padX).coerceAtLeast(2f)
+                val boxRight = (boxLeft + tw + padX * 2f).coerceAtMost(w - 2f)
+                val cxText = (boxLeft + boxRight) / 2f
+                c.drawRect(boxLeft, ly - h * 0.055f - padY, boxRight, ly + h * 0.018f + padY, bgPaint)
+                c.drawText(nextSt, cxText, ly, labelPaint)
+            }
         }
         // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up) — to hơn trước (0.06->0.085) theo yêu
         // cầu "điểm định vị to ra chút" để dễ thấy giữa tuyến xanh/nhánh trắng.
@@ -702,10 +729,12 @@ object TftLink {
         // tên đường sắp quẹo vào, cố định góc trên-trái, KHÔNG nền (theo yêu cầu). Trước đây icon rẽ
         // định gửi qua gói riêng cho xe tự vẽ (turnPacket/IconMap, cmd 4/1) nhưng mã icon đó CHƯA xác
         // nhận hiển thị đúng trên màn thật — vẽ thẳng vào khung JPEG ở đây để chắc chắn lên hình.
+        // Theo phản hồi: icon to + mềm mại hơn (bo tròn góc thay vì nhọn), khoảng cách + tên đường
+        // chữ to hơn hẳn, cả khối đẩy sát lên góc trên-trái (trước còn hơi thấp/giữa màn).
         if (skActive && skRoute != null && !skNextStreet.isNullOrBlank()) {
-            val iconCx = w * 0.13f
-            val iconCy = h * 0.17f
-            val arm = h * 0.11f
+            val iconCx = w * 0.14f
+            val iconCy = h * 0.13f
+            val arm = h * 0.15f
             val angRad = Math.toRadians(Maneuver.angle(skSign).toDouble())
             val cosA = Math.cos(angRad).toFloat(); val sinA = Math.sin(angRad).toFloat()
             fun rot(dx: Float, dy: Float): Pair<Float, Float> =
@@ -725,18 +754,22 @@ object TftLink {
                 if (idx == 0) arrowPath.moveTo(px, py) else arrowPath.lineTo(px, py)
             }
             arrowPath.close()
-            val arrowPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+            // Bo tròn các góc mũi tên cho "mềm mại" thay vì nhọn cứng như trước.
+            val arrowPaint = Paint().apply {
+                color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true
+                pathEffect = android.graphics.CornerPathEffect(arm * 0.22f)
+            }
             c.drawPath(arrowPath, arrowPaint)
-            var iy = iconCy + arm * 1.0f
-            val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.07f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            var iy = iconCy + arm * 1.05f
+            val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.095f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val dM = skDistanceM
             if (dM >= 0) {
                 val distTxt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m"
                 c.drawText(distTxt, iconCx, iy, infoPaint)
-                iy += h * 0.075f
+                iy += h * 0.095f
             }
-            val streetPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.058f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-            val maxW = w * 0.26f
+            val streetPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.072f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+            val maxW = w * 0.3f
             val nst = skNextStreet ?: ""
             val words = nst.split(' ').filter { it.isNotEmpty() }
             val lines = ArrayList<String>()
@@ -755,7 +788,7 @@ object TftLink {
             }
             for (ln in lines) {
                 c.drawText(ln, iconCx, iy, streetPaint)
-                iy += h * 0.065f
+                iy += h * 0.08f
             }
         }
         val out = ByteArrayOutputStream()
