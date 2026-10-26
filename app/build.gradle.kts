@@ -11,8 +11,8 @@ android {
         applicationId = "vn.hiep.motonav"
         minSdk = 26
         targetSdk = 34
-        versionCode = 141
-        versionName = "6.95"
+        versionCode = 142
+        versionName = "6.96"
     }
 
     // Khoá ký cố định: các bản build sau cài đè lên bản cũ được, không phải gỡ app.

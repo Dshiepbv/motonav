@@ -1151,6 +1151,13 @@ class NavActivity : Activity() {
             shownJunction = -1
             labelFont = findFont(s)
             addLayers(s)
+            try {
+                val srcIds = s.sources.map { it.id }
+                val layerTypes = s.layers.groupingBy { it.javaClass.simpleName }.eachCount()
+                styleDiag = "nguồn=$srcIds lớp=${s.layers.size} $layerTypes"
+            } catch (_: Exception) {
+                styleDiag = "lỗi đọc style"
+            }
             render()
         }
         if (!useVm || key.isBlank()) {
@@ -1183,6 +1190,7 @@ class NavActivity : Activity() {
     }
 
     private var vmDiag: String? = null
+    private var styleDiag: String? = null
     private var ofmTried: String? = null
 
     /** Lấy font chữ có sẵn trong kiểu bản đồ VietMap để nhãn tên đường hiển thị được. */
@@ -2060,7 +2068,7 @@ class NavActivity : Activity() {
         }
         val mapErr = MapHttp.problem() ?: styleError ?: if (true) {
             // Chế độ VietMap: luôn hiện chẩn đoán để tìm lỗi bản đồ trắng
-            listOfNotNull(vmDiag, "Thư viện: tải OK ${MapHttp.okCount}, lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog).joinToString(" · ")
+            listOfNotNull(vmDiag, styleDiag, "Thư viện: tải OK ${MapHttp.okCount}, lỗi ${MapHttp.failCount}", MapHttp.lastTileInfo, MapHttp.lastLog).joinToString(" · ")
         } else null
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
             ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
