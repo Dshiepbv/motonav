@@ -767,30 +767,17 @@ object TftLink {
                     } catch (_: Exception) {
                     }
                 }
-                // ĐÃ THỬ (v6.58→v6.64): giãn nhịp gửi khi ACK gần đây chậm (có lúc chờ thêm tới 7s),
-                // với giả thuyết gửi dồn lúc xe còn đang xử lý sẽ làm xe báo "Lỗi kết nối". Log thực
-                // tế (20261024-213431, 23 phút, video kèm theo) cho thấy điều NGƯỢC LẠI mới là vấn đề:
-                // hầu hết khung đều cuối cùng vẫn được ACK (309 khung, chỉ 8 khung thật sự timeout) —
-                // tức kênh KHÔNG hề chết — nhưng vì mỗi lần ACK chậm lại càng chờ lâu hơn mới gửi khung
-                // kế tiếp, khoảng lặng giữa 2 lần gửi nhiều lúc lên tới 10–19 giây, khớp đúng những lúc
-                // video cho thấy xe tự hiện "Lỗi kết nối" — xe có vẻ tự đếm giờ im lặng riêng, không
-                // quan tâm khung cũ cuối cùng có được ACK hay không.
-                // v6.67: bám sát tốc độ ACK thực tế thay vì chờ cố định [base] — nhưng chặn trần ở
-                // [base] (2.5s/4s) để tránh im lặng dài.
-                // v6.68 thử nghiệm: nút test gửi 100 khung "dạng đường" cách đều CỐ ĐỊNH 500ms (không
-                // phụ thuộc ACK) — log 20261024-222404 cho kết quả rất tốt: 100/100 khung thành công,
-                // 0 timeout, ACK trung bình chỉ 367ms, khoảng lặng xa nhất 5.3s. Ngay sau khi test xong,
-                // quay lại nhịp cũ (base 2.5–4s) thì dính ngay 1 khung timeout thật. Bằng chứng cho thấy
-                // nhịp nhanh cố định ~500ms ổn định hơn hẳn base 2.5–4s hiện tại. Áp dụng luôn nhịp này
-                // cho khung thật — NHƯNG công thức "ack+200, trần 3000ms" vẫn còn kẽ hở: sendFrame()
-                // tự nó đã CHỜ ACK tới 6 giây bên trong trước khi trả về, nên khoảng lặng thật giữa 2
-                // lần gửi = (thời gian chờ ACK, tới 6s) + interval này — cộng thêm trần 3000ms thì lúc
-                // mạng xấu khoảng lặng có thể lên tới 9s, sát ngưỡng 10–19s từng thấy xe tự báo "Lỗi
-                // kết nối". Theo đúng số đã kiểm chứng tốt nhất trong log thật (route-test 100/100
-                // khung, 0 timeout, ACK TB 367ms, lặng xa nhất 5.3s): dùng CỐ ĐỊNH 500ms sau mỗi lần
-                // gửi, không phụ thuộc ACK nữa — vừa khớp đúng số liệu đã có, vừa ép trần khoảng lặng
-                // xấu nhất xuống còn ~6.5s (6s chờ ACK + 0.5s) thay vì 9s như công thức cũ.
-                sleepQuiet(500)
+                // Tóm tắt lịch sử (v6.58→v6.69): gốc vấn đề không phải gửi dồn mà là KHOẢNG LẶNG —
+                // xe có đồng hồ đếm im lặng riêng, im lặng 10–19s là tự hiện "Lỗi kết nối" (log
+                // 20261024-213431), bất kể khung cũ có được ACK hay không. Công thức co giãn theo ACK
+                // (dù gọi là "~500ms") vẫn cộng dồn được tới ~9s lúc mạng xấu vì sendFrame() đã tự
+                // chờ ACK tới 6s bên trong rồi mới tới phần nghỉ này. Theo yêu cầu "khung liên tục,
+                // gần như không bao giờ xoay, ngắn nhất có thể trong mức an toàn": bỏ hẳn phụ thuộc
+                // ACK, dùng CỐ ĐỊNH 400ms — đây là mức sàn đã xác định an toàn qua nhiều bản trước
+                // (thấp hơn từng gây dồn khung/xe xử lý không kịp), ngắn hơn 500ms vừa test (100/100
+                // khung, 0 timeout) nên khoảng lặng xấu nhất chỉ còn ~6.4s (6s chờ ACK + 0.4s) — ngắn
+                // hơn nữa thì chưa có bằng chứng thực tế là vẫn an toàn, cần chạy thử trên xe thật.
+                sleepQuiet(400)
             } else {
                 sleepQuiet(400)
             }
