@@ -708,30 +708,9 @@ object TftLink {
                 }
             }
         }
-        // Bỏ thẻ chỉ dẫn (mũi tên + khoảng cách + tên đường sắp rẽ) ở góc trên-trái — theo yêu cầu,
-        // vì dưới đã có nhãn firmware xe (cmd 3/1) hiện câu chỉ dẫn rẽ rồi, để hai chỗ trùng nội
-        // dung là thừa. Thay chỗ đó bằng icon thời tiết dự báo LÚC TỚI điểm đến.
-        val wxCat = skWxCat
-        if (wxCat != null) {
-            val wxCx = w * 0.14f; val wxCy = h * 0.17f
-            val emojiPaint = Paint().apply { textSize = h * 0.22f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-            c.drawText(WxCat.emoji(wxCat, skWxNight), wxCx, wxCy + h * 0.08f, emojiPaint)
-            val lbl = skWxLabel
-            if (!lbl.isNullOrBlank()) {
-                val lblPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.075f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-                c.drawText(lbl, wxCx, wxCy + h * 0.25f, lblPaint)
-            }
-        }
-        // Số mét đếm ngược tới chỗ rẽ sắp tới, cạnh icon thời tiết — theo yêu cầu "hiện số m đếm
-        // ngược như chỉ dẫn hôm qua phía tay trái, chỗ mà bỏ thay bằng thời tiết đó". Chỉ số (to,
-        // dễ đọc khi lướt mắt nhanh), không kèm lại cả mũi tên/tên đường như thẻ cũ (đã bỏ theo yêu
-        // cầu khác) — mũi tên/tên đường vẫn có ở nhãn firmware + nhãn trên bản đồ.
-        if (skActive && skDistanceM >= 0) {
-            val dTxt = if (skDistanceM >= 1000) String.format(java.util.Locale.US, "%.1f km", skDistanceM / 1000f) else "${skDistanceM} m"
-            val dCx = w * 0.34f; val dCy = h * 0.17f
-            val dPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.16f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            c.drawText(dTxt, dCx, dCy + h * 0.08f, dPaint)
-        }
+        // Bỏ icon thời tiết (mặt trời/nhiệt độ) và số mét đếm ngược ở góc trên-trái — theo yêu cầu
+        // (video 20261026-1450): hai thứ này thừa, dưới đã có nhãn firmware xe (cmd 3/1) lo phần chỉ
+        // dẫn/khoảng cách rồi, giữ góc này trống cho thoáng.
         val out = ByteArrayOutputStream()
         // Chất lượng thấp hơn trước (35→22): nội dung chỉ nét trắng trên nền đen, hạ chất lượng gần
         // như không đổi hình mà khung nhỏ hơn, xe tải/giải mã nhanh hơn, bớt xoay.
