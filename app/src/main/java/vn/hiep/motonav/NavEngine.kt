@@ -170,6 +170,13 @@ class NavEngine(
             else if (!routing && SystemClock.elapsedRealtime() - lastReroute > 60000) requestRoute(lat, lon, heading)
             return
         }
+        // Có tuyến hợp lệ đang bám theo được (tới được đây nghĩa là tuyến cũ vẫn dùng tốt) → xoá
+        // thông báo lỗi cũ nếu còn sót lại. Theo phản hồi thực tế: dòng đỏ kiểu "Request failed due
+        // to a permanent error: Canceled" (lỗi mạng/bị huỷ khi tìm LẠI tuyến lúc đi lệch) vẫn hiện
+        // dai dẳng dù tuyến đang đi vẫn đúng và chạy bình thường — vì trước đây chỉ xoá routeError
+        // lúc tìm tuyến MỚI thành công, không xoá khi tuyến CŨ vẫn đang được bám theo tốt. Giờ cứ
+        // còn đang theo dõi được tuyến hiện tại (xuống tới đây) là coi như ổn, dọn luôn thông báo cũ.
+        if (Live.routeError != null) Live.routeError = null
 
         // Chiếu vị trí lên tuyến (tìm quanh đoạn hiện tại)
         val proj = LocalProjection(lat, lon)
