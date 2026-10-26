@@ -356,7 +356,13 @@ class SettingsActivity : Activity() {
             prefs.avoidHighway = it
         }
         val keysOk = prefs.vietmapKey.isNotBlank()
-        action("Mã API VietMap", if (keysOk) "✅ Đã nhập" else "⚠️ Chưa nhập – cần để tìm đường", note = "Dùng cho tìm đường, tìm địa điểm, kẹt xe") {
+        val tileKeyOk = prefs.vietmapTileKey.isNotBlank()
+        val keysStatus = when {
+            !keysOk -> "⚠️ Chưa nhập mã default – cần để tìm đường"
+            !tileKeyOk -> "⚠️ Thiếu mã \"public tile\" – bản đồ sẽ trắng"
+            else -> "✅ Đã nhập đủ 2 mã"
+        }
+        action("Mã API VietMap", keysStatus, note = "Cần 2 mã riêng: \"default\" (tìm đường/tìm kiếm) và \"public tile\" (hiện bản đồ nền)") {
             KeyDialog.show(this, prefs) { build() }
         }
 

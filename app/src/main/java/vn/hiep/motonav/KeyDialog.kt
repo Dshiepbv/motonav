@@ -17,16 +17,27 @@ object KeyDialog {
         }
         val api = EditText(a).apply {
             setText(prefs.vietmapKey)
-            hint = "Dán mã API VietMap"
+            hint = "Mã API \"default\" (tìm đường, tìm kiếm, kẹt xe)"
+            setSingleLine()
+        }
+        val tile = EditText(a).apply {
+            setText(prefs.vietmapTileKey)
+            hint = "Mã \"public tile\" (để hiện bản đồ nền)"
             setSingleLine()
         }
         box.addView(api)
+        box.addView(tile)
         AlertDialog.Builder(a)
             .setTitle("Mã API VietMap")
-            .setMessage("Dùng để tìm đường xe máy, tìm địa điểm và xem kẹt xe. Đăng ký miễn phí tại maps.vietmap.vn → Console → API Keys.")
+            .setMessage(
+                "Cần CẢ 2 mã riêng từ maps.vietmap.vn → Console → API Keys:\n" +
+                    "• \"default\": tìm đường, tìm địa điểm, kẹt xe\n" +
+                    "• \"public tile\": hiện bản đồ nền — thiếu mã này bản đồ sẽ trắng dù mã default vẫn đúng, vì VietMap không cho khoá \"default\" hiện bản đồ.",
+            )
             .setView(box)
             .setPositiveButton("Lưu") { _, _ ->
                 prefs.vietmapKey = api.text.toString()
+                prefs.vietmapTileKey = tile.text.toString()
                 after?.invoke()
             }
             .setNeutralButton("Mở VietMap Console") { _, _ ->
