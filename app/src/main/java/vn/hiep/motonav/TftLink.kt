@@ -455,10 +455,21 @@ object TftLink {
             val afterTurnDist = if (skThenDistM > 0) turnDist + skThenDistM else turnDist
             val maxAhead = maxOf(baseMaxAhead, turnDist + 150.0, afterTurnDist * 0.3 + 150.0)
                 .coerceIn(400.0, 3600.0)
+            // Theo phản hồi thực tế nhiều lần "đường xanh chỉ tô khi chạy gần tới": mức zoom lúc đi
+            // chậm (<50km/h → maxAhead còn 1/3, tức ~600m) trước đây bị dùng LUÔN làm luôn cả khoảng
+            // vẽ tuyến (iEnd0) lẫn lưới nhánh đường — nghĩa là đoạn đường xa hơn 600m KHÔNG hề được
+            // thu thập/vẽ chút nào (không phải vẽ nhỏ/nén, mà là không vẽ), nên nhìn như tuyến xanh
+            // "dừng lại" và chỉ hiện tiếp khi xe chạy vào trong phạm vi đó. Tách riêng [drawAhead]
+            // (khoảng cách THỰC SỰ thu thập điểm để vẽ, luôn giữ xa — không bị zoom tốc độ thấp làm
+            // co lại) khỏi [maxAhead] (chỉ dùng để tính độ phóng to/nén phối cảnh gần xe cho rõ chỗ
+            // rẽ). Phép nén fisheye (mũ 0.55, trần tỉ lệ 2.0 ở [toScreen]) đã tự ép đoạn xa về sát mép
+            // khung hình chứ không văng ra ngoài, nên tăng khoảng vẽ lên không làm vỡ bố cục.
+            val drawAhead = maxOf(1800.0 * zoomMul, maxAhead).coerceIn(400.0, 3600.0)
             val headingNow = if (skHeadingDeg >= 0) { skLastGoodHeadingDeg = skHeadingDeg; skHeadingDeg } else skLastGoodHeadingDeg
             val hRad = Math.toRadians(headingNow)
             val cosH = Math.cos(hRad); val sinH = Math.sin(hRad)
-            // px trên "mét đã nén" — chỉnh theo đoạn xa nhất sẽ vẽ, để luôn vừa khung hình.
+            // px trên "mét đã nén" — chỉnh theo [maxAhead] (mức zoom, không phải khoảng vẽ thật) để
+            // chỗ rẽ gần vẫn to rõ kể cả khi [drawAhead] đã kéo xa hơn nhiều.
             val scale = (h * 0.68f) / maxAhead.toFloat()
             // rx/ry (mét thật, đã xoay theo hướng xe) -> toạ độ pixel, nén bán kính theo căn bậc hai
             // (mũ 0.55) quanh vị trí xe: gần xe gần như không nén (dễ thấy rẽ), xa xe nén mạnh hơn.
@@ -476,7 +487,7 @@ object TftLink {
             // Phạm vi tuyến chính sẽ vẽ (idx0..iEnd) — tính trước để dùng làm "lưới" phát hiện nhánh
             // đường THỰC SỰ gắn vào trục chính (xem bên dưới).
             var iEnd0 = idx0
-            while (iEnd0 < route.lats.size && route.cum[iEnd0] - cum0 <= maxAhead) iEnd0++
+            while (iEnd0 < route.lats.size && route.cum[iEnd0] - cum0 <= drawAhead) iEnd0++
 
             // Nhánh đường — CHỈ quan tâm các trục gắn thẳng vào đường chính (biết có quẹo được/đi
             // thẳng được không ở từng giao lộ dọc tuyến). Dò điểm "gắn vào trục chính" bằng lưới ô
@@ -558,7 +569,7 @@ object TftLink {
                         while (j < wy.lats.size) {
                             val dx = proj.x(wy.lons[j]); val dy = proj.y(wy.lats[j])
                             val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
-                            if (Math.abs(rx) <= maxAhead * 1.1 && ry >= -maxAhead * 0.3 && ry <= maxAhead) {
+                            if (Math.abs(rx) <= drawAhead * 1.1 && ry >= -drawAhead * 0.3 && ry <= drawAhead) {
                                 val (sx, sy) = toScreen(rx, ry)
                                 if (!bStarted) { bp.moveTo(sx, sy); bStarted = true } else bp.lineTo(sx, sy)
                                 any = true
