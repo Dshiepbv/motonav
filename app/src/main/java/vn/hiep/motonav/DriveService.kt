@@ -319,6 +319,7 @@ class DriveService : Service(), LocationListener {
                     wxCat = Live.wxDestCat,
                     wxLabel = Live.wxDestLabel,
                     wxNight = Live.wxDestNight,
+                    thenDistM = Live.thenDistM,
                 )
             }
             handler.postDelayed(this, 1000)

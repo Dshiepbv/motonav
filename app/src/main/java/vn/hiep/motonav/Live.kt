@@ -66,6 +66,9 @@ object Live {
     @Volatile var maneuverSign = 0
     @Volatile var thenText: String? = null
     @Volatile var thenSign = 0
+    /** Khoảng cách (m) từ chỗ rẽ SẮP TỚI tới chỗ rẽ KẾ TIẾP NỮA — để màn TFT biết cần nhìn xa
+     * bao nhiêu mới thấy hết tới chỗ rẽ sau đó, tránh đường xanh bị cắt cụt ngay trước mắt. */
+    @Volatile var thenDistM: Double = 0.0
     /** Các tuyến để chọn (tuyến đang đi là phần tử [choiceSelected]). */
     @Volatile var routeChoices: List<Route> = emptyList()
     @Volatile var choiceSelected = 0

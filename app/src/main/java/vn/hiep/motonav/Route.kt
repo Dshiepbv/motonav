@@ -137,6 +137,22 @@ object Maneuver {
         return if (s.street.isNotBlank()) "$v vào ${s.street}" else v
     }
 
+    /** Ký tự mũi tên đơn giản theo sign, dùng cho nhãn chỗ rẽ trên màn TFT (kèm khoảng cách đếm
+     * ngược, theo yêu cầu "chỉ dẫn đường cần có hướng và đếm ngược khoảng cách"). */
+    fun glyph(sign: Int): String = when (sign) {
+        -3 -> "↩"
+        -2 -> "⬅"
+        -1, -7 -> "↖"
+        0 -> "⬆"
+        1, 7 -> "↗"
+        2 -> "➡"
+        3 -> "↪"
+        4, 5 -> "⚑"
+        6 -> "⟳"
+        -8, -98, 8 -> "↩"
+        else -> "⬆"
+    }
+
     /** Góc mũi tên (0 = thẳng lên, âm = trái, dương = phải). */
     fun angle(sign: Int): Float = when (sign) {
         -3 -> -135f

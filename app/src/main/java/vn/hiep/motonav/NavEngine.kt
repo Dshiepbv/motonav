@@ -271,6 +271,7 @@ class NavEngine(
             Live.maneuverStreet = null
             Live.nextLeg = null
             Live.thenText = null
+            Live.thenDistM = 0.0
             return
         }
 
@@ -339,8 +340,10 @@ class NavEngine(
             val gap = r.cum[min(after.from, n - 1)] - r.cum[mIdx]
             Live.thenText = "Sau đó · ${fmtDist(gap)}: " + Maneuver.phrase(after)
             Live.thenSign = after.sign
+            Live.thenDistM = gap
         } else {
             Live.thenText = null
+            Live.thenDistM = 0.0
         }
 
         // Đưa vào các trường dùng chung (ô nổi, thẻ rẽ, tiếng bíp khi sắp rẽ)

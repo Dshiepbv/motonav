@@ -290,6 +290,9 @@ object TftLink {
     @Volatile private var skDistanceM: Int = -1
     @Volatile private var skNextStreet: String? = null
     @Volatile private var skRemainingM: Double = 0.0
+    // Khoảng cách từ chỗ rẽ sắp tới -> chỗ rẽ kế tiếp nữa, để luôn nhìn xa đủ qua khỏi chỗ rẽ sắp
+    // tới (không cắt cụt đường xanh đúng ngay chỗ rẽ) theo phản hồi thực tế.
+    @Volatile private var skThenDistM: Double = 0.0
     @Volatile private var skEtaMs: Long = 0L
     @Volatile private var skCurrentStreet: String? = null
     // Thời tiết dự báo lúc tới điểm đến — icon góc trên-phải, cạnh biển tốc độ, theo yêu cầu.
@@ -330,6 +333,7 @@ object TftLink {
         wxCat: Int? = null,
         wxLabel: String? = null,
         wxNight: Boolean = false,
+        thenDistM: Double = 0.0,
     ) {
         skActive = active
         skRoute = route
@@ -351,6 +355,7 @@ object TftLink {
         skNextStreet = nextStreet
         skRemainingM = remainingM
         skEtaMs = etaMs
+        skThenDistM = thenDistM
     }
 
     /** Vẽ khung sketch: đường đi phía trước (~220m) thành nét trắng trên nền đen, xe luôn ở giữa
@@ -439,7 +444,17 @@ object TftLink {
                 1 -> 0.5
                 else -> 1.0
             }
-            val maxAhead = (1800.0 * zoomMul * spdMul).coerceIn(400.0, 3600.0)
+            val baseMaxAhead = (1800.0 * zoomMul * spdMul).coerceIn(400.0, 3600.0)
+            // Luôn nhìn xa đủ qua khỏi chỗ rẽ sắp tới (+150m) và hé thêm một đoạn qua chỗ rẽ kế
+            // tiếp nữa (+150m) nếu biết — theo phản hồi thực tế "gần tới chỗ rẽ mới thì đường xanh
+            // hiện tại bị tắt": trước đây maxAhead chỉ theo tốc độ/zoom, có lúc ngắn hơn khoảng cách
+            // tới chỗ rẽ (đặc biệt lúc đi chậm, maxAhead ~600m) nên đúng lúc sắp rẽ, đoạn đường sau
+            // chỗ rẽ bị cắt mất khỏi khung hình, nhìn như đường xanh "biến mất". Không giới hạn trên
+            // vì phép chiếu fisheye đã tự nén đoạn xa lại, không làm đường quá bé.
+            val turnDist = skDistanceM.takeIf { it >= 0 }?.toDouble() ?: 0.0
+            val afterTurnDist = if (skThenDistM > 0) turnDist + skThenDistM else turnDist
+            val maxAhead = maxOf(baseMaxAhead, turnDist + 150.0, afterTurnDist * 0.3 + 150.0)
+                .coerceIn(400.0, 3600.0)
             val headingNow = if (skHeadingDeg >= 0) { skLastGoodHeadingDeg = skHeadingDeg; skHeadingDeg } else skLastGoodHeadingDeg
             val hRad = Math.toRadians(headingNow)
             val cosH = Math.cos(hRad); val sinH = Math.sin(hRad)
@@ -596,21 +611,38 @@ object TftLink {
                 val mdx = proj.x(skManLon); val mdy = proj.y(skManLat)
                 val mrx = mdx * cosH - mdy * sinH; val mry = mdx * sinH + mdy * cosH
                 val (mx, my) = toScreen(mrx, mry)
-                val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.062f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.062f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
                 val leaderPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
+                // Dòng hướng rẽ (mũi tên) + khoảng cách đếm ngược, phía trên tên đường — theo yêu
+                // cầu "chỉ dẫn đường cần có hướng và đếm ngược khoảng cách". Thẻ rẽ to ở góc màn đã
+                // bỏ ở bản trước vì trùng chữ với nhãn firmware xe, nhưng nhãn đó chỉ có CHỮ (câu
+                // chỉ dẫn), không có mũi tên/khoảng cách — thêm lại gọn ngay tại điểm rẽ trên bản đồ,
+                // để phân biệt được lúc 2 chỗ rẽ gần nhau (rẽ phải rồi rẽ trái liền) thay vì chỉ nhìn
+                // hình dạng đường rất dễ lẫn ở màn nhỏ.
+                val dM = skDistanceM
+                val distTxt = if (dM >= 0) (if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m") else ""
+                val dirTxt = (Maneuver.glyph(skSign) + (if (distTxt.isNotEmpty()) " $distTxt" else "")).trim()
+                val dirPaint = Paint().apply { color = Color.rgb(255, 210, 60); textSize = h * 0.072f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 // Nhãn đặt lệch lên-phải điểm rẽ một khoảng cố định theo pixel (không phụ thuộc
                 // zoom), tránh đè lên tam giác xe ở giữa-dưới khung.
                 val lx = (mx + h * 0.16f).coerceAtMost(w - h * 0.02f)
-                val ly = (my - h * 0.1f).coerceAtLeast(h * 0.1f)
+                val ly = (my - h * 0.1f).coerceAtLeast(h * 0.2f)
                 c.drawLine(mx, my, lx, ly, leaderPaint)
                 c.drawCircle(mx, my, h * 0.018f, leaderPaint)
-                val tw = labelPaint.measureText(nextSt)
-                val padX = h * 0.022f; val padY = h * 0.02f
+                val tw1 = if (dirTxt.isNotEmpty()) dirPaint.measureText(dirTxt) else 0f
+                val tw2 = labelPaint.measureText(nextSt)
+                val tw = maxOf(tw1, tw2)
+                val padX = h * 0.022f; val padY = h * 0.018f
                 val boxLeft = (lx - tw / 2f - padX).coerceAtLeast(2f)
                 val boxRight = (boxLeft + tw + padX * 2f).coerceAtMost(w - 2f)
-                c.drawRect(boxLeft, ly - h * 0.055f - padY, boxRight, ly + h * 0.018f + padY, bgPaint)
-                c.drawText(nextSt, (boxLeft + boxRight) / 2f - tw / 2f, ly, labelPaint)
+                val cxText = (boxLeft + boxRight) / 2f
+                val boxBottom = ly + h * 0.018f + padY
+                val lineH = if (dirTxt.isNotEmpty()) h * 0.16f else h * 0.077f
+                val boxTop = boxBottom - lineH - padY * 2
+                c.drawRect(boxLeft, boxTop, boxRight, boxBottom, bgPaint)
+                if (dirTxt.isNotEmpty()) c.drawText(dirTxt, cxText, boxTop + h * 0.085f, dirPaint)
+                c.drawText(nextSt, cxText, boxBottom - padY, labelPaint)
             }
         }
         // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up) — to hơn trước (0.06->0.085) theo yêu
