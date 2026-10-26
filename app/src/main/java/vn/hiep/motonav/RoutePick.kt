@@ -33,6 +33,19 @@ object RoutePick {
 
     private fun hasTraffic(r: Route) = r.congestion.any { it != "unknown" && it.isNotEmpty() }
 
+    /** Số lần rẽ "thật" trên tuyến (sign=0 là đi thẳng/giữ làn, không tính). */
+    private fun turnCount(r: Route): Int = r.steps.count { it.sign != 0 }
+
+    /** Ước lượng độ ngoằn ngoèo: số lần rẽ trên mỗi km. Tuyến theo đường lớn/thẳng thường rất ít
+     * rẽ dù dài; tuyến len lỏi qua hẻm/đường nhỏ dồn rất nhiều rẽ trong quãng ngắn. Chuẩn hoá về hệ
+     * số phạt NHẸ (tối đa +12% chi phí) — chỉ đủ nghiêng cán cân giữa các tuyến gần ngang nhau về
+     * thời gian, không chọn tuyến chậm hẳn chỉ vì ít rẽ hơn. */
+    private fun zigzagPenalty(r: Route): Double {
+        val km = (r.total / 1000.0).coerceAtLeast(0.3)
+        val density = turnCount(r) / km
+        return (density / 6.0).coerceIn(0.0, 2.5) * 0.05
+    }
+
     /** Thời gian dự kiến (giây) có tính kẹt xe. */
     fun trafficTime(r: Route): Double {
         val base = r.timeMs / 1000.0
@@ -54,7 +67,9 @@ object RoutePick {
     fun rank(list: List<Route>, heading: Double?, forwardFirst: Boolean): List<Route> {
         if (list.size <= 1) return list
         val traffic = list.any { hasTraffic(it) }
-        fun cost(r: Route): Double = if (traffic) trafficTime(r) else r.total
+        // Theo yêu cầu "ưu tiên đường thẳng, đường lớn, hạn chế zigzag": cộng thêm phạt nhẹ theo
+        // mật độ rẽ vào chi phí trước khi so sánh, bên cạnh thời gian/quãng đường như cũ.
+        fun cost(r: Route): Double = (if (traffic) trafficTime(r) else r.total) * (1.0 + zigzagPenalty(r))
         val sorted = list.sortedBy { cost(it) }.toMutableList()
         // Thời gian gần bằng nhau (chênh < 5%) → chọn tuyến ngắn hơn
         if (traffic && sorted.size > 1) {
