@@ -21,6 +21,43 @@ object VietMap {
         return "https://maps.vietmap.vn/maps/styles/$s/style.json?apikey=" + enc(key)
     }
 
+    /**
+     * Kiểu bản đồ RASTER (ảnh .png) của VietMap — PHƯƠNG ÁN B, dùng tạm thay cho mảnh vector
+     * "vlc-vt-sdk" đang lỗi "invalid tag" không sửa được ở tầng mạng/app: đã tải tay + phân tích
+     * byte thật của mảnh vector đó, xác nhận KHÔNG phải MVT chuẩn, KHÔNG phải gzip/zlib/deflate/
+     * brotli/zstd/lz4 ở bất kỳ vị trí nào, độ ngẫu nhiên byte rất cao (~7.53/8 bit) — tức là định
+     * dạng riêng/đã mã hoá, chỉ SDK chính chủ VietMap (khác MapLibre) mới đọc được. SDK chính chủ
+     * lại dựa trên bản Mapbox cũ (API khác hẳn MapLibre app đang dùng) → việc đó để dự án riêng
+     * (phương án A), không làm trong app này bây giờ.
+     *
+     * Ảnh raster .png thì MapLibre đọc bình thường (không qua giải mã riêng), nên dùng ngay được.
+     * Không cần gọi API lấy style.json nữa — tự dựng JSON tối giản ở đây, khỏi vòng mạng.
+     * Theme đêm "dm" dùng cùng quy ước đặt tên với style.json vector (xem styleUrl) nhưng CHƯA kiểm
+     * chứng thực tế — nếu ảnh đêm không tải được, cứu bằng OpenFreeMap vẫn hoạt động như cũ.
+     */
+    fun rasterStyleJson(key: String, night: Boolean): String {
+        val theme = if (night) "dm" else "tm"
+        val tileUrl = "https://maps.vietmap.vn/api/$theme/{z}/{x}/{y}.png?apikey=" + enc(key)
+        return """
+            {
+              "version": 8,
+              "sources": {
+                "vm-raster": {
+                  "type": "raster",
+                  "tiles": ["$tileUrl"],
+                  "tileSize": 256,
+                  "minzoom": 0,
+                  "maxzoom": 19
+                }
+              },
+              "glyphs": "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
+              "layers": [
+                {"id": "vm-raster-layer", "type": "raster", "source": "vm-raster"}
+              ]
+            }
+        """.trimIndent()
+    }
+
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
     private fun ll(lat: Double, lon: Double) = String.format(Locale.US, "%.6f,%.6f", lat, lon)
 

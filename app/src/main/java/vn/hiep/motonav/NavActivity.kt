@@ -1196,38 +1196,16 @@ class NavActivity : Activity() {
             return
         }
         MapHttp.key = key
-        val custom = prefs.vietmapStyleUrl
-        val lat = if (Live.gpsOk) Live.lat else 10.7769
-        val lon = if (Live.gpsOk) Live.lon else 106.7009
-        io.execute {
-            val res = try {
-                VietMap.findWorkingStyle(key, night, custom, lat, lon)
-            } catch (e: Exception) {
-                ui.post {
-                    styleError = (e.message ?: "Không tải được bản đồ VietMap") + " → đang dùng OpenFreeMap"
-                    m.setStyle(Style.Builder().fromUri(OFM_STYLE)) { s -> onLoaded(s) }
-                }
-                return@execute
-            }
-            ui.post {
-                vmDiag = "VietMap: " + res.url.substringAfter("vietmap.vn").substringBefore("?") + " · " + res.log
-                // In thẳng link mẫu mảnh bản đồ (tiles[0]) của nguồn "openmaptiles" trong JSON thật
-                // sẽ nạp vào máy vẽ — để xem có đúng link/mã như lúc "mảnh 200" test hay bị hỏng
-                // (vd mất mã, placeholder {z}/{x}/{y} sai, rỗng) ngay trước khi đưa cho MapLibre.
-                tplDiag = try {
-                    val src = org.json.JSONObject(res.json).optJSONObject("sources")?.optJSONObject("openmaptiles")
-                    val tiles0 = src?.optJSONArray("tiles")?.optString(0)
-                    // Mảnh test tay (z14, vị trí thật) tải về 721KB dữ liệu thật → server CÓ dữ liệu.
-                    // Nghi style khai "bounds"/"minzoom"/"maxzoom" giới hạn vùng, khiến MapLibre tự
-                    // quyết KHÔNG xin mảnh ở vị trí thật dù server có data — in ra để kiểm thẳng.
-                    "tiles[0]=" + (tiles0?.take(70) ?: "KHÔNG CÓ") +
-                        " bounds=${src?.optJSONArray("bounds")} minz=${src?.opt("minzoom")} maxz=${src?.opt("maxzoom")} scheme=${src?.opt("scheme")}"
-                } catch (e: Exception) {
-                    "tplDiag lỗi: ${e.javaClass.simpleName}"
-                }
-                m.setStyle(Style.Builder().fromJson(res.json)) { s -> onLoaded(s) }
-            }
-        }
+        // PHƯƠNG ÁN B (tạm): mảnh vector "vlc-vt-sdk" của VietMap là định dạng riêng, không phải
+        // MVT chuẩn — đã xác nhận bằng phân tích byte thật (xem VietMap.rasterStyleJson), không
+        // thể sửa ở tầng app/mạng. Chuyển sang ảnh raster .png của VietMap: tự dựng style JSON tại
+        // máy, KHÔNG cần gọi API lấy style.json qua mạng nữa (bỏ VietMap.findWorkingStyle ở đây).
+        // Phương án C (OpenFreeMap) vẫn giữ nguyên làm phương án dự phòng phía trên (key rỗng) và
+        // trong addOnDidFailLoadingMapListener nếu ảnh VietMap cũng lỗi. Phương án A (SDK chính
+        // chủ VietMap, thay cả bộ máy vẽ bản đồ) để dự án riêng, không đụng ở đây.
+        vmDiag = "VietMap: raster /api/${if (night) "dm" else "tm"}/{z}/{x}/{y}.png (tạm, chờ SDK chính chủ)"
+        val rasterJson = VietMap.rasterStyleJson(key, night)
+        m.setStyle(Style.Builder().fromJson(rasterJson)) { s -> onLoaded(s) }
     }
 
     private var vmDiag: String? = null
@@ -2108,13 +2086,10 @@ class NavActivity : Activity() {
         } else {
             etaText.text = Live.street ?: "Chọn điểm đến"
         }
-        // Đã xác nhận camera KHÔNG bị kẹt ở (0,0) — vị trí thật, đúng GPS (bản build trước). Mảnh
-        // 404 "n/2,n/2" chỉ là mảnh tổng quan nền MapLibre tự tải, không phải mảnh thật đang cần.
-        // Quay lại đúng trọng tâm: mảnh THẬT đúng vị trí vẫn báo "invalid tag" — hiện thêm 8 byte
-        // đầu của mảnh thật (đã đọc sẵn, MapHttp.lastTileInfo, chỉ tính 1 lần/phiên) để biết chắc nó
-        // có phải gzip hay là dữ liệu lạ, thay vì đoán tiếp.
-        val mapErrBase = MapHttp.problem() ?: styleError ?: MapHttp.lastLog
-        val mapErr = if (mapErrBase != null) "$mapErrBase [${MapHttp.lastTileInfo ?: "chưa có mảnh nào"}]" else null
+        // Đã chuyển bản đồ nền VietMap sang ảnh raster .png (phương án B, tạm) — mảnh không còn là
+        // protobuf nên hết cần xem byte thô để chẩn đoán gzip/"invalid tag" như lúc còn dùng mảnh
+        // vector; chỉ cần câu lỗi gọn thường (mã Tilemap sai, hết lượt, lỗi HTTP...).
+        val mapErr = MapHttp.problem() ?: styleError ?: MapHttp.lastLog
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
             ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
                 .joinToString("\n")
