@@ -529,7 +529,12 @@ object TftLink {
             // bề rộng 1km làm máy phải xử lý/vẽ nặng quá.
             val ways = skWays
             if (ways != null) {
-                val cellDeg = 250.0 / 111320.0
+                // Theo yêu cầu "cái nào nhìn giống Google Map hơn": Google Maps không ẩn hẳn đường
+                // cấp 3 (tertiary/residential) mà chỉ GIẢM PHẠM VI hiển thị quanh tuyến + phân cấp độ
+                // dày/độ nổi bật — đã làm ở branchPaintFor bên dưới. Nên chọn giảm hành lang xuống
+                // 400m mỗi bên (giữ đủ loại đường) thay vì cắt hẳn đường cấp 3, để không mất ngữ cảnh
+                // khu vực xung quanh mà vẫn đỡ rối.
+                val cellDeg = 200.0 / 111320.0
                 fun corridorKey(lat: Double, lon: Double): Long {
                     val la = Math.floor(lat / cellDeg).toLong()
                     val lo = Math.floor(lon / cellDeg).toLong()
@@ -541,7 +546,7 @@ object TftLink {
                 // trong đường chính ra 2 bên" (trước đo khoảng cách tới vị trí xe, lệch tâm khi tuyến
                 // uốn cong phía trước, không đúng ý "từ chính tuyến lan ra").
                 val routeSamples = ArrayList<DoubleArray>()
-                val cellSpan = 2 // ~2*250m = 500m mỗi hướng quanh mỗi điểm mẫu trên tuyến
+                val cellSpan = 2 // ~2*200m = 400m mỗi hướng quanh mỗi điểm mẫu trên tuyến
                 var gi = idx0
                 var lastCum = -1e9
                 while (gi < iEnd0) {
