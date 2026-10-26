@@ -321,6 +321,11 @@ object TftLink {
     // khi tốc độ vượt hẳn qua ngưỡng (có biên trễ ~2-3km/h mỗi bên) để đứng yên/chạy chậm quanh
     // mốc 20km/h không làm bản đồ zoom ra zoom vào liên tục do nhiễu tốc độ GPS.
     @Volatile private var skSpdTier: Int = 2
+    // Góc "nghiêng camera 3D" hiện tại (0=phẳng kiểu cũ, 1=nghiêng đầy đủ kiểu Waze) — trườn dần
+    // tới mức mục tiêu theo skSpdTier mỗi khung thay vì nhảy khựng, xem buildSketchFrame(). Đã dò
+    // công thức + kiểm chứng trước trên mockup artifact (TFT Phạm Văn Đồng) theo yêu cầu thực tế.
+    @Volatile private var skTiltT: Double = 1.0
+    @Volatile private var skTiltLastMs: Long = 0L
     // "Ghim" chỉ số điểm gần nhất tìm được ở khung trước, để khung sau chỉ dò quanh đó thay vì
     // quét lại toàn tuyến — tránh nhảy lung tung sang điểm xa (một đoạn đường khác của tuyến tình
     // cờ ở gần) làm đường xanh biến mất/vẽ sai rồi tự "sửa" lại ở khung sau.
@@ -387,7 +392,9 @@ object TftLink {
         val anchorX = w / 2f
         // Nhích điểm xe lên khỏi mép dưới (0.82->0.72) — theo phản hồi thực tế: khi tuyến rẽ ngang
         // ngay gần vị trí hiện tại, đoạn rẽ bị khuất sát đáy khung, không thấy đường đi đâu.
-        val anchorY = h * 0.72f
+        // "var" vì ở nhánh có tuyến, anchorY được tính lại theo toScreen(0,0) — vị trí xe trên màn
+        // đổi theo mức nghiêng camera 3D (skTiltT), xem bên dưới.
+        var anchorY = h * 0.72f
         if (route == null || route.lats.size < 2) {
             // Khung "chờ" — gửi đều đặn khi chưa có tuyến (chưa dẫn đường/mất GPS/vừa tới nơi) để
             // xe không coi là mất kết nối vì im lặng quá lâu.
@@ -503,16 +510,64 @@ object TftLink {
             val scale = (h * 0.68f) / maxAhead.toFloat()
             // rx/ry (mét thật, đã xoay theo hướng xe) -> toạ độ pixel, nén bán kính theo căn bậc hai
             // (mũ 0.55) quanh vị trí xe: gần xe gần như không nén (dễ thấy rẽ), xa xe nén mạnh hơn.
-            fun toScreen(rx: Double, ry: Double): FloatArray {
+            fun flatToScreen(rx: Double, ry: Double): FloatArray {
                 val dist = Math.hypot(rx, ry)
-                if (dist < 1.0) return floatArrayOf(anchorX, anchorY)
+                if (dist < 1.0) return floatArrayOf(anchorX, h * 0.72f)
                 val warped = maxAhead * Math.pow((dist / maxAhead).coerceAtMost(2.0), 0.55)
                 val ux = rx / dist; val uy = ry / dist
                 return floatArrayOf(
                     anchorX + (ux * warped * scale).toFloat(),
-                    anchorY - (uy * warped * scale).toFloat()
+                    h * 0.72f - (uy * warped * scale).toFloat()
                 )
             }
+            // ---- Nghiêng camera 3D kiểu Waze theo tốc độ (yêu cầu thực tế: "đi nhanh zoom dần 2D,
+            // chậm nghiêng dần 3D, chuyển mượt") — đã dò công thức + kiểm chứng trước trên mockup
+            // artifact (TFT Phạm Văn Đồng) rồi mới đưa vào đây. Giữ nguyên [maxAhead] đã tính ở trên
+            // (đã tự zoom theo skSpdTier) làm chuẩn cho cả 2 công thức, chỉ thêm độ "xoè ngang" kiểu
+            // phối cảnh camera ảo (lùi sau xe 12m, cao 6m, cúp 50° ở mức nghiêng đầy) rồi TRỘN với
+            // công thức phẳng cũ theo [skTiltT] — không chuyển thẳng, tránh giật khung khi đổi tốc độ.
+            val tiltTarget = when (skSpdTier) { 2 -> 1.0; 1 -> 0.55; else -> 0.0 }
+            val nowMs = System.currentTimeMillis()
+            val dtMs = (if (skTiltLastMs == 0L) 400L else (nowMs - skTiltLastMs)).coerceIn(50L, 2000L)
+            skTiltLastMs = nowMs
+            // Trườn ~63%/650ms về mục tiêu bất kể nhịp khung thực tế đang giãn/co theo ACK — cùng
+            // hằng số làm mượt (650ms) đã kiểm chứng mượt mắt trên mockup.
+            val smoothK = 1.0 - Math.exp(-dtMs / 650.0)
+            skTiltT += (tiltTarget - skTiltT) * smoothK
+            val tiltT = skTiltT
+            val tiltTheta = Math.toRadians(50.0)
+            val tiltCamH = 6.0
+            val tiltCamBack = 12.0
+            val tiltFocal = 146.8
+            fun tiltLateralFactor(ry: Double): Double {
+                val vz = (ry + tiltCamBack) * Math.sin(tiltTheta) + tiltCamH * Math.cos(tiltTheta)
+                return tiltFocal / Math.max(vz, 1.0)
+            }
+            fun tiltToScreen(rx: Double, ry: Double): FloatArray {
+                val aY = h * 0.80f; val hzY = h * 0.16f
+                val sgn = if (ry >= 0) 1.0 else -1.0
+                val warped = Math.pow((Math.abs(ry) / maxAhead).coerceAtMost(2.0), 0.55)
+                val sy = aY - (sgn * warped * (aY - hzY)).toFloat()
+                val sx = anchorX + (rx * tiltLateralFactor(ry)).toFloat()
+                return floatArrayOf(sx, sy)
+            }
+            fun toScreen(rx: Double, ry: Double): FloatArray {
+                if (tiltT <= 0.001) return flatToScreen(rx, ry)
+                val f = flatToScreen(rx, ry)
+                val g = tiltToScreen(rx, ry)
+                return floatArrayOf(
+                    f[0] + (g[0] - f[0]) * tiltT.toFloat(),
+                    f[1] + (g[1] - f[1]) * tiltT.toFloat()
+                )
+            }
+            anchorY = toScreen(0.0, 0.0)[1]
+            // Camera ảo lùi sau xe [tiltCamBack] mét — điểm nào lùi quá gần/qua mặt camera sẽ vọt
+            // méo ở cực nghiêng (t=1), nên giới hạn phía sau cũng trộn theo tiltT: t=0 (phẳng) giữ
+            // nguyên giới hạn rộng cũ (-drawAhead*0.3), t=1 (nghiêng đầy) xiết lại sát camera thật —
+            // tránh 1 way vừa có điểm rất xa sau lưng vừa có điểm trong khung nối thành 1 nét chéo
+            // dài sai lệch băng ngang màn hình.
+            val tiltBehindLimit = -(tiltCamBack + tiltCamH / Math.tan(tiltTheta)) * 0.85
+            val behindLimit = -drawAhead * 0.3 + (tiltBehindLimit - (-drawAhead * 0.3)) * tiltT
 
             // Phạm vi tuyến chính sẽ vẽ (idx0..iEnd) — tính trước để dùng làm "lưới" phát hiện nhánh
             // đường THỰC SỰ gắn vào trục chính (xem bên dưới).
@@ -623,7 +678,7 @@ object TftLink {
                     while (j < wy.lats.size) {
                         val dx = proj.x(wy.lons[j]); val dy = proj.y(wy.lats[j])
                         val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
-                        if (Math.abs(rx) <= drawAhead * 1.1 && ry >= -drawAhead * 0.3 && ry <= drawAhead) {
+                        if (Math.abs(rx) <= drawAhead * 1.1 && ry >= behindLimit && ry <= drawAhead) {
                             val (sx, sy) = toScreen(rx, ry)
                             if (!bStarted) { bp.moveTo(sx, sy); bStarted = true } else bp.lineTo(sx, sy)
                             any = true
