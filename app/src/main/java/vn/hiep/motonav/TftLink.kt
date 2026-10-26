@@ -193,6 +193,12 @@ object TftLink {
     @Volatile var lastFrameAckMs: Long = -1
         private set
 
+    // Thời gian tối đa chờ ACK trước khi [sendFrame] bỏ chờ, theo yêu cầu "gửi sau 1-2s mà chưa
+    // qua thì hủy lệnh gửi hình mới luôn" — ưu tiên độ liền lạc (khung mới liên tục) hơn xác nhận
+    // từng khung đã tới xe. App gốc (NConnect) chờ tới 6s; rút còn 1,5s là thử nghiệm riêng của
+    // MotoNav, cần quan sát thực tế xem xe có dồn khung/tệ hơn không.
+    private const val ACK_WAIT_MS = 1500L
+
     /**
      * Gửi một khung ảnh JPEG lên màn xe (cmd 0 / sub 1 — dò được từ NConnect: payload =
      * [loại khung][số thứ tự LE16][ảnh JPEG, đệm tối thiểu 2050 byte]). Chờ xe trả ACK (cmd 0x50)
@@ -216,21 +222,27 @@ object TftLink {
             lastFrameError = "Gửi khung lỗi (mất kết nối)"
             return false
         }
-        val deadline2s = sentAt + 2000
-        val deadline6s = sentAt + 6000
+        // Trước đây chờ ACK tới 6 giây (giống app gốc) trước khi coi khung này "xong" để
+        // [sketchLoop] rảnh tay dựng khung kế tiếp — nhưng theo yêu cầu mới nhất "chủ chốt là sự
+        // liền lạc trên TFT": nếu quá ACK_WAIT_MS (1,5s, giữa khoảng 1-2s yêu cầu) mà xe chưa ACK
+        // thì BỎ CHỜ luôn, không chặn tiếp — để khung MỚI (vị trí/tuyến tươi nhất) được dựng+gửi
+        // sớm hơn thay vì kẹt lại chờ xác nhận một khung đã có thể lỗi thời. ACK trễ của khung này
+        // (nếu rốt cuộc vẫn tới) không gây lỗi gì — chỉ đơn giản không còn ai đứng đợi nó ở đây nữa
+        // (case 0x50 vẫn cập nhật [ackedFrame] bình thường). CHƯA xác nhận trên xe thật việc rút
+        // ngắn này có thực sự giảm "xoay" hay khiến xe dồn khung tệ hơn — cần chạy thử thực tế.
+        val deadline = sentAt + ACK_WAIT_MS
         var timedOut = false
         var interrupted = false
         synchronized(ackLock) {
             while (running.get() && connected && ackedFrame != seq) {
                 val now = System.currentTimeMillis()
-                if (now >= deadline6s) {
-                    lastFrameError = "Khung #$seq không được ACK sau 6 giây"
+                if (now >= deadline) {
+                    lastFrameError = "Khung #$seq chưa ACK sau ${ACK_WAIT_MS}ms — bỏ chờ, gửi khung mới"
                     timedOut = true
-                    break // giống app gốc: hết giờ vẫn coi là xong, không chặn khung sau
+                    break
                 }
-                val waitMs = if (now < deadline2s) deadline2s - now else deadline6s - now
                 try {
-                    (ackLock as Object).wait(waitMs.coerceAtLeast(1))
+                    (ackLock as Object).wait((deadline - now).coerceAtLeast(1))
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                     interrupted = true
@@ -250,7 +262,7 @@ object TftLink {
         // (giãn ra khi ACK chậm) để không dồn thêm khung, còn lại để xe tự xử lý ACK chậm như
         // NConnect gốc vẫn vậy (cùng giới hạn phần cứng, không phải lỗi protocol sửa được từ xa).
         if (timedOut) {
-            lastFrameAckMs = 6000 // để sketchLoop giãn nhịp tiếp theo ra xa, không dồn thêm khung
+            lastFrameAckMs = ACK_WAIT_MS // để sketchLoop giãn nhịp tiếp theo ra xa, không dồn thêm khung
         } else {
             lastFrameAckMs = System.currentTimeMillis() - sentAt
             lastFrameError = null
@@ -387,16 +399,31 @@ object TftLink {
             // đường xanh thỉnh thoảng biến mất rồi lại hiện (báo lỗi thực tế từ xe). Chỉ quét lại
             // toàn tuyến khi chưa có điểm ghim, đổi tuyến, hoặc điểm ghim cũ lệch quá xa (>80m, có
             // thể do mất GPS/dừng lâu/đi xa khỏi tuyến thật).
+            // Theo phản hồi thực tế (đường to có "đường song hành" chạy song song sát bên — rất
+            // phổ biến ở các đại lộ VN, thường kèm điểm quay đầu/giao cắt): trong cửa sổ ghim trên,
+            // điểm GẦN NHẤT theo khoảng cách đơn thuần đôi lúc lại là một điểm xa hẳn về TIẾN TRÌNH
+            // dọc tuyến (route.cum) — ví dụ một đoạn tuyến quay đầu/lượn qua làn song song chạm lại
+            // gần vị trí xe. Khi đó idx0 bị nhảy vọt qua khỏi khúc rẽ, khiến đoạn vẽ (idx0..iEnd0)
+            // co ngắn lại đúng lúc gần tới khúc quẹo — nhìn như "đường xanh biến mất", và lưới dò
+            // nhánh đường (dùng chung idx0..iEnd0) cũng thiếu đoạn đó nên nhánh thẳng tiếp không lên
+            // hình. Phạt thêm theo mức tiến trình nhảy quá xa (>150m, khó xảy ra thật giữa 2 khung
+            // liên tiếp) để ưu tiên điểm LIỀN MẠCH hơn điểm gần tuyệt đối khi có nhiều điểm cùng gần
+            // vị trí GPS (giao lộ/làn song song/vòng quay đầu).
             val hintValid = skIdxHintRoute === route && skIdxHint in route.lats.indices
             var idx0: Int
             var best = Double.MAX_VALUE
             if (hintValid) {
                 val lo = (skIdxHint - 15).coerceAtLeast(0)
                 val hi = (skIdxHint + 120).coerceAtMost(route.lats.size - 1)
+                val hintCum = route.cum[skIdxHint]
                 var bi = skIdxHint
+                var bestCost = Double.MAX_VALUE
                 for (i in lo..hi) {
                     val d = Geo.distance(skLat, skLon, route.lats[i], route.lons[i])
-                    if (d < best) { best = d; bi = i }
+                    val jump = Math.abs(route.cum[i] - hintCum)
+                    val penalty = if (jump > 150.0) (jump - 150.0) * 0.6 else 0.0
+                    val cost = d + penalty
+                    if (cost < bestCost) { bestCost = cost; bi = i; best = d }
                 }
                 idx0 = bi
             } else {
@@ -775,8 +802,9 @@ object TftLink {
                 // gần như không bao giờ xoay, ngắn nhất có thể trong mức an toàn": bỏ hẳn phụ thuộc
                 // ACK, dùng CỐ ĐỊNH 400ms — đây là mức sàn đã xác định an toàn qua nhiều bản trước
                 // (thấp hơn từng gây dồn khung/xe xử lý không kịp), ngắn hơn 500ms vừa test (100/100
-                // khung, 0 timeout) nên khoảng lặng xấu nhất chỉ còn ~6.4s (6s chờ ACK + 0.4s) — ngắn
-                // hơn nữa thì chưa có bằng chứng thực tế là vẫn an toàn, cần chạy thử trên xe thật.
+                // khung, 0 timeout). sendFrame() nay cũng chỉ còn chờ ACK tối đa 1,5s (trước 6s — xem
+                // ACK_WAIT_MS), nên khoảng lặng xấu nhất giữa 2 khung giờ chỉ còn ~1,9s (1,5s chờ ACK
+                // + 0,4s nghỉ), thay vì 6,4s trước đây.
                 sleepQuiet(400)
             } else {
                 sleepQuiet(400)
