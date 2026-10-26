@@ -819,15 +819,23 @@ class NavActivity : Activity() {
             bottomBar.background = rounded(Color.argb(242, 22, 26, 32), 0f)
             root.addView(bottomBar, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
 
-            // Ô biển giới hạn + tốc độ: sát cạnh trái, ở khoảng 1/3 màn hình từ trên xuống
+            // Ô biển giới hạn + tốc độ: sát cạnh trái, ở khoảng 1/3 màn hình từ trên xuống,
+            // nhưng không bao giờ đè lên ô tìm kiếm/lịch sử phía trên (tính lại mỗi khi ô tìm
+            // kiếm đổi chiều cao, vd lúc xổ ra danh sách "Tìm gần đây").
             root.addView(speedBox, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { leftMargin = dp(10f) })
-            root.post {
+            val repositionSpeedBox = {
                 val h = root.height
                 val want = (h / 3) - speedBox.height / 2
                 val minTop = topRow.bottom + dp(8f)
-                (speedBox.layoutParams as FrameLayout.LayoutParams).topMargin = maxOf(want, minTop)
-                speedBox.requestLayout()
+                val top = maxOf(want, minTop)
+                val lp = speedBox.layoutParams as FrameLayout.LayoutParams
+                if (lp.topMargin != top) {
+                    lp.topMargin = top
+                    speedBox.requestLayout()
+                }
             }
+            root.post { repositionSpeedBox() }
+            topRow.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> repositionSpeedBox() }
 
             // Nút "!" góc dưới phải, nằm trên thanh dưới
             root.addView(reportBtn, FrameLayout.LayoutParams(dp(68f), dp(62f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(14f) })
