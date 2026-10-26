@@ -9,6 +9,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PointF
 import android.graphics.Typeface
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
@@ -768,55 +769,74 @@ object TftLink {
         // có khung nền tối phía sau, theo đúng yêu cầu ban đầu "ko nền".
         if (skActive && skRoute != null && !skNextStreet.isNullOrBlank()) {
             val routeBlue = Color.rgb(60, 140, 255)
-            val iconCx = w * 0.10f
-            val iconCy = h * 0.185f
             // To hơn nữa theo yêu cầu "cho cái icon to to tí" (0.135->0.17).
             val arm = h * 0.17f
-            // Mũi tên cong mềm mại kiểu bộ icon người dùng gửi (nét cong dày, đầu mũi tên gọn) thay
-            // vì khối đa giác nhọn trước đây — vẽ bằng 1 nét cong bezier (quadTo) từ gốc lên tới đỉnh
-            // theo đúng góc rẽ [Maneuver.angle], rồi gắn đầu mũi tên tam giác xoay theo hướng nét cong
-            // tại đỉnh.
+            // Đẩy cả bảng sát kịch góc trên-trái theo yêu cầu mới nhất.
+            val iconCx = w * 0.075f
+            val iconCy = arm * 0.78f
+            // Mũi tên giống hệt kiểu chỉ dẫn Waze (ảnh người dùng gửi): 1 nét DÀY đều, bo tròn, cong
+            // mượt theo đúng 1 cung tròn thật (không vuốt thon/không loe — thử trước đó đều méo ở
+            // đầu mũi tên) + 1 tam giác gọn ở chóp, xoay đúng tiếp tuyến cung tại điểm dừng nét.
             val apexDeg = Maneuver.angle(skSign).toDouble()
-            val apexRad = Math.toRadians(apexDeg)
-            val ex = (Math.sin(apexRad) * arm * 0.95).toFloat()
-            val ey = (-Math.cos(apexRad) * arm * 0.95).toFloat()
-            val bx = 0f; val by = arm * 0.75f
-            val ctrlX = 0f; val ctrlY = by - arm * 0.55f
+            val start = PointF(iconCx, iconCy + arm * 0.78f)
             val shaft = android.graphics.Path()
-            shaft.moveTo(iconCx + bx, iconCy + by)
-            shaft.quadTo(iconCx + ctrlX, iconCy + ctrlY, iconCx + ex, iconCy + ey)
+            shaft.moveTo(start.x, start.y)
+            val stopPt: PointF
+            val stopTangent: PointF
+            if (Math.abs(apexDeg) < 1.0) {
+                stopPt = PointF(iconCx, iconCy - arm * 0.95f * 0.80f)
+                shaft.lineTo(stopPt.x, stopPt.y)
+                stopTangent = PointF(0f, -1f)
+            } else {
+                val radius = arm * 0.60f
+                val s = if (apexDeg > 0) 1f else -1f
+                val cx = start.x + radius * s
+                val cy = start.y
+                val startDeg = if (s > 0) 180.0 else 0.0
+                val sweepStopDeg = apexDeg * 0.80 // dừng nét ở 80% góc rẽ, phần còn lại nhường đầu mũi tên
+                val n = 24
+                var lastTdx = 0f; var lastTdy = -1f
+                for (i in 1..n) {
+                    val t = i.toDouble() / n
+                    val deg = startDeg + sweepStopDeg * t
+                    val rad = Math.toRadians(deg)
+                    val px = (cx + radius * Math.cos(rad)).toFloat()
+                    val py = (cy + radius * Math.sin(rad)).toFloat()
+                    shaft.lineTo(px, py)
+                    val rx = Math.cos(rad).toFloat(); val ry = Math.sin(rad).toFloat()
+                    lastTdx = -ry * s; lastTdy = rx * s
+                }
+                val endDeg = startDeg + sweepStopDeg
+                val endRad = Math.toRadians(endDeg)
+                stopPt = PointF((cx + radius * Math.cos(endRad)).toFloat(), (cy + radius * Math.sin(endRad)).toFloat())
+                stopTangent = PointF(lastTdx, lastTdy)
+            }
             val shaftPaint = Paint().apply {
                 color = Color.WHITE; style = Paint.Style.STROKE
-                strokeWidth = arm * 0.3f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+                strokeWidth = arm * 0.30f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
                 isAntiAlias = true
             }
             c.drawPath(shaft, shaftPaint)
-            // Hướng tiếp tuyến tại đỉnh (xấp xỉ bằng vector từ điểm điều khiển tới đỉnh) để xoay đầu
-            // mũi tên đúng theo nét cong, không chỉ theo góc rẽ thô.
-            var tdx = ex - ctrlX; var tdy = ey - ctrlY
-            val tlen = Math.hypot(tdx.toDouble(), tdy.toDouble()).toFloat().coerceAtLeast(0.001f)
-            tdx /= tlen; tdy /= tlen
-            val px = -tdy; val py = tdx
-            val headLen = arm * 0.52f; val headW = arm * 0.46f
-            val tipX = iconCx + ex + tdx * headLen * 0.55f; val tipY = iconCy + ey + tdy * headLen * 0.55f
-            val baseCx = iconCx + ex - tdx * headLen * 0.45f; val baseCy = iconCy + ey - tdy * headLen * 0.45f
+            val nx = -stopTangent.y; val ny = stopTangent.x
+            val headLen = arm * 0.46f; val headW = arm * 0.5f
+            val tipX = stopPt.x + stopTangent.x * headLen; val tipY = stopPt.y + stopTangent.y * headLen
+            val backX = stopPt.x - stopTangent.x * headW * 0.22f; val backY = stopPt.y - stopTangent.y * headW * 0.22f
             val headPath = android.graphics.Path().apply {
                 moveTo(tipX, tipY)
-                lineTo(baseCx + px * headW * 0.5f, baseCy + py * headW * 0.5f)
-                lineTo(baseCx - px * headW * 0.5f, baseCy - py * headW * 0.5f)
+                lineTo(backX + nx * headW * 0.5f, backY + ny * headW * 0.5f)
+                lineTo(backX - nx * headW * 0.5f, backY - ny * headW * 0.5f)
                 close()
             }
             val headPaint = Paint().apply {
                 color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true
-                pathEffect = android.graphics.CornerPathEffect(headW * 0.22f)
+                pathEffect = android.graphics.CornerPathEffect(headW * 0.18f)
             }
             c.drawPath(headPath, headPaint)
-            // Khối chữ bắt đầu ngay bên phải icon, căn trái (không căn giữa dưới icon như trước).
-            // Theo yêu cầu: số khoảng cách to hẳn lên, chữ tên đường to lên, cả hai đổi màu xanh
-            // giống màu tuyến đường (routeBlue) thay vì trắng.
+            // Khối chữ bắt đầu ngay bên phải icon, căn trái. Theo yêu cầu: chỉ tên đường tô xanh
+            // (routeBlue) — icon và số mét giữ màu trắng.
             val textX = iconCx + arm * 1.35f
             val maxW = (w * 0.62f - textX).coerceAtLeast(w * 0.2f)
-            val infoPaint = Paint().apply { color = routeBlue; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val streetPaint = Paint().apply { color = routeBlue; textSize = h * 0.085f; textAlign = Paint.Align.LEFT; isAntiAlias = true }
             val nst = skNextStreet ?: ""
             val words = nst.split(' ').filter { it.isNotEmpty() }
