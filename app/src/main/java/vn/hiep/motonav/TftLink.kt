@@ -700,7 +700,7 @@ object TftLink {
                 val mdx = proj.x(route.lons[aIdx]); val mdy = proj.y(route.lats[aIdx])
                 val mrx = mdx * cosH - mdy * sinH; val mry = mdx * sinH + mdy * cosH
                 val (mx, my) = toScreen(mrx, mry)
-                val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.062f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
                 val leaderPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
                 val lx = (mx + h * 0.16f).coerceAtMost(w - h * 0.02f)
@@ -711,7 +711,7 @@ object TftLink {
                 val boxLeft = (lx - tw / 2f - padX).coerceAtLeast(2f)
                 val boxRight = (boxLeft + tw + padX * 2f).coerceAtMost(w - 2f)
                 val cxText = (boxLeft + boxRight) / 2f
-                c.drawRect(boxLeft, ly - h * 0.055f - padY, boxRight, ly + h * 0.018f + padY, bgPaint)
+                c.drawRect(boxLeft, ly - h * 0.08f - padY, boxRight, ly + h * 0.026f + padY, bgPaint)
                 c.drawText(nextSt, cxText, ly, labelPaint)
             }
         }
@@ -788,43 +788,16 @@ object TftLink {
             }
             c.drawPath(arrowPath, arrowPaint)
             c.restore()
-            // Khối chữ bắt đầu sát icon hơn (dịch trái theo yêu cầu), căn trái. Tên đường về lại
-            // màu trắng đậm (theo yêu cầu mới nhất), to hơn trước.
+            // Bỏ hẳn tên đường khỏi bảng này theo yêu cầu — chỉ còn icon + khoảng cách, căn giữa
+            // icon theo chiều dọc (tên đường giờ chỉ còn hiện trên bản đồ, xem nhãn gắn tuyến bên
+            // dưới, đã phóng to).
             val textX = iconCx + arm * 0.95f
-            val maxW = (w * 0.62f - textX).coerceAtLeast(w * 0.2f)
             val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            val streetPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.088f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            val nst = skNextStreet ?: ""
-            val words = nst.split(' ').filter { it.isNotEmpty() }
-            val lines = ArrayList<String>()
-            var line = StringBuilder()
-            for (word in words) {
-                val trial = if (line.isEmpty()) word else "$line $word"
-                if (streetPaint.measureText(trial) <= maxW || line.isEmpty()) line = StringBuilder(trial)
-                else { lines.add(line.toString()); line = StringBuilder(word) }
-                if (lines.size >= 2) break
-            }
-            if (line.isNotEmpty() && lines.size < 2) lines.add(line.toString())
-            if (lines.size == 2 && streetPaint.measureText(lines[1]) > maxW) {
-                var t = lines[1]
-                while (t.length > 2 && streetPaint.measureText("$t…") > maxW) t = t.substring(0, t.length - 1)
-                lines[1] = "$t…"
-            }
-            // Căn khối chữ theo chiều dọc quanh tâm icon (1 dòng khoảng cách to + tối đa 2 dòng tên
-            // đường nhỏ hơn) để cả khối trông cân đối với icon, giống bố cục Waze.
-            val distLineH = h * 0.125f
-            val streetLineH = h * 0.088f
-            val totalH = distLineH + streetLineH * lines.size
-            var ty = iconCy - totalH / 2f + distLineH * 0.78f
             val dM = skDistanceM
             if (dM >= 0) {
                 val distTxt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m"
-                c.drawText(distTxt, textX, ty, infoPaint)
-            }
-            ty += distLineH
-            for (ln in lines) {
-                c.drawText(ln, textX, ty, streetPaint)
-                ty += streetLineH
+                val fm = infoPaint.fontMetrics
+                c.drawText(distTxt, textX, iconCy - (fm.ascent + fm.descent) / 2f, infoPaint)
             }
         }
         val out = ByteArrayOutputStream()
