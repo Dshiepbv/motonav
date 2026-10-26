@@ -1213,7 +1213,11 @@ class NavActivity : Activity() {
                 tplDiag = try {
                     val src = org.json.JSONObject(res.json).optJSONObject("sources")?.optJSONObject("openmaptiles")
                     val tiles0 = src?.optJSONArray("tiles")?.optString(0)
-                    "tiles[0]=" + (tiles0?.take(90) ?: "KHÔNG CÓ (nguồn=${src?.toString()?.take(60)})")
+                    // Mảnh test tay (z14, vị trí thật) tải về 721KB dữ liệu thật → server CÓ dữ liệu.
+                    // Nghi style khai "bounds"/"minzoom"/"maxzoom" giới hạn vùng, khiến MapLibre tự
+                    // quyết KHÔNG xin mảnh ở vị trí thật dù server có data — in ra để kiểm thẳng.
+                    "tiles[0]=" + (tiles0?.take(70) ?: "KHÔNG CÓ") +
+                        " bounds=${src?.optJSONArray("bounds")} minz=${src?.opt("minzoom")} maxz=${src?.opt("maxzoom")} scheme=${src?.opt("scheme")}"
                 } catch (e: Exception) {
                     "tplDiag lỗi: ${e.javaClass.simpleName}"
                 }
