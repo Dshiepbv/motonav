@@ -2108,17 +2108,13 @@ class NavActivity : Activity() {
         } else {
             etaText.text = Live.street ?: "Chọn điểm đến"
         }
-        // Đã bỏ chẩn đoán nặng (querySourceFeatures 3 lần mỗi khung hình) vì chạy liên tục lúc dẫn
-        // đường thật dễ làm giật máy/trễ khung hình gửi qua TFT. Nghi camera bản đồ đang dừng ở
-        // (0,0) giữa biển (mảnh 404 thật đúng z13/4095/4095 = toạ độ 0,0) thay vì vị trí GPS thật —
-        // đọc vị trí camera hiện tại CHỈ 1 lần/khung (getter rẻ, không phải query nặng như trước) để
-        // xác nhận, nối thêm vào câu lỗi nếu có.
+        // Đã xác nhận camera KHÔNG bị kẹt ở (0,0) — vị trí thật, đúng GPS (bản build trước). Mảnh
+        // 404 "n/2,n/2" chỉ là mảnh tổng quan nền MapLibre tự tải, không phải mảnh thật đang cần.
+        // Quay lại đúng trọng tâm: mảnh THẬT đúng vị trí vẫn báo "invalid tag" — hiện thêm 8 byte
+        // đầu của mảnh thật (đã đọc sẵn, MapHttp.lastTileInfo, chỉ tính 1 lần/phiên) để biết chắc nó
+        // có phải gzip hay là dữ liệu lạ, thay vì đoán tiếp.
         val mapErrBase = MapHttp.problem() ?: styleError ?: MapHttp.lastLog
-        val mapErr = if (mapErrBase != null) {
-            val cp = try { map?.cameraPosition } catch (_: Exception) { null }
-            val ct = cp?.target
-            "$mapErrBase [cam=${if (ct != null) "%.4f,%.4f z%.1f".format(ct.latitude, ct.longitude, cp.zoom) else "?"} gps=${Live.gpsOk}]"
-        } else null
+        val mapErr = if (mapErrBase != null) "$mapErrBase [${MapHttp.lastTileInfo ?: "chưa có mảnh nào"}]" else null
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
             ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
                 .joinToString("\n")
