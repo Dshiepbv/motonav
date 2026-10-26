@@ -525,8 +525,17 @@ object TftLink {
                     val li = wy.lats.size - 1
                     if (li > 0) endpointMap.getOrPut(endKey(wy.lats[li], wy.lons[li])) { mutableListOf() }.add(wy)
                 }
-                // Dày hơn (1.5->2.4) theo yêu cầu "tất cả đường cho dày thêm cho dễ nhìn".
-                val branchPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                // Phân cấp đường như bản đồ thật: đường lớn (quốc lộ/trục chính) dày+trắng sáng rõ,
+                // đường vừa (khu vực) dày vừa, đường nhỏ/hẻm/nội bộ mảnh+xám mờ hơn — để nhìn phát
+                // biết ngay đâu là trục chính, đâu là hẻm, thay vì mọi nhánh đường trắng đều như nhau.
+                val branchPaintMajor = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3.2f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMid = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2.2f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMinor = Paint().apply { color = Color.rgb(140, 140, 140); style = Paint.Style.STROKE; strokeWidth = 1.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                fun branchPaintFor(highway: String): Paint = when (highway) {
+                    "motorway", "trunk", "primary", "motorway_link", "trunk_link", "primary_link" -> branchPaintMajor
+                    "secondary", "tertiary", "secondary_link", "tertiary_link" -> branchPaintMid
+                    else -> branchPaintMinor // residential/unclassified/service/living_street/track/hẻm...
+                }
                 val globalVisited = HashSet<Long>()
                 var drawnWays = 0
                 for (seed in ways) {
@@ -578,7 +587,7 @@ object TftLink {
                             }
                             j += step
                         }
-                        if (any) { c.drawPath(bp, branchPaint); drawnWays++ }
+                        if (any) { c.drawPath(bp, branchPaintFor(wy.highway)); drawnWays++ }
                     }
                 }
             }
@@ -773,10 +782,15 @@ object TftLink {
                 // 0 timeout, ACK trung bình chỉ 367ms, khoảng lặng xa nhất 5.3s. Ngay sau khi test xong,
                 // quay lại nhịp cũ (base 2.5–4s) thì dính ngay 1 khung timeout thật. Bằng chứng cho thấy
                 // nhịp nhanh cố định ~500ms ổn định hơn hẳn base 2.5–4s hiện tại. Áp dụng luôn nhịp này
-                // cho khung thật, bỏ hẳn [base] làm trần — chỉ còn sàn 400ms (an toàn, không dồn khung).
-                val ack = lastFrameAckMs
-                val interval = if (ack > 0) (ack + 200) else 500L
-                sleepQuiet(interval.coerceIn(400L, 3000L))
+                // cho khung thật — NHƯNG công thức "ack+200, trần 3000ms" vẫn còn kẽ hở: sendFrame()
+                // tự nó đã CHỜ ACK tới 6 giây bên trong trước khi trả về, nên khoảng lặng thật giữa 2
+                // lần gửi = (thời gian chờ ACK, tới 6s) + interval này — cộng thêm trần 3000ms thì lúc
+                // mạng xấu khoảng lặng có thể lên tới 9s, sát ngưỡng 10–19s từng thấy xe tự báo "Lỗi
+                // kết nối". Theo đúng số đã kiểm chứng tốt nhất trong log thật (route-test 100/100
+                // khung, 0 timeout, ACK TB 367ms, lặng xa nhất 5.3s): dùng CỐ ĐỊNH 500ms sau mỗi lần
+                // gửi, không phụ thuộc ACK nữa — vừa khớp đúng số liệu đã có, vừa ép trần khoảng lặng
+                // xấu nhất xuống còn ~6.5s (6s chờ ACK + 0.5s) thay vì 9s như công thức cũ.
+                sleepQuiet(500)
             } else {
                 sleepQuiet(400)
             }
