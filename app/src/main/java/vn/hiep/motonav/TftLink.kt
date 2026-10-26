@@ -519,45 +519,38 @@ object TftLink {
             var iEnd0 = idx0
             while (iEnd0 < route.lats.size && route.cum[iEnd0] - cum0 <= drawAhead) iEnd0++
 
-            // Nhánh đường — CHỈ quan tâm các trục gắn thẳng vào đường chính (biết có quẹo được/đi
-            // thẳng được không ở từng giao lộ dọc tuyến). Dò điểm "gắn vào trục chính" bằng lưới ô
-            // vuông ~25m phủ lên đoạn tuyến chính sắp vẽ. OSM hay cắt 1 con đường thành nhiều "way"
-            // ngắn nối tiếp nhau (đổi tên/giới hạn tốc độ ở mỗi giao lộ) nên nếu chỉ vẽ đúng way chạm
-            // tuyến thì nhánh hiện ra rất ngắn (chỉ đúng đoạn sát ngã tư) — theo yêu cầu "vẽ dài ra,
-            // tương xứng với độ dài đường chính hiện ra", nối tiếp các way kế tiếp cùng chung đầu mút
-            // (dò bằng lưới mút đường ~12m) để nhánh kéo dài ra xa, bị khung vẽ (theo maxAhead, cùng
-            // công thức nén dùng cho tuyến chính) tự cắt bớt nếu vượt khỏi phạm vi hiển thị.
+            // Nhánh đường — PHƯƠNG ÁN THỬ NGHIỆM MỚI theo yêu cầu "đường chính và 2 bên đường chính
+            // 1km mỗi bên": thay vì dò way GẮN THẲNG vào tuyến chính rồi nối chuỗi theo đầu mút (cũ,
+            // hay bỏ sót đường gần tuyến nhưng không có giao lộ nối trực tiếp), giờ vẽ MỌI way có ít
+            // nhất 1 điểm nằm trong hành lang ~1km hai bên đoạn tuyến chính sắp hiện ra màn hình —
+            // kiểu "chụp khung" quanh tuyến như bản đồ thật, không cần xét way đó có nối vào tuyến
+            // hay không. Lưới ô ~250m, mỗi điểm mẫu trên tuyến tô thêm ô xung quanh trong bán kính
+            // ~1km (lưới vuông, không phải hình tròn chính xác — đủ dùng cho mục đích hiển thị).
             val ways = skWays
             if (ways != null) {
-                val gridDeg = 25.0 / 111320.0 // ~25m quy ra độ, đủ dung sai nối điểm way vào tuyến
-                fun cellKey(lat: Double, lon: Double): Long {
-                    val la = Math.floor(lat / gridDeg).toLong()
-                    val lo = Math.floor(lon / gridDeg).toLong()
+                val cellDeg = 250.0 / 111320.0
+                fun corridorKey(lat: Double, lon: Double): Long {
+                    val la = Math.floor(lat / cellDeg).toLong()
+                    val lo = Math.floor(lon / cellDeg).toLong()
                     return (la shl 24) xor (lo and 0xFFFFFFL)
                 }
-                val routeGrid = HashSet<Long>()
+                val corridorGrid = HashSet<Long>()
+                val cellSpan = 4 // ~4*250m = 1000m mỗi hướng quanh mỗi điểm mẫu trên tuyến
                 var gi = idx0
+                var lastCum = -1e9
                 while (gi < iEnd0) {
-                    routeGrid.add(cellKey(route.lats[gi], route.lons[gi]))
+                    if (route.cum[gi] - lastCum >= 150.0 || gi == idx0) {
+                        lastCum = route.cum[gi]
+                        val baseLa = Math.floor(route.lats[gi] / cellDeg).toLong()
+                        val baseLo = Math.floor(route.lons[gi] / cellDeg).toLong()
+                        for (da in -cellSpan..cellSpan) for (db in -cellSpan..cellSpan) {
+                            corridorGrid.add(((baseLa + da) shl 24) xor ((baseLo + db) and 0xFFFFFFL))
+                        }
+                    }
                     gi++
                 }
-                // Lưới đầu mút way (dung sai nhỏ hơn, ~12m) để nối các way kế tiếp nhau.
-                val endDeg = 12.0 / 111320.0
-                fun endKey(lat: Double, lon: Double): Long {
-                    val la = Math.floor(lat / endDeg).toLong()
-                    val lo = Math.floor(lon / endDeg).toLong()
-                    return (la shl 24) xor (lo and 0xFFFFFFL)
-                }
-                val endpointMap = HashMap<Long, MutableList<Way>>()
-                for (wy in ways) {
-                    if (wy.lats.isEmpty()) continue
-                    endpointMap.getOrPut(endKey(wy.lats[0], wy.lons[0])) { mutableListOf() }.add(wy)
-                    val li = wy.lats.size - 1
-                    if (li > 0) endpointMap.getOrPut(endKey(wy.lats[li], wy.lons[li])) { mutableListOf() }.add(wy)
-                }
                 // Phân cấp đường như bản đồ thật: đường lớn (quốc lộ/trục chính) dày+trắng sáng rõ,
-                // đường vừa (khu vực) dày vừa, đường nhỏ/hẻm/nội bộ mảnh+xám mờ hơn — để nhìn phát
-                // biết ngay đâu là trục chính, đâu là hẻm, thay vì mọi nhánh đường trắng đều như nhau.
+                // đường vừa (khu vực) dày vừa, đường nhỏ/hẻm/nội bộ mảnh+xám mờ hơn.
                 val branchPaintMajor = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3.2f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 val branchPaintMid = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2.2f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 val branchPaintMinor = Paint().apply { color = Color.rgb(140, 140, 140); style = Paint.Style.STROKE; strokeWidth = 1.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
@@ -566,89 +559,38 @@ object TftLink {
                     "secondary", "tertiary", "secondary_link", "tertiary_link" -> branchPaintMid
                     else -> branchPaintMinor // residential/unclassified/service/living_street/track/hẻm...
                 }
-                val globalVisited = HashSet<Long>()
                 var drawnWays = 0
-                // Giới hạn số nhánh vẽ — nâng lên (40->90) cùng với tầng cấp-2 bên dưới, theo yêu cầu
-                // "load khoảng dài dài để phủ tương đối kín màn hình" (trước hay bị cắt sớm, màn
-                // trống nhiều quanh tuyến chính).
-                val wayCap = 90
-                fun chainFrom(seed: Way): List<Way> {
-                    // Chuỗi way nối tiếp nhau, bắt đầu từ seed, kéo dài về phía đầu mút XA vị trí xe
-                    // hơn (đầu mút gần coi như phía giao lộ, không cần nối thêm về hướng đó).
-                    val chain = ArrayList<Way>()
-                    chain.add(seed)
-                    globalVisited.add(seed.id)
-                    val dStart0 = Geo.distance(skLat, skLon, seed.lats[0], seed.lons[0])
-                    val dEnd0 = Geo.distance(skLat, skLon, seed.lats[seed.lats.size - 1], seed.lons[seed.lats.size - 1])
-                    var curLat: Double; var curLon: Double
-                    if (dEnd0 > dStart0) { curLat = seed.lats[seed.lats.size - 1]; curLon = seed.lons[seed.lats.size - 1] }
-                    else { curLat = seed.lats[0]; curLon = seed.lons[0] }
-                    var hops = 0
-                    while (hops < 16) {
-                        hops++
-                        val cands = endpointMap[endKey(curLat, curLon)] ?: break
-                        val next = cands.firstOrNull { it.id !in globalVisited && it.lats.isNotEmpty() } ?: break
-                        globalVisited.add(next.id)
-                        chain.add(next)
-                        val nd0 = Geo.distance(curLat, curLon, next.lats[0], next.lons[0])
-                        val nd1 = Geo.distance(curLat, curLon, next.lats[next.lats.size - 1], next.lons[next.lats.size - 1])
-                        if (nd0 <= nd1) { curLat = next.lats[next.lats.size - 1]; curLon = next.lons[next.lats.size - 1] }
-                        else { curLat = next.lats[0]; curLon = next.lons[0] }
-                    }
-                    return chain
-                }
-                fun drawChain(chain: List<Way>) {
-                    for (wy in chain) {
-                        if (drawnWays >= wayCap) break
-                        val bp = android.graphics.Path()
-                        var bStarted = false
-                        var any = false
-                        val step = (wy.lats.size / 55).coerceAtLeast(1)
-                        var j = 0
-                        while (j < wy.lats.size) {
-                            val dx = proj.x(wy.lons[j]); val dy = proj.y(wy.lats[j])
-                            val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
-                            if (Math.abs(rx) <= drawAhead * 1.1 && ry >= -drawAhead * 0.3 && ry <= drawAhead) {
-                                val (sx, sy) = toScreen(rx, ry)
-                                if (!bStarted) { bp.moveTo(sx, sy); bStarted = true } else bp.lineTo(sx, sy)
-                                any = true
-                            } else {
-                                bStarted = false
-                            }
-                            j += step
-                        }
-                        if (any) { c.drawPath(bp, branchPaintFor(wy.highway)); drawnWays++ }
-                    }
-                }
-                // Cấp 1: các way gắn thẳng vào tuyến chính.
-                val level1Ways = ArrayList<Way>()
-                for (seed in ways) {
+                val wayCap = 140 // hành lang bắt nhiều way hơn kiểu nối-chuỗi cũ, nới trần lên tương ứng
+                for (wy in ways) {
                     if (drawnWays >= wayCap) break
-                    if (seed.lats.isEmpty() || seed.id in globalVisited) continue
-                    var touchesRoute = false
-                    for (k in seed.lats.indices) {
-                        if (routeGrid.contains(cellKey(seed.lats[k], seed.lons[k]))) { touchesRoute = true; break }
+                    if (wy.lats.isEmpty()) continue
+                    // Chỉ cần 1 điểm (lấy mẫu thưa cho nhanh) rơi vào hành lang là vẽ cả way.
+                    var inCorridor = false
+                    val sampleStep = (wy.lats.size / 6).coerceAtLeast(1)
+                    var si = 0
+                    while (si < wy.lats.size) {
+                        if (corridorGrid.contains(corridorKey(wy.lats[si], wy.lons[si]))) { inCorridor = true; break }
+                        si += sampleStep
                     }
-                    if (!touchesRoute) continue
-                    val chain = chainFrom(seed)
-                    level1Ways.addAll(chain)
-                    drawChain(chain)
-                }
-                // Cấp 2: way gắn vào các nhánh cấp 1 vừa tìm (không chạm thẳng tuyến chính) — theo
-                // yêu cầu "cấp 2 gắn cấp 1", thêm một tầng kết nối xa hơn để bản đồ đỡ trống.
-                if (drawnWays < wayCap && level1Ways.isNotEmpty()) {
-                    val level1Grid = HashSet<Long>()
-                    for (wy in level1Ways) for (k in wy.lats.indices) level1Grid.add(cellKey(wy.lats[k], wy.lons[k]))
-                    for (seed in ways) {
-                        if (drawnWays >= wayCap) break
-                        if (seed.lats.isEmpty() || seed.id in globalVisited) continue
-                        var touchesL1 = false
-                        for (k in seed.lats.indices) {
-                            if (level1Grid.contains(cellKey(seed.lats[k], seed.lons[k]))) { touchesL1 = true; break }
+                    if (!inCorridor) continue
+                    val bp = android.graphics.Path()
+                    var bStarted = false
+                    var any = false
+                    val step = (wy.lats.size / 55).coerceAtLeast(1)
+                    var j = 0
+                    while (j < wy.lats.size) {
+                        val dx = proj.x(wy.lons[j]); val dy = proj.y(wy.lats[j])
+                        val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
+                        if (Math.abs(rx) <= drawAhead * 1.1 && ry >= -drawAhead * 0.3 && ry <= drawAhead) {
+                            val (sx, sy) = toScreen(rx, ry)
+                            if (!bStarted) { bp.moveTo(sx, sy); bStarted = true } else bp.lineTo(sx, sy)
+                            any = true
+                        } else {
+                            bStarted = false
                         }
-                        if (!touchesL1) continue
-                        drawChain(chainFrom(seed))
+                        j += step
                     }
+                    if (any) { c.drawPath(bp, branchPaintFor(wy.highway)); drawnWays++ }
                 }
             }
 
@@ -679,9 +621,9 @@ object TftLink {
                 val (lx, ly) = toScreen(rx, ry)
                 path.lineTo(lx, ly)
             }
-            // Tuyến chính màu xanh, dày hơn nữa (4f->6f) để nổi bật rõ giữa các nhánh đường trắng.
-            // Dày hơn nữa (6->8.5) theo yêu cầu "kể cả đường xanh".
-            val linePaint = Paint().apply { color = Color.rgb(60, 140, 255); style = Paint.Style.STROKE; strokeWidth = 8.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+            // Tuyến chính đổi sang đỏ tươi theo yêu cầu (trước là xanh) để nổi bật rõ giữa các nhánh
+            // đường trắng/xám. Dày 8.5f giữ như cũ.
+            val linePaint = Paint().apply { color = Color.rgb(255, 30, 30); style = Paint.Style.STROKE; strokeWidth = 8.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
             c.drawPath(path, linePaint)
             // Nhãn tên-đường-sắp-rẽ gắn trên bản đồ (đường kẻ nối + nền đen) — giữ lại kiểu chỉ này
             // theo yêu cầu, nhưng bỏ chấm tròn ở đầu đường kẻ, và neo KHÔNG còn đúng tại điểm rẽ
@@ -758,9 +700,10 @@ object TftLink {
             sy += h * 0.12f
             c.drawText(remTxt, cx, sy, statPaint)
             // ETA bé lại chút (0.17->0.14) + đổi màu đỏ theo yêu cầu.
-            val redColor = Color.rgb(230, 45, 45)
-            val etaPaint = Paint().apply { color = redColor; textSize = h * 0.14f; textAlign = Paint.Align.LEFT; isAntiAlias = true }
-            c.drawText(etaTxt, w * 0.04f, anchorY + h * 0.03f, etaPaint)
+            // ETA đổi đỏ tươi hơn + in đậm + dịch xuống thêm một chút theo yêu cầu.
+            val redColor = Color.rgb(255, 30, 30)
+            val etaPaint = Paint().apply { color = redColor; textSize = h * 0.14f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            c.drawText(etaTxt, w * 0.04f, anchorY + h * 0.06f, etaPaint)
         }
         // Chỉ dẫn rẽ — icon mũi tên tự vẽ (KHÔNG ghi chữ "trái"/"phải"), khoảng cách đếm ngược và
         // tên đường sắp quẹo vào, cố định góc trên-trái, KHÔNG nền (theo yêu cầu). Trước đây icon rẽ
@@ -795,7 +738,8 @@ object TftLink {
             // icon theo chiều dọc (tên đường giờ chỉ còn hiện trên bản đồ, xem nhãn gắn tuyến bên
             // dưới, đã phóng to).
             val textX = iconCx + arm * 0.95f
-            val infoPaint = Paint().apply { color = Color.rgb(230, 45, 45); textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            // Khoảng cách trên bảng dẫn giữ màu trắng theo yêu cầu (không đổi đỏ như ETA/tuyến chính).
+            val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val dM = skDistanceM
             if (dM >= 0) {
                 val distTxt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m"
