@@ -194,10 +194,11 @@ class NavEngine(
                         list = ok
                     } else {
                         var found: Route? = null
+                        val rejected = ArrayList<Route>(list)
                         val dists = when {
-                            fails >= 2 -> listOf(800.0, 1500.0)
-                            fails == 1 -> listOf(400.0, 800.0)
-                            else -> listOf(150.0, 400.0)
+                            fails >= 2 -> listOf(400.0, 800.0, 1500.0)
+                            fails == 1 -> listOf(250.0, 600.0, 1000.0)
+                            else -> listOf(150.0, 400.0, 800.0)
                         }
                         for (dAhead in dists) {
                             try {
@@ -206,10 +207,24 @@ class NavEngine(
                                 val why = RoutePick.rejectReason(vr, heading, trailNow)
                                 TripLog.ev("routeVia", "ahead" to dAhead, "why" to (why ?: "ok"))
                                 if (why == null) { found = vr; break }
+                                rejected.add(vr)
                             } catch (_: Exception) {
                             }
                         }
-                        if (found != null) list = listOf(found) else holdForward = true
+                        if (found != null) {
+                            list = listOf(found)
+                        } else if (fails >= 2 && rejected.isNotEmpty()) {
+                            // build-229 — quay đầu chỉ bị phạt, không cấm tuyệt đối (như Google/Waze):
+                            // đã thử ≥3 lần (~10 s) mà phía trước không có tuyến nào hợp lệ (đường bị
+                            // chặn, dải phân cách…) → nhận tuyến NHANH NHẤT trong số đã thử, kể cả quay
+                            // đầu, thay vì để nét đỏ đứng nguyên tuyến cũ cả phút.
+                            val best = rejected.minByOrNull { it.timeMs }!!
+                            TripLog.ev("routeForced", "fails" to fails, "timeMs" to best.timeMs, "tried" to rejected.size,
+                                "why" to (RoutePick.rejectReason(best, heading, trailNow) ?: "ok"))
+                            list = listOf(best)
+                        } else {
+                            holdForward = true
+                        }
                     }
                 }
                 if (holdForward && reroute) {
@@ -391,7 +406,11 @@ class NavEngine(
         // giãn theo QUÃNG ĐƯỜNG đã đi (≥150 m) thay vì chờ cứng 50 s — log 27/10: chờ 50 s giữ tuyến
         // quay đầu sai suốt ~350 m. Vẫn tối thiểu 6 s giữa 2 lần để không dồn lượt Goong.
         val sinceLast = Geo.distance(lat, lon, rrLat, rrLon)
-        val gapOk = if (rerouteTimes.size >= 3 || noUturnFails > 0) {
+        // build-229: đang giữ tuyến vì bị chặn quay đầu → hỏi lại theo THỜI GIAN (3,5 s), không chờ đi
+        // thêm 150 m (log 27/10: nét đỏ đứng cũ 17–97 s mỗi lần bị chặn).
+        val gapOk = if (noUturnFails > 0) {
+            now - lastReroute > 3_500
+        } else if (rerouteTimes.size >= 3) {
             now - lastReroute > 6_000 && sinceLast >= 150.0
         } else {
             now - lastReroute > (if (urgent) 4_500 else 6_000)
