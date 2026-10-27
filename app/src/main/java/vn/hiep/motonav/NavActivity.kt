@@ -1791,10 +1791,12 @@ class NavActivity : Activity() {
         carShown = true
         if (!(camLoop && follow && camCur != null)) { carLat = lat; carLon = lon }
 
-        // Chưa bấm "Bắt đầu" (đang xem/chọn tuyến): zoom bé lại để thấy toàn tuyến, giống Google Maps
-        // lúc chọn đường đi — thay vì zoom bám sát xe như khi đang dẫn đường thật.
-        if (!nav && r != null && follow) {
-            val overviewKey = Live.routeVersion * 1000 + Live.choiceSelected
+        // Đang hiện bảng "Chọn tuyến" (≥2 tuyến để chọn, panel renderChoices() hiện ra): zoom bé lại
+        // để thấy toàn bộ các tuyến, giống Google Maps lúc chọn đường đi — thay vì zoom bám sát xe.
+        // Lưu ý: app này KHÔNG có bước "xem trước rồi bấm Bắt đầu" riêng — panel này hiện ngay trong
+        // lúc đang dẫn đường (nav=true), nên không được xét theo nav mà phải xét theo routeChoices.
+        if (r != null && follow && Live.routeChoices.size >= 2) {
+            val overviewKey = Live.choicesVersion * 1000 + Live.choiceSelected
             if (shownOverview != overviewKey) {
                 shownOverview = overviewKey
                 stopCamLoop()
