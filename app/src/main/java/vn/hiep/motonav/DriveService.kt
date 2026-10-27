@@ -91,11 +91,6 @@ class DriveService : Service(), LocationListener {
     private var prevLoc: Location? = null
     private var heading = -1.0
 
-    private fun tftSnapOk(): Boolean =
-        Live.ownNav && Live.navActive && !Live.offRoute && Live.route != null &&
-            (Live.snapLat != 0.0 || Live.snapLon != 0.0) &&
-            Geo.distance(Live.lat, Live.lon, Live.snapLat, Live.snapLon) < 25.0
-
     private var currentWayId: Long? = null
     private var currentWay: Way? = null
     private var currentWayForward: Boolean = true
@@ -302,11 +297,8 @@ class DriveService : Service(), LocationListener {
                 TftLink.updateSketch(
                     active = navOn,
                     route = Live.route,
-                    // Mũi tên xe trên TFT đặt đúng lên tuyến (vị trí đã gắn lên tuyến) khi đang bám tuyến
-                    // và lệch < 25 m — GPS lệch vài mét bị phép nén gần xe phóng to thành lệch hẳn khỏi
-                    // trục đường. CHỈ đổi vị trí; hướng xoay giữ nguyên Live.heading (không đụng 3D/xoay).
-                    lat = if (tftSnapOk()) Live.snapLat else Live.lat,
-                    lon = if (tftSnapOk()) Live.snapLon else Live.lon,
+                    lat = Live.lat,
+                    lon = Live.lon,
                     headingDeg = Live.heading,
                     maneuverLat = Live.maneuverLat,
                     maneuverLon = Live.maneuverLon,
