@@ -795,41 +795,43 @@ object TftLink {
             c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
             limBottomY = cy + r
         }
-        // Thời gian còn lại + quãng đường còn lại: GIỮ NGUYÊN bên phải dưới biển tốc độ (như cũ).
-        // Riêng ETA (giờ đến) ở bên TRÁI, cỡ chữ gấp đôi — dịch LÊN ngang hàng với tam giác vị trí
-        // xe (anchorY) theo yêu cầu mới nhất (trước đặt sát đáy khung).
+        // ETA (giờ đến, bên TRÁI) và thời gian+quãng đường còn lại (bên PHẢI) — 2 khung giống hệt
+        // nhau (trắng, viền đỏ, chữ đen) để đối xứng 2 bên, cùng ngang hàng với tam giác vị trí xe
+        // (anchorY), theo yêu cầu mới nhất. Trước đây khung còn lại nằm dưới biển tốc độ, dạng chữ
+        // trần không khung — nay gộp lại 1 dòng và đóng khung y hệt ETA.
         if (skActive && skRoute != null) {
-            // Thời gian/quãng đường còn lại to hơn trước (0.085->0.11) theo yêu cầu.
-            val statPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.11f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-            val cx = w * 0.90f
             val remKm = skRemainingM / 1000.0
             val remTxt = if (remKm >= 10) "${remKm.toInt()} km" else String.format("%.1f km", remKm)
             val remMin = (skEtaMs / 60000L).toInt()
             val arriveCal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
             val etaTxt = String.format("%02d:%02d", arriveCal.get(java.util.Calendar.HOUR_OF_DAY), arriveCal.get(java.util.Calendar.MINUTE))
-            var sy = limBottomY + h * 0.12f
-            c.drawText("$remMin ph", cx, sy, statPaint)
-            sy += h * 0.12f
-            c.drawText(remTxt, cx, sy, statPaint)
-            // ETA đổi từ chữ đỏ trần sang khung kiểu biển báo theo yêu cầu: hình chữ nhật bo viền
-            // nhẹ, viền ngoài đỏ, nền trắng, chữ đen — cùng tinh thần dễ nhận diện ngay như biển
-            // giới hạn tốc độ (bên phải) nhưng hình chữ nhật để phân biệt 2 loại thông tin.
-            val etaTextPaint = Paint().apply { color = Color.BLACK; textSize = h * 0.11f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val remainTxt = "$remMin ph · $remTxt"
+            // Chữ to hơn chút theo yêu cầu (0.11->0.12) nhưng khung giữ kiểu/đệm như cũ.
+            val etaTextPaint = Paint().apply { color = Color.BLACK; textSize = h * 0.12f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val padX2 = h * 0.035f; val padY2 = h * 0.028f
-            val tw2 = etaTextPaint.measureText(etaTxt)
             val fmE = etaTextPaint.fontMetrics
             val textH = fmE.descent - fmE.ascent
-            val boxW = tw2 + padX2 * 2f
             val boxH = textH + padY2 * 2f
-            val boxLeft = w * 0.035f
             val boxTop = anchorY - h * 0.03f - boxH / 2f
-            val boxRect = android.graphics.RectF(boxLeft, boxTop, boxLeft + boxW, boxTop + boxH)
             val cornerR = h * 0.025f
             val etaFillPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
             val etaBorderPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.STROKE; strokeWidth = h * 0.014f; isAntiAlias = true }
-            c.drawRoundRect(boxRect, cornerR, cornerR, etaFillPaint)
-            c.drawRoundRect(boxRect, cornerR, cornerR, etaBorderPaint)
-            c.drawText(etaTxt, boxRect.centerX(), boxRect.centerY() - (fmE.ascent + fmE.descent) / 2f, etaTextPaint)
+            // Khung ETA — bên trái
+            val twEta = etaTextPaint.measureText(etaTxt)
+            val boxWEta = twEta + padX2 * 2f
+            val boxLeftEta = w * 0.035f
+            val rectEta = android.graphics.RectF(boxLeftEta, boxTop, boxLeftEta + boxWEta, boxTop + boxH)
+            c.drawRoundRect(rectEta, cornerR, cornerR, etaFillPaint)
+            c.drawRoundRect(rectEta, cornerR, cornerR, etaBorderPaint)
+            c.drawText(etaTxt, rectEta.centerX(), rectEta.centerY() - (fmE.ascent + fmE.descent) / 2f, etaTextPaint)
+            // Khung thời gian+quãng đường còn lại — bên phải, cùng hàng, cùng kiểu, cùng chiều cao
+            val twRem = etaTextPaint.measureText(remainTxt)
+            val boxWRem = twRem + padX2 * 2f
+            val boxRightRem = w - w * 0.035f
+            val rectRem = android.graphics.RectF(boxRightRem - boxWRem, boxTop, boxRightRem, boxTop + boxH)
+            c.drawRoundRect(rectRem, cornerR, cornerR, etaFillPaint)
+            c.drawRoundRect(rectRem, cornerR, cornerR, etaBorderPaint)
+            c.drawText(remainTxt, rectRem.centerX(), rectRem.centerY() - (fmE.ascent + fmE.descent) / 2f, etaTextPaint)
         }
         // Chỉ dẫn rẽ — icon mũi tên tự vẽ (KHÔNG ghi chữ "trái"/"phải"), khoảng cách đếm ngược và
         // tên đường sắp quẹo vào, cố định góc trên-trái, KHÔNG nền (theo yêu cầu). Trước đây icon rẽ

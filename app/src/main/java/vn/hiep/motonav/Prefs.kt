@@ -140,10 +140,13 @@ class Prefs(ctx: Context) {
         get() = sp.getString("goongTileKey", "") ?: ""
         set(v) = sp.edit().putString("goongTileKey", v.trim()).apply()
 
-    /** Loại phương tiện gửi cho Goong Directions (car/bike/taxi/truck/hd) — CHƯA XÁC NHẬN giá trị
-     * nào đúng cho xe máy, xem comment ở đầu GoongMap.kt. Mặc định "car", chỉnh trong Cài đặt. */
+    /** Loại phương tiện gửi cho Goong Directions (car/bike/taxi/truck/hd) — tài liệu Goong không nói
+     * rõ "bike" là xe đạp hay cả xe máy, nhưng để "car" gần như chắc chắn sai cho app xe máy (ưu
+     * tiên đường ô tô, né hẻm/đường nhỏ xe máy hay đi — đúng triệu chứng người dùng báo "không dẫn
+     * vào đường nhỏ"). Đổi mặc định sang "bike" (gần với xe 2 bánh hơn "car"); chỉnh lại trong Cài
+     * đặt nếu thử thực tế thấy "hd" (dành cho xe ôm công nghệ, cũng là xe máy ở VN) hợp hơn. */
     var goongVehicle: String
-        get() = sp.getString("goongVehicle", "car") ?: "car"
+        get() = sp.getString("goongVehicle", "bike") ?: "bike"
         set(v) = sp.edit().putString("goongVehicle", v).apply()
 
     /** Đẩy dẫn đường (dạng chữ, nhẹ) lên màn TFT của xe qua Bluetooth. */
