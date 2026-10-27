@@ -112,17 +112,15 @@ class NavEngine(
         val dLat = Live.destLat
         val dLon = Live.destLon
         val reroute = Live.route != null && !offerChoice
-        // Goong (thử nghiệm) thay VietMap khi đã nhập mã Goong (Cài đặt) — lỗi thì tự rơi về VietMap
-        // nếu còn mã VietMap. LƯU Ý: Goong không có né cao tốc/dữ liệu kẹt xe xác nhận được (xem
-        // comment đầu GoongMap.kt) — hai tuỳ chọn đó trong Cài đặt chỉ có tác dụng khi dùng VietMap.
+        // Theo yêu cầu "ưu tiên Goong, bỏ hẳn VietMap nếu Goong ok": có mã Goong là dùng THẲNG
+        // Goong, không còn âm thầm rơi về VietMap khi Goong lỗi nữa — lỗi thật sẽ hiện rõ lên màn
+        // hình (routeError) để biết ngay Goong có ổn hay chưa, thay vì VietMap "che" mất vấn đề mà
+        // không ai biết Goong đang có lỗi. Chỉ dùng VietMap khi CHƯA nhập mã Goong nào cả. LƯU Ý:
+        // Goong không có né cao tốc/dữ liệu kẹt xe xác nhận được (xem comment đầu GoongMap.kt) —
+        // hai tuỳ chọn đó trong Cài đặt chỉ có tác dụng khi dùng VietMap.
         fun findRoutes(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> {
             if (goongKey.isNotBlank()) {
-                try {
-                    return GoongMap.routes(goongKey, lat, lon, dLat, dLon, prefs.goongVehicle, alt)
-                } catch (e: Exception) {
-                    if (vmKey.isBlank()) throw e
-                    // rơi xuống dùng VietMap bên dưới
-                }
+                return GoongMap.routes(goongKey, lat, lon, dLat, dLon, prefs.goongVehicle, alt, via)
             }
             return VietMap.routes(vmKey, lat, lon, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway)
         }

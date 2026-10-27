@@ -31,8 +31,8 @@ object GoongKeyDialog {
             .setTitle("Mã API Goong (thử nghiệm)")
             .setMessage(
                 "Cần CẢ 2 mã riêng từ account.goong.io → Account Page:\n" +
-                    "• \"REST API Key\": tìm đường, tìm địa điểm — có mã này là app TỰ CHUYỂN sang Goong để định tuyến, VietMap chỉ còn làm dự phòng khi Goong lỗi.\n" +
-                    "• \"Map Tiles Key\": hiện bản đồ nền — còn cần bật thêm ở mục \"Bản đồ nền\" bên dưới mới dùng.\n\n" +
+                    "• \"REST API Key\": tìm đường, tìm địa điểm — có mã này là app dùng THẲNG Goong để định tuyến, không còn dự phòng VietMap (lỗi Goong hiện rõ lên màn hình).\n" +
+                    "• \"Map Tiles Key\": hiện bản đồ nền — có mã này là bản đồ nền cũng tự chuyển sang Goong ngay, không cần bật gì thêm.\n\n" +
                     "Lưu ý: chưa rõ \"Loại xe\" nào đúng cho xe máy (xem mục riêng), và Goong chưa có né cao tốc/kẹt xe như VietMap.",
             )
             .setView(box)

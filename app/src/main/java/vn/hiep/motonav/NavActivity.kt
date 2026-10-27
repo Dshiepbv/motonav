@@ -1214,12 +1214,15 @@ class NavActivity : Activity() {
             }
             render()
         }
-        // Goong (thử nghiệm, Cài đặt > mapSource=2 + đã nhập Map Tiles Key): mảnh bản đồ Goong đọc
+        // Theo yêu cầu "ưu tiên Goong hiện map, bỏ hẳn vụ VietMap nếu Goong ok": có Map Tiles Key
+        // của Goong là TỰ hiện bản đồ Goong ngay, không còn cần vào Cài đặt bật riêng công tắc
+        // "Nguồn bản đồ" nữa (trước đây phải bật cả 2 thứ: nhập mã + chọn mapSource=2, dễ quên bước
+        // sau nên nhập mã xong vẫn thấy OpenFreeMap, tưởng chưa có tác dụng). Mảnh bản đồ Goong đọc
         // được bằng MapLibre chuẩn (không như VietMap vector đang lỗi) — xem comment đầu GoongMap.kt
         // về các điểm chưa xác nhận. Lỗi tải thì addOnDidFailLoadingMapListener bên dưới tự rơi về
         // OpenFreeMap.
         val goongTile = prefs.goongTileKey
-        if (prefs.mapSource == 2 && goongTile.isNotBlank()) {
+        if (goongTile.isNotBlank()) {
             usingGoongTile = true
             style = null
             m.setStyle(Style.Builder().fromUri(GoongMap.tileStyleUrl(goongTile, night))) { s -> onLoaded(s) }

@@ -368,13 +368,17 @@ class SettingsActivity : Activity() {
 
         header("🧪", "Goong (thử nghiệm)")
         val goongStatus = when {
-            prefs.goongKey.isBlank() -> "Chưa nhập mã — đang dùng VietMap định tuyến"
-            else -> "✅ Đang dùng Goong định tuyến (VietMap chỉ còn dự phòng)"
+            prefs.goongKey.isBlank() && prefs.goongTileKey.isBlank() -> "Chưa nhập mã — đang dùng VietMap"
+            else -> "✅ Đang dùng Goong (đã bỏ VietMap)"
         }
+        // Theo yêu cầu "ưu tiên Goong, bỏ hẳn VietMap nếu Goong ok": không còn âm thầm rơi về
+        // VietMap khi Goong lỗi nữa (lỗi thật hiện rõ lên màn hình để biết ngay) — và bản đồ nền
+        // cũng tự chuyển sang Goong ngay khi có Map Tiles Key, không cần chọn riêng "Bản đồ nền"
+        // (đã bỏ mục chọn đó, trước đây hay bị quên bật nên nhập mã xong vẫn tưởng chưa có tác dụng).
         action(
-            "Mã API Goong",
+            "Mã API Goong (định tuyến)",
             goongStatus,
-            note = "Có mã REST API là app tự chuyển định tuyến sang Goong, lỗi thì tự rơi về VietMap. Chưa có né cao tốc/kẹt xe khi dùng Goong",
+            note = "Có mã REST API là app dùng THẲNG Goong định tuyến, không còn dự phòng VietMap — lỗi gì hiện rõ lên màn hình. Có thêm Map Tiles Key là bản đồ nền cũng tự chuyển sang Goong luôn. Chưa có né cao tốc/kẹt xe khi dùng Goong",
         ) {
             GoongKeyDialog.show(this, prefs) { build() }
         }
@@ -387,15 +391,6 @@ class SettingsActivity : Activity() {
             note = "CHƯA XÁC NHẬN giá trị nào đúng cho xe máy — tài liệu Goong không ghi rõ. \"bike\" nhiều khả năng là xe đạp, không phải xe máy. Thử từng giá trị trên 1-2 tuyến quen thuộc, chọn cái cho tuyến đúng thực tế nhất",
         ) {
             prefs.goongVehicle = vehicles[it]
-        }
-        choice(
-            "Bản đồ nền",
-            null,
-            listOf("OpenFreeMap (mặc định)", "Goong (thử nghiệm)"),
-            if (prefs.mapSource == 2) 1 else 0,
-            note = "Goong cần đã nhập Map Tiles Key ở trên. Lỗi tải thì tự rơi về OpenFreeMap",
-        ) {
-            prefs.mapSource = if (it == 1) 2 else 0
         }
 
         header("⚡", "Tốc độ giới hạn")

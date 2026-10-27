@@ -116,8 +116,9 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("avoidHighway", false)
         set(v) = sp.edit().putBoolean("avoidHighway", v).apply()
 
-    /** 0 = OpenFreeMap (miễn phí, không cần mã, mặc định), 1 = VietMap (raster, dự phòng cũ, xem
-     * NavActivity.loadStyle), 2 = Goong (thử nghiệm, cần Prefs.goongTileKey). */
+    /** KHÔNG còn quyết định nguồn bản đồ nữa — giữ lại field cũ để không vỡ dữ liệu Prefs đã lưu
+     * trên máy người dùng. Theo yêu cầu "ưu tiên Goong hiện map": NavActivity.loadStyle() giờ tự
+     * dùng Goong ngay khi [goongTileKey] không rỗng, không cần cờ này nữa; rỗng thì dùng OpenFreeMap. */
     var mapSource: Int
         get() = sp.getInt("mapSource", 0)
         set(v) = sp.edit().putInt("mapSource", v).apply()
@@ -128,8 +129,8 @@ class Prefs(ctx: Context) {
         set(v) = sp.edit().putString("vmstyle", v.trim()).apply()
 
     /** Mã API REST của Goong (Directions/Geocoding/Places) — dùng để ĐỊNH TUYẾN thay VietMap khi
-     * không rỗng (xem GoongMap.kt, NavEngine.findRoutes). Có key này là tự dùng Goong, VietMap chỉ
-     * còn là phương án dự phòng khi Goong lỗi. */
+     * không rỗng (xem GoongMap.kt, NavEngine.findRoutes). Theo yêu cầu "bỏ hẳn VietMap nếu Goong
+     * ok": có key này là dùng THẲNG Goong, KHÔNG còn âm thầm rơi về VietMap khi Goong lỗi nữa. */
     var goongKey: String
         get() = sp.getString("goongKey", "") ?: ""
         set(v) = sp.edit().putString("goongKey", v.trim()).apply()

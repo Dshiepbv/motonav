@@ -80,15 +80,22 @@ object GoongMap {
     /** Tên đường trong thẻ <b>...</b> của câu chỉ dẫn, nếu có (Goong hay in đậm tên đường sắp vào). */
     private fun streetFrom(html: String): String = boldRe.find(html)?.groupValues?.get(1)?.let { stripHtml(it) } ?: ""
 
-    /** Tìm đường bằng Goong Directions v2. [vehicle] xem Prefs.goongVehicle (chưa xác nhận giá trị đúng cho xe máy). */
+    /** Tìm đường bằng Goong Directions v2. [vehicle] xem Prefs.goongVehicle (chưa xác nhận giá trị đúng cho xe máy).
+     * [via]: điểm bắt buộc phải đi qua (kiểu tham số "waypoints" của Google Directions mà Goong mô
+     * phỏng theo) — dùng cho mẹo "ép đi tiếp qua 1 điểm phía trước" khi vừa quẹo nhầm/lệch tuyến,
+     * tránh app bắt quay đầu ngay (xem NavEngine.requestRoute). CHƯA xác nhận tên tham số/định dạng
+     * này đúng với Goong thật (suy theo kiểu Google Directions, Goong mô phỏng phần lớn cấu trúc đó)
+     * — cần Hiệp thử thực tế lúc gặp tình huống quẹo nhầm xem app có còn ép đi tiếp đúng không. */
     fun routes(
         key: String, fromLat: Double, fromLon: Double, toLat: Double, toLon: Double,
-        vehicle: String, alternative: Boolean = false,
+        vehicle: String, alternative: Boolean = false, via: List<Pair<Double, Double>> = emptyList(),
     ): List<Route> {
+        val viaParam = if (via.isNotEmpty()) "&waypoints=" + enc(via.joinToString("|") { ll(it.first, it.second) }) else ""
         val url = "$REST_BASE/v2/direction?origin=" + enc(ll(fromLat, fromLon)) +
             "&destination=" + enc(ll(toLat, toLon)) +
             "&vehicle=" + enc(vehicle) +
             "&alternatives=" + (if (alternative) "true" else "false") +
+            viaParam +
             "&api_key=" + enc(key)
         val root = JSONObject(get(url))
         val status = root.optString("status", "OK")
