@@ -252,7 +252,7 @@ object TftLink {
     @Volatile private var lastStallStart = 0L
     // build-226: khung chưa ACK sau [RESEND_AFTER_MS] thì gửi lại đúng gói đó MỘT lần (cùng số thứ tự)
     // — thử xem màn có "tỉnh" sớm hơn không. resendHit = số lần ACK tới trong 1 s sau khi gửi lại.
-    private const val RESEND_AFTER_MS = 1000L
+    private const val RESEND_AFTER_MS = 3_600_000L // build-229: tắt gửi lại — log 226/228: làm đứng hình tăng 15% → 22–35%
     private var statResend = 0
     private var statResendHit = 0
 
