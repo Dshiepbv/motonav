@@ -501,7 +501,7 @@ class SettingsActivity : Activity() {
                     openPanel(R.drawable.ic_set_sound, "Âm thanh & cảnh báo") { fillSound() }
                 },
                 Tile(
-                    "📟", "Màn TFT xe",
+                    R.drawable.ic_set_tft, "Màn TFT xe",
                     when {
                         !prefs.tftLink -> "Tắt"
                         TftLink.authed -> "Đã kết nối"
@@ -524,7 +524,7 @@ class SettingsActivity : Activity() {
                 },
                 Tile(R.drawable.ic_set_alert, "Điểm cảnh báo", "$nPoints điểm") { openPanel(R.drawable.ic_set_alert, "Camera & điểm cảnh báo") { fillAlerts() } },
                 Tile(
-                    "🪟", "Ô nổi Maps",
+                    R.drawable.ic_set_overlay, "Ô nổi Maps",
                     if (prefs.overlay) "Bật · ${sizes.getOrElse(scales.indexOf(prefs.overlayScale)) { "Vừa" }}" else "Tắt",
                 ) { openPanel(R.drawable.ic_set_overlay, "Ô nổi trên Google Maps") { fillOverlay() } },
             ),
@@ -535,12 +535,12 @@ class SettingsActivity : Activity() {
             listOf(
                 Tile(R.drawable.ic_set_battery, "Pin", if (prefs.batterySaver) "Tiết kiệm" else "Bình thường") { openPanel(R.drawable.ic_set_battery, "Pin") { fillBattery() } },
                 Tile(
-                    "💾", "Dữ liệu offline",
+                    R.drawable.ic_set_offline, "Dữ liệu offline",
                     if (packOk) "Ngày ${OfflinePack.date}" else "Chưa tải",
                     if (packOk) null else warnOrange,
                 ) { openPanel(R.drawable.ic_set_offline, "Dữ liệu ngoại tuyến") { fillOffline() } },
                 Tile(
-                    "▶️", "Chạy nền",
+                    R.drawable.ic_set_background, "Chạy nền",
                     if (!permsOk) "Thiếu quyền" else if (Live.serviceRunning) "Đang chạy" else "Đang dừng",
                     if (!permsOk) warnOrange else null,
                 ) { openPanel(R.drawable.ic_set_background, "Chạy nền & quyền") { fillBackground() } },
