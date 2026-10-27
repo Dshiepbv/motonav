@@ -34,6 +34,7 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -66,6 +67,7 @@ class NavActivity : Activity() {
     private var map: MapLibreMap? = null
     private var style: Style? = null
     private var shownRouteVersion = -1
+    private var shownOverview = -1
     private var follow = true
     private var labelFont: Array<String>? = null
     private val io = Executors.newSingleThreadExecutor()
@@ -131,6 +133,14 @@ class NavActivity : Activity() {
             m.addOnMapLongClickListener { p ->
                 confirmDestination(p.latitude, p.longitude, "Điểm đã chọn trên bản đồ")
                 true
+            }
+            // Bấm ra ngoài (vào bản đồ) để thoát ô tìm kiếm, giống Google Maps.
+            m.addOnMapClickListener {
+                if (searchInput.hasFocus() || results.childCount > 0) {
+                    hideKeyboard()
+                    results.removeAllViews()
+                }
+                false
             }
             loadStyle()
         }
@@ -1114,6 +1124,7 @@ class NavActivity : Activity() {
         hideKeyboard()
         follow = true
         shownRouteVersion = -1
+        shownOverview = -1
         if (!name.isNullOrBlank()) SearchHistory.add(this, name, lat, lon)
         DriveService.startNav(this, lat, lon, name)
     }
@@ -1780,6 +1791,37 @@ class NavActivity : Activity() {
         carShown = true
         if (!(camLoop && follow && camCur != null)) { carLat = lat; carLon = lon }
 
+        // Chưa bấm "Bắt đầu" (đang xem/chọn tuyến): zoom bé lại để thấy toàn tuyến, giống Google Maps
+        // lúc chọn đường đi — thay vì zoom bám sát xe như khi đang dẫn đường thật.
+        if (!nav && r != null && follow) {
+            val overviewKey = Live.routeVersion * 1000 + Live.choiceSelected
+            if (shownOverview != overviewKey) {
+                shownOverview = overviewKey
+                stopCamLoop()
+                try {
+                    val bb = LatLngBounds.Builder()
+                    bb.include(LatLng(lat, lon))
+                    for (i in r.lats.indices) bb.include(LatLng(r.lats[i], r.lons[i]))
+                    Live.routeChoices.forEach { rc -> for (i in rc.lats.indices) bb.include(LatLng(rc.lats[i], rc.lons[i])) }
+                    val padSide = dp(48f).toInt()
+                    val padBottom = padSide + (if (landscape) 0 else bottomBar.height)
+                    val padTop = padSide + (if (landscape) 0 else turnCard.height)
+                    m.animateCamera(CameraUpdateFactory.newLatLngBounds(bb.build(), padSide, padTop, padSide, padBottom), 700)
+                } catch (_: Exception) {
+                }
+            }
+            val hdg = when {
+                useSnap && Live.roadBearing >= 0 -> Live.roadBearing
+                Live.heading >= 0 -> Live.heading
+                Live.roadBearing >= 0 -> Live.roadBearing
+                else -> lastHeading
+            }
+            lastHeading = hdg
+            carHdg = hdg
+            positionCar()
+            return
+        }
+
         if (follow) {
             val spd = Live.speedKmh
             var zoom = if (!prefs.autoZoom) 17.0 else when {
@@ -1969,8 +2011,9 @@ class NavActivity : Activity() {
                 camBearingOk = true
                 camBearing = b; camAimed = b; carHdg = b
                 moved = true
-            } else if (b >= 0) {
-                // Vùng chết: la bàn 5°, hướng đường 3° (hoặc đổi nguồn thì nhận ngay)
+            } else if (b >= 0 && camMoving) {
+                // Giống Google Maps: CHỈ xoay bản đồ khi đang di chuyển (theo hướng đi).
+                // Đứng yên/đi chậm: bản đồ giữ nguyên hướng, chỉ mũi tên định vị xoay theo la bàn (xem dưới).
                 val dead = when {
                     fromCompass -> 5.0
                     camCourseRaw -> 12.0 // GPS thô: bỏ qua lách xe, đổi làn
