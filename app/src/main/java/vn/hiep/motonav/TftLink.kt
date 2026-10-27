@@ -186,6 +186,21 @@ object TftLink {
     @Volatile private var ackedFrame: Int = -1
     private val ackLock = Object()
 
+    // Phương án B (log 115807: các đợt mất ACK bắt đầu cách nhau đúng bội số 5s, chủ yếu 10s —
+    // nhịp đến từ phía xe, nghi do app trả lời lại gói bắt tay mỗi lần xe "chào" 0x42 định kỳ):
+    // theo dõi khung đang chờ ACK để log ACK lệch số thứ tự/đến trễ, và thời điểm 0x42 gần nhất.
+    @Volatile private var waitingSeq: Int = -1
+    @Volatile private var waitingSentAt: Long = 0L
+    @Volatile private var last42At: Long = 0L
+
+    /** ACK [ack] có "phủ" khung [seq] không: đúng số, hoặc số mới hơn (xe báo đã nhận tới khung
+     * sau đó — kiểu ACK tích luỹ), tính cả vòng tràn 16 bit. */
+    private fun ackCovers(ack: Int, seq: Int): Boolean {
+        if (ack < 0) return false
+        if (ack == seq) return true
+        return ((ack - seq) and 0xFFFF) in 1 until 0x8000
+    }
+
     @Volatile var frameTxCount: Int = 0
         private set
     @Volatile var lastFrameError: String? = null
@@ -221,6 +236,8 @@ object TftLink {
         payload[2] = ((seq ushr 8) and 0xFF).toByte()
         System.arraycopy(body, 0, payload, 3, body.size)
         val sentAt = System.currentTimeMillis()
+        waitingSeq = seq
+        waitingSentAt = sentAt
         if (!send(pack(payload, 0, 1))) {
             lastFrameError = "Gửi khung lỗi (mất kết nối)"
             return false
@@ -237,7 +254,7 @@ object TftLink {
         var timedOut = false
         var interrupted = false
         synchronized(ackLock) {
-            while (running.get() && connected && ackedFrame != seq) {
+            while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
                 val now = System.currentTimeMillis()
                 if (now >= deadline) {
                     lastFrameError = "Khung #$seq chưa ACK sau ${ACK_WAIT_MS}ms — bỏ chờ, gửi khung mới"
@@ -275,7 +292,7 @@ object TftLink {
         // lại có thể đối chiếu xem ACK bắt đầu chậm hẳn từ cỡ khung bao nhiêu byte, tìm ra một mức
         // dung lượng "an toàn" thay vì đoán mò bằng chất lượng JPEG.
         try {
-            TripLog.ev("tftFrame", "bytes" to jpeg.size, "ackMs" to (if (timedOut) null else lastFrameAckMs), "timedOut" to timedOut, "tag" to tag)
+            TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "ackMs" to (if (timedOut) null else lastFrameAckMs), "timedOut" to timedOut, "tag" to tag)
         } catch (_: Exception) {
         }
         return true
@@ -1434,6 +1451,8 @@ object TftLink {
         txCount = 0
         lastTxAt = 0
         frameSeq = 0
+        waitingSeq = -1
+        last42At = 0L
         frameTxCount = 0
         lastFrameError = null
         lastFrameAckMs = -1
@@ -1469,15 +1488,37 @@ object TftLink {
                 rxBytes += n
                 for ((cmd, sub, payload) in fb.feed(buf, n)) {
                     lastCmdSeen = cmd
+                    // Phương án B: ghi lại MỌI lệnh xe gửi tới (trừ ACK khung bình thường — quá
+                    // nhiều) để đối chiếu với thời điểm mất ACK — trước đây không log nên không xác
+                    // nhận được nhịp 10s đến từ đâu.
+                    if (cmd != 0x50) {
+                        try {
+                            TripLog.ev("tftRx", "cmd" to cmd, "sub" to sub, "len" to payload.size, "authed" to authed)
+                        } catch (_: Exception) {
+                        }
+                    }
                     when (cmd) {
                         0x42 -> { // 1/3: xe gửi serial → trả khả năng hỗ trợ
                             // Xe có thể gửi lại cmd này nhiều lần (loan báo định kỳ) kể cả sau khi đã
                             // qua bước 2/3, 3/3 — KHÔNG được coi là "bắt đầu lại từ đầu" và reset các
                             // bước đã qua, nếu không sẽ bị kẹt mãi dù xe đã xác nhận xong (lỗi đã gặp
                             // thực tế: xe báo đã tới bước 3/3 nhưng app vẫn chưa coi là bắt tay xong).
-                            if (handshakeStep < 1) handshakeStep = 1
-                            send(pack(byteArrayOf(1, 0), 0x51, 0))
-                            send(pack(byteArrayOf(0x7c, 6, 0, 1, 0, 0, 0, 0), 0x21, 1))
+                            // Phương án B: ĐÃ bắt tay xong thì KHÔNG trả lời lại 0x51/0x21 cho lần
+                            // "chào" định kỳ nữa — nghi xe coi đó là kết nối lại, khởi tạo lại màn dẫn
+                            // đường và bỏ các khung đang tới (đúng kiểu "reload" + mất ACK theo nhịp
+                            // 10s trong log). Ngoại lệ: xe gửi 0x42 dồn dập (2 lần trong < 3s) thì coi
+                            // là xe THẬT SỰ cần trả lời (đang chờ bắt tay) → vẫn trả lời như cũ.
+                            val now42 = System.currentTimeMillis()
+                            val insist = last42At != 0L && now42 - last42At < 3000
+                            last42At = now42
+                            if (!authed || insist) {
+                                if (handshakeStep < 1) handshakeStep = 1
+                                send(pack(byteArrayOf(1, 0), 0x51, 0))
+                                send(pack(byteArrayOf(0x7c, 6, 0, 1, 0, 0, 0, 0), 0x21, 1))
+                                if (authed) try { TripLog.ev("tft42", "action" to "reply-insist") } catch (_: Exception) {}
+                            } else {
+                                try { TripLog.ev("tft42", "action" to "skip") } catch (_: Exception) {}
+                            }
                         }
                         0x53 -> { // 2/3: xe gửi mã phần mềm + khoá (toàn bộ payload XOR với 10) → trả
                             // lại đúng khoá (đã XOR) qua 0x54; 12 byte đầu sau khi XOR là mã phần mềm
@@ -1504,8 +1545,19 @@ object TftLink {
                             val seq = if (payload.size >= 2) {
                                 (payload[0].toInt() and 0xFF) or ((payload[1].toInt() and 0xFF) shl 8)
                             } else if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else 0
+                            val want = waitingSeq
+                            var ackVal = seq
+                            if (want >= 0 && seq != want) {
+                                // ACK lệch số thứ tự: ghi lại để biết là ACK TRỄ của khung trước (xe
+                                // đang chậm, dồn khung) hay xe ĐẾM LẠI từ đầu (sau khi tự khởi tạo lại).
+                                val ms = System.currentTimeMillis() - waitingSentAt
+                                try { TripLog.ev("tftAckOdd", "got" to seq, "want" to want, "ms" to ms) } catch (_: Exception) {}
+                                // Xe đếm lại từ đầu (số rất nhỏ trong khi app đã đếm xa) → coi như ACK
+                                // khung đang chờ, để không mất oan hàng loạt khung tới khi số khớp lại.
+                                if (seq <= 3 && want > 20) ackVal = want
+                            }
                             synchronized(ackLock) {
-                                ackedFrame = seq
+                                ackedFrame = ackVal
                                 (ackLock as Object).notifyAll()
                             }
                         }
