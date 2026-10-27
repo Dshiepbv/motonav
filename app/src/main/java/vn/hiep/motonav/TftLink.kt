@@ -602,9 +602,9 @@ object TftLink {
                 // Theo yêu cầu "cái nào nhìn giống Google Map hơn": Google Maps không ẩn hẳn đường
                 // cấp 3 (tertiary/residential) mà chỉ GIẢM PHẠM VI hiển thị quanh tuyến + phân cấp độ
                 // dày/độ nổi bật — đã làm ở branchPaintFor bên dưới. Nên chọn giảm hành lang xuống
-                // 400m mỗi bên (giữ đủ loại đường) thay vì cắt hẳn đường cấp 3, để không mất ngữ cảnh
-                // khu vực xung quanh mà vẫn đỡ rối.
-                val cellDeg = 200.0 / 111320.0
+                // 300m mỗi bên (thu từ 400m, giữ đủ loại đường, giảm thêm dung lượng ảnh/reload)
+                // thay vì cắt hẳn đường cấp 3, để không mất ngữ cảnh khu vực xung quanh mà vẫn đỡ rối.
+                val cellDeg = 150.0 / 111320.0
                 fun corridorKey(lat: Double, lon: Double): Long {
                     val la = Math.floor(lat / cellDeg).toLong()
                     val lo = Math.floor(lon / cellDeg).toLong()
@@ -616,7 +616,7 @@ object TftLink {
                 // trong đường chính ra 2 bên" (trước đo khoảng cách tới vị trí xe, lệch tâm khi tuyến
                 // uốn cong phía trước, không đúng ý "từ chính tuyến lan ra").
                 val routeSamples = ArrayList<DoubleArray>()
-                val cellSpan = 2 // ~2*200m = 400m mỗi hướng quanh mỗi điểm mẫu trên tuyến
+                val cellSpan = 2 // ~2*150m = 300m mỗi hướng quanh mỗi điểm mẫu trên tuyến
                 var gi = idx0
                 var lastCum = -1e9
                 while (gi < iEnd0) {
@@ -814,8 +814,8 @@ object TftLink {
             // ETA đổi từ chữ đỏ trần sang khung kiểu biển báo theo yêu cầu: hình chữ nhật bo viền
             // nhẹ, viền ngoài đỏ, nền trắng, chữ đen — cùng tinh thần dễ nhận diện ngay như biển
             // giới hạn tốc độ (bên phải) nhưng hình chữ nhật để phân biệt 2 loại thông tin.
-            val etaTextPaint = Paint().apply { color = Color.BLACK; textSize = h * 0.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            val padX2 = h * 0.055f; val padY2 = h * 0.045f
+            val etaTextPaint = Paint().apply { color = Color.BLACK; textSize = h * 0.11f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val padX2 = h * 0.035f; val padY2 = h * 0.028f
             val tw2 = etaTextPaint.measureText(etaTxt)
             val fmE = etaTextPaint.fontMetrics
             val textH = fmE.descent - fmE.ascent
@@ -824,9 +824,9 @@ object TftLink {
             val boxLeft = w * 0.035f
             val boxTop = anchorY - h * 0.03f - boxH / 2f
             val boxRect = android.graphics.RectF(boxLeft, boxTop, boxLeft + boxW, boxTop + boxH)
-            val cornerR = h * 0.035f
+            val cornerR = h * 0.025f
             val etaFillPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
-            val etaBorderPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true }
+            val etaBorderPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.STROKE; strokeWidth = h * 0.014f; isAntiAlias = true }
             c.drawRoundRect(boxRect, cornerR, cornerR, etaFillPaint)
             c.drawRoundRect(boxRect, cornerR, cornerR, etaBorderPaint)
             c.drawText(etaTxt, boxRect.centerX(), boxRect.centerY() - (fmE.ascent + fmE.descent) / 2f, etaTextPaint)

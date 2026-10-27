@@ -57,28 +57,41 @@ object GoongMap {
         }
     }
 
-    /** Thao tác rẽ kiểu Goong/Google ("turn-left"...) -> mã sign nội bộ (chuẩn GraphHopper, app đang dùng chung cho VietMap). */
-    private fun signFor(maneuver: String): Int = when (maneuver) {
-        "turn-sharp-left" -> -3
-        "turn-left" -> -2
-        "turn-slight-left", "ramp-left", "fork-left", "keep-left" -> -1
-        "straight", "merge" -> 0
-        "turn-slight-right", "ramp-right", "fork-right", "keep-right" -> 1
-        "turn-right" -> 2
-        "turn-sharp-right" -> 3
-        "roundabout-left", "roundabout-right" -> 6
-        "uturn-left", "uturn-right" -> -8
-        else -> 0
+    /** Thao tác rẽ Goong trả về thực tế là chữ thường không tiền tố, cách nhau bằng dấu cách
+     * (vd "left", "right", "slight right"...) — KHÔNG phải kiểu "turn-left" của Google như tưởng ban đầu.
+     * Dùng contains() cho an toàn vì chưa có danh sách đầy đủ chính thức từ Goong. */
+    private fun signFor(maneuverRaw: String): Int {
+        val m = maneuverRaw.trim().lowercase()
+        return when {
+            m.isEmpty() || m.contains("straight") || m.contains("depart") || m.contains("arrive") -> 0
+            m.contains("sharp") && m.contains("left") -> -3
+            m.contains("sharp") && m.contains("right") -> 3
+            m.contains("slight") && m.contains("left") -> -1
+            m.contains("slight") && m.contains("right") -> 1
+            m.contains("uturn") || m.contains("u-turn") -> -8
+            m.contains("roundabout") || m.contains("rotary") -> 6
+            m.contains("fork") && m.contains("left") -> -1
+            m.contains("fork") && m.contains("right") -> 1
+            m.contains("keep") && m.contains("left") -> -1
+            m.contains("keep") && m.contains("right") -> 1
+            m.contains("merge") -> 0
+            m == "left" || m.endsWith(" left") -> -2
+            m == "right" || m.endsWith(" right") -> 2
+            else -> 0
+        }
     }
 
-    /** Bỏ thẻ HTML trong câu chỉ dẫn Goong trả về (vd "Rẽ phải vào <b>Lê Văn Việt</b>"). */
+    /** html_instructions của Goong tên vậy nhưng thực ra là CHỮ THƯỜNG THUẦN, không có thẻ <b> như Google
+     * (vd "Rẽ trái vào Hoàng Quốc Việt."). Chỉ cần decode entity HTML nếu có, không cần bỏ thẻ. */
     private fun stripHtml(s: String): String =
         android.text.Html.fromHtml(s, android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim()
 
-    private val boldRe = Regex("<b>(.*?)</b>")
+    /** Tên đường: Goong hay viết kiểu "Rẽ trái/phải vào <tên đường>." hoặc "Đi theo <tên đường>." —
+     * lấy phần sau "vào "/"theo " tới hết câu (bỏ dấu câu cuối). */
+    private val viStreetRe = Regex("(?:vào|theo)\\s+(.+?)[.。,;]*$", RegexOption.IGNORE_CASE)
 
-    /** Tên đường trong thẻ <b>...</b> của câu chỉ dẫn, nếu có (Goong hay in đậm tên đường sắp vào). */
-    private fun streetFrom(html: String): String = boldRe.find(html)?.groupValues?.get(1)?.let { stripHtml(it) } ?: ""
+    private fun streetFrom(instruction: String): String =
+        viStreetRe.find(instruction)?.groupValues?.get(1)?.trim() ?: ""
 
     /** Tìm đường bằng Goong Directions v2. [vehicle] xem Prefs.goongVehicle (chưa xác nhận giá trị đúng cho xe máy).
      * [via]: điểm bắt buộc phải đi qua (kiểu tham số "waypoints" của Google Directions mà Goong mô
