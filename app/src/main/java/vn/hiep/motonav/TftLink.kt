@@ -245,7 +245,7 @@ object TftLink {
     @Volatile private var paceMode = 0
     // build-233 — theo tài liệu maxdash (iPhone: 1 khung trên đường, ACK ~27 ms + 21 ms/KB) và log của
     // mình (ACK trung vị chỉ ~72 ms): nghỉ 400 ms giữa 2 khung có thể là điểm nghẽn. Luân phiên mỗi 2
-    // cửa sổ tftStat: paceMode 0 = nghỉ 400 ms, 1 = nghỉ 150 ms, 2 = nghỉ 30 ms (A/B/C trong tftStat).
+    // cửa sổ tftStat: paceMode 0 = nghỉ 400 ms, 1 = nghỉ 100 ms, 2 = nghỉ 30 ms (A/B/C trong tftStat).
     // Thêm yếu tố thứ hai [sizeMode] (đổi mỗi 6 cửa sổ): 0 = không gửi cmd 16, 1 = gửi cmd 16 "báo độ
     // trễ" [rtt/100 ms, 0] sau mỗi ACK như tài liệu mô tả (chưa quan sát được tác dụng). So bằng gapA/B/C
     // và gapOff/gapOn. Thử nghiệm gửi theo 0x41 (232) tạm gác lại để không lẫn yếu tố.
@@ -464,6 +464,7 @@ object TftLink {
     @Volatile private var skRoute: Route? = null
     @Volatile private var skLat = 0.0
     @Volatile private var skLon = 0.0
+    @Volatile private var skFixAt = 0L
     @Volatile private var skHeadingDeg = -1.0
     // Hướng hợp lệ gần nhất (khi xe đứng yên/chạy chậm, Live.heading = -1 vì GPS course không đáng
     // tin ở tốc độ thấp — DriveService.onLocation dòng ~401). Trước đây lúc đó khung lấy mặc định
@@ -529,8 +530,10 @@ object TftLink {
         wxLabel: String? = null,
         wxNight: Boolean = false,
         thenDistM: Double = 0.0,
+        fixAtMs: Long = 0L,
     ) {
         skActive = active
+        skFixAt = fixAtMs
         skRoute = route
         skLat = lat
         skLon = lon
@@ -587,7 +590,23 @@ object TftLink {
                 c.drawText("Chờ tuyến đường…", w / 2f, h * 0.52f, p2)
             }
         } else {
-            val proj = LocalProjection(skLat, skLon)
+            // Làm mịn chuyển động tam giác/bản đồ: GPS chỉ cập nhật ~1 Hz nên giữa 2 fix hình đứng rồi
+            // nhảy một bước. Ngoại suy vị trí theo tốc độ + hướng từ thời điểm fix (tối đa 1,5 s, chỉ khi
+            // > 3 km/h và có hướng) — chỉ đổi vị trí đầu vào, không đụng xoay/3D.
+            var curLat = skLat; var curLon = skLon
+            run {
+                val fixAt = skFixAt
+                val spd = skSpeedKmh
+                val hd = skHeadingDeg
+                if (fixAt > 0 && spd >= 3 && hd >= 0 && skLat != 0.0) {
+                    val dt = ((System.currentTimeMillis() - fixAt).coerceIn(0L, 1500L)) / 1000.0
+                    val dist = spd / 3.6 * dt
+                    val hr = Math.toRadians(hd)
+                    curLat += dist * Math.cos(hr) / 111320.0
+                    curLon += dist * Math.sin(hr) / (111320.0 * Math.cos(Math.toRadians(skLat)))
+                }
+            }
+            val proj = LocalProjection(curLat, curLon)
             // Tìm điểm gần vị trí hiện tại nhất trên tuyến. "Ghim" quanh chỉ số khung trước (nếu
             // cùng tuyến) để tránh nhảy xa sang một đoạn khác của tuyến tình cờ ở gần — nguyên nhân
             // đường xanh thỉnh thoảng biến mất rồi lại hiện (báo lỗi thực tế từ xe). Chỉ quét lại
@@ -613,7 +632,7 @@ object TftLink {
                 var bi = skIdxHint
                 var bestCost = Double.MAX_VALUE
                 for (i in lo..hi) {
-                    val d = Geo.distance(skLat, skLon, route.lats[i], route.lons[i])
+                    val d = Geo.distance(curLat, curLon, route.lats[i], route.lons[i])
                     val jump = Math.abs(route.cum[i] - hintCum)
                     val penalty = if (jump > 150.0) (jump - 150.0) * 0.6 else 0.0
                     val cost = d + penalty
@@ -627,7 +646,7 @@ object TftLink {
                 var fi = 0
                 var fbest = Double.MAX_VALUE
                 for (i in route.lats.indices) {
-                    val d = Geo.distance(skLat, skLon, route.lats[i], route.lons[i])
+                    val d = Geo.distance(curLat, curLon, route.lats[i], route.lons[i])
                     if (d < fbest) { fbest = d; fi = i }
                 }
                 idx0 = fi
@@ -1204,8 +1223,8 @@ object TftLink {
                 // khung, 0 timeout). sendFrame() nay cũng chỉ còn chờ ACK tối đa 1,5s (trước 6s — xem
                 // ACK_WAIT_MS), nên khoảng lặng xấu nhất giữa 2 khung giờ chỉ còn ~1,9s (1,5s chờ ACK
                 // + 0,4s nghỉ), thay vì 6,4s trước đây.
-                // build-233: nghỉ theo paceMode — 0: 400 ms, 1: 150 ms, 2: 30 ms (xem chú thích paceMode).
-                sleepQuiet(when (paceMode) { 1 -> 150L; 2 -> 30L; else -> 400L })
+                // build-233: nghỉ theo paceMode — 0: 400 ms, 1: 100 ms, 2: 30 ms (xem chú thích paceMode).
+                sleepQuiet(when (paceMode) { 1 -> 100L; 2 -> 30L; else -> 400L })
             } else {
                 sleepQuiet(400)
             }
