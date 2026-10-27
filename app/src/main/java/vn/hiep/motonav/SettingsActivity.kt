@@ -26,7 +26,7 @@ class SettingsActivity : Activity() {
     private val bg = Color.parseColor("#0B0D10")
     private val card = Color.parseColor("#161A20")
     private val muted = Color.parseColor("#9AA3AE")
-    private val accent = Color.parseColor("#0B6E4F")
+    private val accent = Brand.redDeep
 
     private lateinit var prefs: Prefs
     private lateinit var list: LinearLayout
@@ -69,7 +69,7 @@ class SettingsActivity : Activity() {
     private var group: LinearLayout? = null
 
     /** Dấu chấm than nhỏ cạnh tiêu đề: chạm để xem ghi chú chi tiết, không chiếm chỗ khi không cần. */
-    private fun infoIcon(note: String, title: String): TextView = tv(12f, Color.parseColor("#7CC4FF"), true).apply {
+    private fun infoIcon(note: String, title: String): TextView = tv(12f, Brand.silver, true).apply {
         text = "ⓘ"
         setPadding(dp(8f), dp(1f), dp(10f), dp(1f))
         setOnClickListener {
@@ -140,7 +140,7 @@ class SettingsActivity : Activity() {
         val on = tv(10.5f, muted, true).apply { text = "BẬT"; gravity = Gravity.CENTER; setPadding(dp(8f), dp(5f), dp(8f), dp(5f)) }
         var cur = value
         fun paint() {
-            off.background = if (!cur) rounded(Color.parseColor("#FF6B60"), 6f) else null
+            off.background = if (!cur) rounded(Brand.charcoal, 6f) else null
             off.setTextColor(if (!cur) Color.WHITE else muted)
             on.background = if (cur) rounded(accent, 6f) else null
             on.setTextColor(if (cur) Color.WHITE else muted)
@@ -217,15 +217,15 @@ class SettingsActivity : Activity() {
         group?.addView(box)
     }
 
-    /** Hàng "Cập nhật phần mềm" — bấm là tự kiểm tra rồi tải+cài luôn, thanh tiến độ hiện ngay dưới
-     * dòng này (không mở bảng hỏi riêng), đúng kiểu NConnect. */
+    /** Hàng "Cập nhật phần mềm" — bấm là tự kiểm tra rồi tải+cài luôn. Tiến độ: thanh các nấc vát
+     * chéo tô đỏ dần, không hiện số MB. */
     private fun updateRow(autoStart: Boolean = false) {
         divider()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(10f), 0, dp(10f))
         }
-        val sub = tv(11.5f, muted).apply { text = "Đang dùng bản ${Updater.currentVersion(this@SettingsActivity)}" }
+        val sub = tv(11.5f, muted).apply { text = "Đang dùng bản ${Updater.currentVersion(this@SettingsActivity)} — chạm để kiểm tra" }
         val top = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -233,50 +233,50 @@ class SettingsActivity : Activity() {
         top.addView(
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(tv(14f, Color.parseColor("#7CC4FF")).apply { text = "Cập nhật phần mềm" })
+                addView(tv(14f, Color.WHITE).apply { text = "Cập nhật phần mềm" })
                 addView(sub)
             },
             LinearLayout.LayoutParams(0, -2, 1f),
         )
-        top.addView(tv(18f, muted).apply { text = "›" })
         box.addView(top)
-        val bar = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progress = 0
-            visibility = View.GONE
-            progressTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#7CC4FF"))
-        }
-        box.addView(bar, LinearLayout.LayoutParams(-1, dp(5f)).apply { topMargin = dp(8f) })
+        val bar = SegmentProgress(this).apply { visibility = View.GONE }
+        box.addView(bar, LinearLayout.LayoutParams(-1, dp(9f)).apply { topMargin = dp(10f) })
         group?.addView(box)
+        val stateFn = updateStateFn(sub, bar)
+        top.setOnClickListener { Updater.checkInline(this, prefs, stateFn) }
+        if (autoStart) Updater.checkInline(this, prefs, stateFn)
+    }
 
-        fun setState(st: Updater.UpdateState) {
-            when (st) {
-                is Updater.UpdateState.Checking -> {
-                    bar.visibility = View.GONE
-                    sub.text = "Đang kiểm tra bản mới…"
-                }
-                is Updater.UpdateState.UpToDate -> {
-                    bar.visibility = View.GONE
-                    sub.text = "Đang dùng bản ${st.ver} — đã là mới nhất"
-                }
-                is Updater.UpdateState.Downloading -> {
-                    bar.visibility = View.VISIBLE
-                    bar.progress = st.pct
-                    sub.text = "Đang tải bản mới… ${st.doneMB}/${st.totalMB} MB"
-                }
-                is Updater.UpdateState.Installing -> {
-                    bar.visibility = View.VISIBLE
-                    bar.progress = 100
-                    sub.text = "Đang cài…"
-                }
-                is Updater.UpdateState.Error -> {
-                    bar.visibility = View.GONE
-                    sub.text = "Lỗi: ${st.msg}"
-                }
+    private fun updateStateFn(sub: TextView, bar: SegmentProgress): (Updater.UpdateState) -> Unit = { st ->
+        when (st) {
+            is Updater.UpdateState.Checking -> {
+                bar.visibility = View.VISIBLE
+                bar.indeterminate = true
+                sub.text = "Đang kiểm tra bản mới…"
+            }
+            is Updater.UpdateState.UpToDate -> {
+                bar.indeterminate = false
+                bar.visibility = View.GONE
+                sub.text = "Bản ${st.ver} — đã là mới nhất"
+            }
+            is Updater.UpdateState.Downloading -> {
+                bar.visibility = View.VISIBLE
+                bar.indeterminate = false
+                bar.progress = st.pct
+                sub.text = "Đang tải bản mới…"
+            }
+            is Updater.UpdateState.Installing -> {
+                bar.visibility = View.VISIBLE
+                bar.indeterminate = false
+                bar.progress = 100
+                sub.text = "Đang cài…"
+            }
+            is Updater.UpdateState.Error -> {
+                bar.indeterminate = false
+                bar.visibility = View.GONE
+                sub.text = "Lỗi: ${st.msg}"
             }
         }
-        top.setOnClickListener { Updater.checkInline(this, prefs, ::setState) }
-        if (autoStart) Updater.checkInline(this, prefs, ::setState)
     }
 
     /** Hàng bấm để mở một thao tác. */
@@ -316,8 +316,8 @@ class SettingsActivity : Activity() {
     private val okGreen = Color.parseColor("#5DD3A6")
     private val warnOrange = Color.parseColor("#FFB454")
 
-    private val iconAccent = Color.parseColor("#5DD3A6")
-    private val iconAccent2 = Color.parseColor("#7CC4FF")
+    private val iconAccent = Brand.redIcon
+    private val iconAccent2 = Brand.silver
 
     /** Ô nền bo góc (squircle) màu accent mờ, icon nét mảnh cùng màu ở giữa. */
     private fun iconBox(icon: Int, accent: Int, sizeDp: Float, iconDp: Float): View =
@@ -372,7 +372,7 @@ class SettingsActivity : Activity() {
             background = GradientDrawable().apply {
                 setColor(card)
                 cornerRadius = dp(16f).toFloat()
-                setStroke(1, Color.parseColor("#2E3741"))
+                setStroke(1, Brand.border)
             }
             setPadding(dp(12f), dp(14f), dp(12f), dp(10f))
         }
@@ -540,12 +540,12 @@ class SettingsActivity : Activity() {
                     if (packOk) null else warnOrange,
                 ) { openPanel(R.drawable.ic_set_offline, "Dữ liệu ngoại tuyến") { fillOffline() } },
                 Tile(
-                    R.drawable.ic_set_background, "Chạy nền",
-                    if (!permsOk) "Thiếu quyền" else if (Live.serviceRunning) "Đang chạy" else "Đang dừng",
+                    R.drawable.ic_set_background, "Quyền",
+                    if (!permsOk) "Thiếu quyền" else "Đã đủ",
                     if (!permsOk) warnOrange else null,
-                ) { openPanel(R.drawable.ic_set_background, "Chạy nền & quyền") { fillBackground() } },
+                ) { openPanel(R.drawable.ic_set_background, "Quyền của app") { fillBackground() } },
                 Tile(R.drawable.ic_set_sendlog, "Gửi nhật ký", "3 chuyến gần nhất") { AppActions.sendTripLogs(this) },
-                Tile(R.drawable.ic_set_update, "Cập nhật", "Bản ${Updater.currentVersion(this)}") { openUpdatePanel(auto = false) },
+                Tile(R.drawable.ic_set_update, "Cập nhật", "Bản ${Updater.currentVersion(this)}") { openUpdatePanel(auto = true) },
             ),
         )
 
@@ -572,11 +572,11 @@ class SettingsActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(dp(20f), dp(10f), dp(20f), dp(10f))
             background = android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf(Color.parseColor("#337CC4FF")),
+                android.content.res.ColorStateList.valueOf(Color.parseColor("#33C9CED6")),
                 GradientDrawable().apply {
-                    setColor(Color.parseColor("#1A7CC4FF"))
+                    setColor(Color.parseColor("#14C9CED6"))
                     cornerRadius = dp(999f).toFloat()
-                    setStroke(dp(1f), Color.parseColor("#667CC4FF"))
+                    setStroke(dp(1f), Color.parseColor("#66C9CED6"))
                 },
                 null,
             )
@@ -776,15 +776,7 @@ class SettingsActivity : Activity() {
     }
 
     private fun fillBackground() {
-        toggle("Theo dõi tốc độ & camera", null, Live.serviceRunning, note = "Chạy nền khi dùng app") { on ->
-            if (on) {
-                Live.userStopped = false
-                DriveService.start(this)
-            } else {
-                Live.userStopped = true
-                DriveService.stop(this)
-            }
-        }
+        // Theo dõi tốc độ & camera luôn bật mặc định khi mở app — đã bỏ công tắc tạm dừng.
         // Quyền đã cấp thì ẩn đi cho gọn — chỉ hiện quyền còn thiếu.
         val usageOk = ForegroundApp.hasPermission(this)
         val overlayOk = Settings.canDrawOverlays(this)

@@ -58,7 +58,7 @@ import java.util.concurrent.Executors
 class NavActivity : Activity() {
 
     private val bg = Color.parseColor("#0B0D10")
-    private val green = Color.parseColor("#0B6E4F")
+    private val green = Brand.redDeep
     private val danger = Color.parseColor("#FF3B30")
     private val muted = Color.parseColor("#9AA3AE")
 
@@ -272,7 +272,7 @@ class NavActivity : Activity() {
         col.addView(turnText)
         row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
         turnCard.addView(row)
-        thenText = tv(if (ls) 15f else 17f, Color.parseColor("#E3F6EE"), true).apply {
+        thenText = tv(if (ls) 15f else 17f, Brand.redSoftText, true).apply {
             visibility = View.GONE
             maxLines = 2
             gravity = Gravity.CENTER_VERTICAL
@@ -424,7 +424,7 @@ class NavActivity : Activity() {
         btnRow = btns
 
         // Về vị trí (◎) + Kết thúc: gộp một cột ngay dưới nút ☰ (menu) cho gọn, dễ với tay
-        recenterBtn = btn("◎", Color.parseColor("#1565C0"), "Về vị trí") {
+        recenterBtn = btn("◎", Brand.red, "Về vị trí") {
             follow = true
             recenterBtn.visibility = View.GONE
             render()
@@ -577,7 +577,7 @@ class NavActivity : Activity() {
                 ?: h?.name
                 ?: segsOf[i].take(3).joinToString(" → ") { it.name }.ifBlank { null }
             if (sub != null) {
-                col.addView(tv(11f, if (sel) Color.parseColor("#D9F2E6") else muted).apply {
+                col.addView(tv(11f, if (sel) Brand.redSoftText else muted).apply {
                     text = "Qua: $sub"
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
@@ -588,7 +588,7 @@ class NavActivity : Activity() {
         choicesPanel.addView(tv(13f, Color.WHITE, true).apply {
             text = "✓ Đi tuyến đã chọn"
             gravity = Gravity.CENTER
-            background = rounded(Color.parseColor("#1565C0"), 10f)
+            background = rounded(Brand.red, 10f)
             setPadding(dp(10f), dp(7f), dp(10f), dp(7f))
             setOnClickListener { DriveService.send(this@NavActivity, DriveService.ACTION_NAV_CHOICES_DONE) }
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
@@ -755,38 +755,142 @@ class NavActivity : Activity() {
         toast("Đã ghi vào nhật ký: $text")
     }
 
+    /**
+     * Menu ☰ — khung nổi giữa màn cùng phong cách trang Cài đặt (icon nét mảnh trong ô bo góc, tone
+     * đỏ/xám than theo logo). Đã bỏ: Ghi chú sự cố (chưa từng dùng tới khi đọc nhật ký), Màn hình
+     * tốc độ lớn, Tạm dừng theo dõi tốc độ (theo dõi luôn bật mặc định). "Cập nhật phần mềm" chạy
+     * ngay trong menu, thanh tiến độ dạng nấc vát chéo, không phải vào Cài đặt.
+     */
     private fun showMenu() {
-        val items = arrayOf(
-            "📝   Ghi chú sự cố (vào nhật ký)",
-            "🚧   Báo đường đang đứng bị chặn",
-            "⚙   Cài đặt",
-            "📤   Gửi nhật ký chuyến đi",
-            "⬆   Cập nhật phần mềm",
-            "🗺   Mở Google Maps",
-            "⏱   Màn hình tốc độ lớn",
-            if (Live.serviceRunning) "⏸   Tạm dừng theo dõi tốc độ" else "▶   Bật theo dõi tốc độ",
+        val d = android.app.Dialog(this)
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Brand.panel)
+                cornerRadius = dp(20f).toFloat()
+                setStroke(1, Brand.border)
+            }
+            setPadding(dp(16f), dp(16f), dp(16f), dp(12f))
+        }
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4f), 0, 0, dp(10f))
+        }
+        head.addView(
+            android.widget.ImageView(this).apply { setImageResource(R.drawable.ic_launcher) },
+            LinearLayout.LayoutParams(dp(40f), dp(40f)),
         )
-        AlertDialog.Builder(this)
-            .setTitle("MotoNav")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> noteDialog()
-                    1 -> reportBlocked()
-                    2 -> startActivity(Intent(this, SettingsActivity::class.java))
-                    3 -> AppActions.sendTripLogs(this)
-                    4 -> startActivity(Intent(this, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_AUTO_UPDATE, true))
-                    5 -> AppActions.openGoogleMaps(this, prefs)
-                    6 -> startActivity(Intent(this, MainActivity::class.java))
-                    7 -> if (Live.serviceRunning) {
-                        Live.userStopped = true
-                        DriveService.stop(this)
-                    } else {
-                        Live.userStopped = false
-                        DriveService.start(this)
+        head.addView(
+            tv(18f, Color.WHITE, true).apply { text = "NMAX Navi"; setPadding(dp(12f), 0, 0, 0) },
+            LinearLayout.LayoutParams(0, -2, 1f),
+        )
+        head.addView(tv(18f, muted).apply {
+            text = "✕"
+            setPadding(dp(12f), dp(4f), dp(4f), dp(4f))
+            setOnClickListener { d.dismiss() }
+        })
+        outer.addView(head)
+
+        fun iconBox(icon: Int): View = android.widget.FrameLayout(this).apply {
+            background = rounded((Brand.redIcon and 0x00FFFFFF) or 0x24000000, 12f)
+            addView(
+                android.widget.ImageView(this@NavActivity).apply {
+                    setImageResource(icon)
+                    setColorFilter(Brand.redIcon)
+                },
+                android.widget.FrameLayout.LayoutParams(dp(22f), dp(22f), Gravity.CENTER),
+            )
+        }
+
+        fun row(icon: Int, label: String, sub: TextView? = null, onClick: () -> Unit) {
+            val r = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(6f), dp(8f), dp(6f), dp(8f))
+                background = android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(Color.parseColor("#26FFFFFF")), null, rounded(Color.WHITE, 12f),
+                )
+                isClickable = true
+                setOnClickListener { onClick() }
+            }
+            r.addView(iconBox(icon), LinearLayout.LayoutParams(dp(42f), dp(42f)))
+            val col = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14f), 0, 0, 0)
+            }
+            col.addView(tv(16f, Color.parseColor("#EEF1F4")).apply { text = label })
+            if (sub != null) col.addView(sub)
+            r.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
+            outer.addView(r, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2f) })
+        }
+
+        row(R.drawable.ic_set_settings, "Cài đặt") {
+            d.dismiss()
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        val upSub = tv(12.5f, Color.parseColor("#C2CAD3")).apply { text = "Bản ${Updater.currentVersion(this@NavActivity)}" }
+        val upBar = SegmentProgress(this).apply { visibility = View.GONE }
+        row(R.drawable.ic_set_update, "Cập nhật phần mềm", upSub) {
+            Updater.checkInline(this, prefs) { st ->
+                when (st) {
+                    is Updater.UpdateState.Checking -> {
+                        upBar.visibility = View.VISIBLE
+                        upBar.indeterminate = true
+                        upSub.text = "Đang kiểm tra bản mới…"
+                    }
+                    is Updater.UpdateState.UpToDate -> {
+                        upBar.indeterminate = false
+                        upBar.visibility = View.GONE
+                        upSub.text = "Bản ${st.ver} — đã là mới nhất"
+                    }
+                    is Updater.UpdateState.Downloading -> {
+                        upBar.visibility = View.VISIBLE
+                        upBar.indeterminate = false
+                        upBar.progress = st.pct
+                        upSub.text = "Đang tải bản mới…"
+                    }
+                    is Updater.UpdateState.Installing -> {
+                        upBar.visibility = View.VISIBLE
+                        upBar.indeterminate = false
+                        upBar.progress = 100
+                        upSub.text = "Đang cài…"
+                    }
+                    is Updater.UpdateState.Error -> {
+                        upBar.indeterminate = false
+                        upBar.visibility = View.GONE
+                        upSub.text = "Lỗi: ${st.msg}"
                     }
                 }
             }
-            .show()
+        }
+        outer.addView(upBar, LinearLayout.LayoutParams(-1, dp(9f)).apply {
+            leftMargin = dp(62f)
+            rightMargin = dp(6f)
+            topMargin = dp(2f)
+            bottomMargin = dp(6f)
+        })
+        row(R.drawable.ic_set_sendlog, "Gửi nhật ký chuyến đi") {
+            d.dismiss()
+            AppActions.sendTripLogs(this)
+        }
+        row(R.drawable.ic_set_block, "Báo đường đang đứng bị chặn") {
+            d.dismiss()
+            reportBlocked()
+        }
+        row(R.drawable.ic_set_pin, "Mở Google Maps") {
+            d.dismiss()
+            AppActions.openGoogleMaps(this, prefs)
+        }
+
+        d.setContentView(outer)
+        d.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        d.setCanceledOnTouchOutside(true)
+        d.show()
+        val w = minOf((resources.displayMetrics.widthPixels * 0.9).toInt(), dp(440f))
+        d.window?.setLayout(w, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+        d.window?.setDimAmount(0.6f)
     }
 
     /** Đánh dấu vị trí hiện tại là "đường bị chặn" để lần sau app tự né khi tìm đường. */
@@ -1430,7 +1534,7 @@ class NavActivity : Activity() {
             CircleLayer("mn-turn-dot", "mn-turn").withProperties(
                 PropertyFactory.circleRadius(9f),
                 PropertyFactory.circleColor("#FFD60A"),
-                PropertyFactory.circleStrokeColor("#0B6E4F"),
+                PropertyFactory.circleStrokeColor("#A81E22"),
                 PropertyFactory.circleStrokeWidth(4f),
             ),
         )
@@ -1439,7 +1543,7 @@ class NavActivity : Activity() {
             PropertyFactory.textField(Expression.get("label")),
             PropertyFactory.textSize(24f),
             PropertyFactory.textColor("#FFFFFF"),
-            PropertyFactory.textHaloColor("#0B6E4F"),
+            PropertyFactory.textHaloColor("#A81E22"),
             PropertyFactory.textHaloWidth(4f),
             PropertyFactory.textAnchor(Property.TEXT_ANCHOR_BOTTOM),
             PropertyFactory.textOffset(arrayOf(0f, -1.2f)),
@@ -2070,7 +2174,7 @@ class NavActivity : Activity() {
             turnArrow.setImageBitmap(Live.navArrow)
             turnDist.text = Live.navDistance ?: ""
             turnText.text = Live.navInstruction
-            turnCard.background = rounded(if (Live.navMeters in 0..70) Color.parseColor("#1565C0") else green)
+            turnCard.background = rounded(if (Live.navMeters in 0..70) Brand.red else green)
             val t = Live.thenText
             thenText.visibility = if (t != null) View.VISIBLE else View.GONE
             thenText.text = t ?: ""

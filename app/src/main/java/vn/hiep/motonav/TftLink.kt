@@ -415,10 +415,18 @@ object TftLink {
         if (route == null || route.lats.size < 2) {
             // Khung "chờ" — gửi đều đặn khi chưa có tuyến (chưa dẫn đường/mất GPS/vừa tới nơi) để
             // xe không coi là mất kết nối vì im lặng quá lâu.
-            // Bỏ chữ "MotoNav" theo yêu cầu "bỏ logo cho nó rộng" — chỉ còn dòng trạng thái, để
-            // khoảng trống thoáng hơn.
-            val p2 = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
-            c.drawText("Chờ tuyến đường…", w / 2f, h * 0.52f, p2)
+            // Logo NMAX NAVI ở giữa màn (bản nền tối: nét tối đảo sang trắng, giữ màu đỏ — chỉ
+            // ~5KB JPEG, nhẹ hơn khung dẫn đường). Chưa nạp được logo thì về dòng chữ cũ.
+            val logo = logoBmp
+            if (logo != null) {
+                val lh = h * 0.82f
+                val lw = lh * logo.width / logo.height
+                val dst = android.graphics.RectF((w - lw) / 2f, (h - lh) / 2f, (w + lw) / 2f, (h + lh) / 2f)
+                c.drawBitmap(logo, null, dst, Paint().apply { isFilterBitmap = true; isAntiAlias = true })
+            } else {
+                val p2 = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+                c.drawText("Chờ tuyến đường…", w / 2f, h * 0.52f, p2)
+            }
         } else {
             val proj = LocalProjection(skLat, skLon)
             // Tìm điểm gần vị trí hiện tại nhất trên tuyến. "Ghim" quanh chỉ số khung trước (nếu
@@ -1296,8 +1304,13 @@ object TftLink {
                 ((b[at + 2].toInt() and 0xFF) shl 16) or ((b[at + 3].toInt() and 0xFF) shl 24)
     }
 
+    @Volatile private var logoBmp: Bitmap? = null
+
     fun start(ctx: Context, deviceAddr: String?) {
         if (!running.compareAndSet(false, true)) return
+        if (logoBmp == null) {
+            logoBmp = try { android.graphics.BitmapFactory.decodeResource(ctx.resources, R.drawable.tft_logo) } catch (_: Throwable) { null }
+        }
         lastError = null
         try {
             val a = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter

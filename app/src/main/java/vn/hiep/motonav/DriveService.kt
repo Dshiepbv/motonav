@@ -32,7 +32,7 @@ import kotlin.math.sqrt
 class DriveService : Service(), LocationListener {
 
     companion object {
-        private const val CHANNEL = "drive"
+        private const val CHANNEL = "drive_silent"
         private const val NOTIF_ID = 1
         const val ACTION_STOP = "vn.hiep.motonav.STOP"
         const val ACTION_NAV_START = "vn.hiep.motonav.NAV_START"
@@ -127,8 +127,13 @@ class DriveService : Service(), LocationListener {
         handler = Handler(thread.looper)
 
         val nm = getSystemService(NotificationManager::class.java)
+        // Theo dõi tốc độ là mặc định, không cần báo trên thanh trạng thái: Android bắt buộc dịch vụ
+        // nền phải có thông báo, nên dùng kênh mức THẤP NHẤT (MIN) — không hiện icon trên thanh
+        // trạng thái, chỉ nằm gọn trong ngăn kéo thông báo. Kênh cũ ("drive", mức LOW) xoá đi vì
+        // Android không cho đổi mức quan trọng của kênh đã tạo.
+        try { nm.deleteNotificationChannel("drive") } catch (_: Exception) {}
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Theo dõi khi chạy xe", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(CHANNEL, "Chạy nền", NotificationManager.IMPORTANCE_MIN).apply { setShowBadge(false) },
         )
         val notif = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -242,11 +247,7 @@ class DriveService : Service(), LocationListener {
 
     private fun buildNotification(): Notification {
         val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val stop = PendingIntent.getService(
-            this, 1, Intent(this, DriveService::class.java).setAction(ACTION_STOP),
+            this, 0, Intent(this, NavActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return Notification.Builder(this, CHANNEL)
@@ -255,12 +256,6 @@ class DriveService : Service(), LocationListener {
             .setContentText("Theo dõi tốc độ giới hạn và camera")
             .setContentIntent(open)
             .setOngoing(true)
-            .addAction(
-                Notification.Action.Builder(
-                    Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-                    "Dừng", stop,
-                ).build(),
-            )
             .build()
     }
 
