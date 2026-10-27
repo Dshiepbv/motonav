@@ -876,12 +876,14 @@ object TftLink {
             }
         }
         val out = ByteArrayOutputStream()
-        // Hạ tiếp (22→17) theo log thực tế build 0.160: khung nặng hẳn lên sau khi thêm phối cảnh
-        // nghiêng 3D (đường cong nhiều cạnh hơn fan tuyến thẳng cũ, nén JPEG kém hiệu quả hơn) —
-        // trung bình 10-11KB, timeout xe không kịp ACK 18-23% số khung (so với ~8KB/8% trước đó),
-        // đúng là nguyên nhân "khung ảnh reload liên tục" theo phản hồi thực tế. Nội dung vẫn chỉ
-        // nét trắng/đỏ trên nền đen nên hạ thêm chất lượng gần như không thấy khác biệt bằng mắt.
-        bmp.compress(Bitmap.CompressFormat.JPEG, 17, out)
+        // Hạ tiếp (17→14) theo log thực tế chuyến 115807 (0.205): vẫn ~20% khung timeout ACK dù đã
+        // hạ xuống 17 trước đó, TB ~9,7KB. Nhưng đối chiếu kỹ: timeout KHÔNG tăng tuyến tính rõ theo
+        // cỡ khung (có đoạn 9,0KB mà 0% timeout, có đoạn 9,9KB mà 41% timeout) — mà đi THEO CHUỖI dài
+        // 4-12 khung timeout liên tiếp rồi lại hết hẳn một lúc, kiểu ngắt quãng BLE/khoảng cách chứ
+        // không thuần "khung nặng". Hạ quality thêm vẫn nên làm (luôn giúp ít nhiều, không hại gì)
+        // nhưng KHÔNG kỳ vọng hết hẳn "reload" — nếu vẫn còn, nhiều khả năng là giới hạn phần cứng/
+        // khoảng cách Bluetooth phía xe chứ không phải thứ sửa thêm bằng code được nữa.
+        bmp.compress(Bitmap.CompressFormat.JPEG, 14, out)
         bmp.recycle()
         return out.toByteArray()
     }
@@ -1013,7 +1015,7 @@ object TftLink {
         }
         c.drawPath(carPath, carPaint)
         val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, 17, out) // cùng chất lượng 17 như khung thật
+        bmp.compress(Bitmap.CompressFormat.JPEG, 14, out) // cùng chất lượng 14 như khung thật
         bmp.recycle()
         return out.toByteArray()
     }
@@ -1111,7 +1113,7 @@ object TftLink {
             }
         }
         val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, 17, out) // cùng chất lượng 17 như khung thật, để số liệu so sánh được
+        bmp.compress(Bitmap.CompressFormat.JPEG, 14, out) // cùng chất lượng 14 như khung thật, để số liệu so sánh được
         bmp.recycle()
         return out.toByteArray()
     }

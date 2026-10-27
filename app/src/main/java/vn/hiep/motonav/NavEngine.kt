@@ -216,11 +216,14 @@ class NavEngine(
         val remaining = max(0.0, r.total - progress)
         Live.remainingM = remaining
         Live.etaMs = if (r.total > 0) (r.timeMs * (remaining / r.total)).toLong() else 0L
-        // Lệch tuyến: cách tuyến > 10 m mà hướng đi lệch hướng tuyến > 35°, hoặc cách > 18 m
-        // (hạ từ 12/22m theo yêu cầu "định tuyến lại còn chậm" — phát hiện lệch tuyến sớm hơn).
+        // Lệch tuyến: cách tuyến > 12 m mà hướng đi lệch hướng tuyến > 35°, hoặc cách > 22 m.
+        // ĐÃ THỬ hạ xuống 10/18m (bản 7.21) để định tuyến lại nhanh hơn, nhưng log thực tế cho thấy
+        // ngưỡng đó quá sát nhiễu GPS thường (dao động 10-18m dù đang đi đúng tuyến) — gây "on/off"
+        // nhấp nháy liên tục kéo theo định tuyến lại dồn dập (xem rerouteTimes/gap bên dưới) tự nó
+        // trở thành nguồn "reload liên tục" mới. Trả về 12/22m gốc, vẫn ổn định mà không chậm.
         val segBrg = Geo.bearing(r.lats[bestI], r.lons[bestI], r.lats[bestI + 1], r.lons[bestI + 1])
         val turnedAway = heading != null && speedMps > 1.5 && Geo.angleDiff(heading, segBrg) > 35
-        val off = (bestD > 10 && turnedAway) || bestD > 18
+        val off = (bestD > 12 && turnedAway) || bestD > 22
         if (off != Live.offRoute) TripLog.ev("off", "on" to off, "d" to bestD, "hdg" to heading, "seg" to segBrg)
         Live.offRoute = off
         TripLog.ev("nav", "d" to bestD, "p" to progress, "i" to bestI)
@@ -283,16 +286,18 @@ class NavEngine(
             Geo.distance(lat, lon, rrLat, rrLon) >= (if (nearDest) 12.0 else 25.0)
         if (off && moving) offCount++ else offCount = 0
         val now = SystemClock.elapsedRealtime()
-        // Tìm lại liên tục nhiều lần (≥ 3 lần trong 2 phút) → giãn ra 60 giây cho đỡ tốn lượt VietMap.
-        // Nhưng nếu đã đi lệch QUÁ XA (≥ 60 m) hoặc đang ở gần đích thì luôn tìm lại nhanh (5 giây) —
-        // ưu tiên bắt theo hướng xe đang chạy tới ngay, không để xe chạy xa cả trăm mét mà app vẫn
-        // chỉ tuyến cũ phía sau, và đoạn cuối gần đích cần bám sát hơn bình thường.
+        // Tìm lại liên tục nhiều lần (≥ 3 lần trong 2 phút) → giãn ra cho đỡ tốn lượt Goong VÀ đỡ
+        // dồn khung TFT — log thực tế (chuyến 115807) cho thấy khi lệch tuyến mà định tuyến lại
+        // KHÔNG giải quyết được (ví dụ ngõ cụt xe máy mới vào được, ô tô/Goong không thấy đường nối
+        // lại), "urgent" (bestD>45) từng đè luôn lên ngưỡng giãn này → định tuyến lại dồn dập mỗi
+        // 4-8 giây suốt 40 giây liền không dừng. Sửa: ngưỡng giãn (đã thử ≥3 lần/2 phút) LUÔN có
+        // hiệu lực trước, kể cả khi urgent. "urgent" vì gần đích cũng chỉ còn tính khi THẬT SỰ đang
+        // lệch tuyến (off) — trước đây cứ vào bán kính 150m quanh đích là tự coi là urgent dù đang
+        // đi ĐÚNG tuyến (d chỉ 1-5m), gây định tuyến lại vô ích liên tục ngay trước khi tới nơi.
         rerouteTimes.removeAll { now - it > 120_000 }
-        val urgent = bestD > 45 || nearDest
-        // Hạ ngưỡng/khoảng chờ (offCount 2->1, bestD 40->32, gap 8s->5s) theo yêu cầu "định tuyến
-        // lại còn chậm, đi 300m rồi chưa định tuyến lại" — phản ứng nhanh hơn khi thật sự đi lệch.
-        val gap = if (urgent) 4_000 else if (rerouteTimes.size >= 3) 50_000 else 5_000
-        if (moving && (offCount >= 1 || bestD > 32 || urgent) && !routing && now - lastReroute > gap) {
+        val urgent = bestD > 45 || (nearDest && off)
+        val gap = if (rerouteTimes.size >= 3) 50_000 else if (urgent) 4_500 else 6_000
+        if (moving && (offCount >= 2 || bestD > 35 || urgent) && !routing && now - lastReroute > gap) {
             rerouteTimes.add(now)
             TripLog.ev("reroute", "d" to bestD, "n" to offCount, "spd" to speedMps, "hdg" to heading)
             rrLat = lat; rrLon = lon
