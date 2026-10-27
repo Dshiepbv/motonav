@@ -622,16 +622,10 @@ object TftLink {
                 else -> 1.0
             }
             val baseMaxAhead = (1800.0 * zoomMul * spdMul).coerceIn(400.0, 3600.0)
-            // Luôn nhìn xa đủ qua khỏi chỗ rẽ sắp tới (+150m) và hé thêm một đoạn qua chỗ rẽ kế
-            // tiếp nữa (+150m) nếu biết — theo phản hồi thực tế "gần tới chỗ rẽ mới thì đường xanh
-            // hiện tại bị tắt": trước đây maxAhead chỉ theo tốc độ/zoom, có lúc ngắn hơn khoảng cách
-            // tới chỗ rẽ (đặc biệt lúc đi chậm, maxAhead ~600m) nên đúng lúc sắp rẽ, đoạn đường sau
-            // chỗ rẽ bị cắt mất khỏi khung hình, nhìn như đường xanh "biến mất". Không giới hạn trên
-            // vì phép chiếu fisheye đã tự nén đoạn xa lại, không làm đường quá bé.
-            val turnDist = skDistanceM.takeIf { it >= 0 }?.toDouble() ?: 0.0
-            val afterTurnDist = if (skThenDistM > 0) turnDist + skThenDistM else turnDist
-            val maxAhead = maxOf(baseMaxAhead, turnDist + 150.0, afterTurnDist * 0.3 + 150.0)
-                .coerceIn(400.0, 3600.0)
+            // Theo yêu cầu (27/10): bỏ quy tắc nới khung theo khoảng cách tới chỗ rẽ (turnDist+150) —
+            // chỗ rẽ xa vài km làm khung nới tới 3600 m, đường gần xe bị nén ngắn tũn. Tầm nhìn chỉ
+            // theo mức zoom tốc độ + nút zoom; đoạn xa hơn vẫn được vẽ (nén) nhờ [drawAhead].
+            val maxAhead = baseMaxAhead
             // Theo phản hồi thực tế nhiều lần "đường xanh chỉ tô khi chạy gần tới": mức zoom lúc đi
             // chậm (<50km/h → maxAhead còn 1/3, tức ~600m) trước đây bị dùng LUÔN làm luôn cả khoảng
             // vẽ tuyến (iEnd0) lẫn lưới nhánh đường — nghĩa là đoạn đường xa hơn 600m KHÔNG hề được
@@ -935,20 +929,42 @@ object TftLink {
                 // (nhãn vẽ sau tuyến, neo lệch lên-phải cố định) — nhìn như tuyến đỏ bị mất đoạn. Thử 4
                 // hướng đặt nhãn quanh điểm neo, chọn hướng có ít điểm tuyến lọt vào khung nhãn nhất.
                 // Tuyến đỏ vẫn được vẽ SAU nhãn (bên dưới) nên kể cả lúc buộc phải chồng lên vẫn thấy đỏ.
-                val offs = arrayOf(floatArrayOf(0.16f, -0.1f), floatArrayOf(-0.16f, -0.1f), floatArrayOf(0.16f, 0.12f), floatArrayOf(-0.16f, 0.12f))
+                // Theo yêu cầu "tên đường né đường đỏ, đừng đè lên nhau": trước chỉ đếm ĐỈNH tuyến lọt
+                // vào khung nhãn, nên đoạn thẳng dài cắt ngang khung (không có đỉnh bên trong) vẫn bị
+                // coi là không chạm. Giờ xét từng ĐOẠN tuyến cắt khung (kể cả lề 8 px), thử 8 hướng × 3
+                // khoảng cách quanh điểm neo, lấy vị trí không chạm gần neo nhất; nếu chỗ nào cũng
+                // chạm thì lấy vị trí chạm ít đoạn nhất.
+                fun segHitsBox(x1: Float, y1: Float, x2: Float, y2: Float, l: Float, t: Float, r: Float, b: Float): Boolean {
+                    if (maxOf(x1, x2) < l || minOf(x1, x2) > r || maxOf(y1, y2) < t || minOf(y1, y2) > b) return false
+                    val n = (Math.hypot((x2 - x1).toDouble(), (y2 - y1).toDouble()) / 3.0).toInt().coerceAtLeast(1)
+                    for (k in 0..n) {
+                        val f = k.toFloat() / n
+                        val x = x1 + (x2 - x1) * f; val y = y1 + (y2 - y1) * f
+                        if (x in l..r && y in t..b) return true
+                    }
+                    return false
+                }
+                val dirs = arrayOf(floatArrayOf(1f, -0.6f), floatArrayOf(-1f, -0.6f), floatArrayOf(1f, 0.7f), floatArrayOf(-1f, 0.7f),
+                    floatArrayOf(0f, -1f), floatArrayOf(0f, 1f), floatArrayOf(1.3f, 0f), floatArrayOf(-1.3f, 0f))
+                val radii = floatArrayOf(0.16f, 0.28f, 0.42f)
                 var bestBox: FloatArray? = null
-                var bestHits = Int.MAX_VALUE
-                for (o in offs) {
-                    val lx0 = (mx + h * o[0]).coerceIn(h * 0.02f, w - h * 0.02f)
-                    val ly0 = (my + h * o[1]).coerceIn(h * 0.1f, h * 0.95f)
-                    val left = (lx0 - tw / 2f - padX).coerceAtLeast(2f)
-                    val right = (left + tw + padX * 2f).coerceAtMost(w - 2f)
+                var bestScore = Float.MAX_VALUE
+                val m = 8f
+                search@ for (rad in radii) for (d in dirs) {
+                    val lx0 = (mx + h * rad * d[0]).coerceIn(tw / 2f + padX + 2f, w - tw / 2f - padX - 2f)
+                    val ly0 = (my + h * rad * d[1]).coerceIn(h * 0.1f + padY, h * 0.95f)
+                    val left = lx0 - tw / 2f - padX
+                    val right = lx0 + tw / 2f + padX
                     val top = ly0 - h * 0.08f - padY
                     val bottom = ly0 + h * 0.026f + padY
                     var hits = 0
-                    for (pt in routePx) if (pt[0] in (left - 6f)..(right + 6f) && pt[1] in (top - 6f)..(bottom + 6f)) hits++
-                    if (hits < bestHits) { bestHits = hits; bestBox = floatArrayOf(lx0, ly0, left, right, top, bottom) }
-                    if (hits == 0) break
+                    for (q in 1 until routePx.size) {
+                        val p0 = routePx[q - 1]; val p1 = routePx[q]
+                        if (segHitsBox(p0[0], p0[1], p1[0], p1[1], left - m, top - m, right + m, bottom + m)) hits++
+                    }
+                    val score = hits * 10000f + Math.hypot((lx0 - mx).toDouble(), (ly0 - my).toDouble()).toFloat()
+                    if (score < bestScore) { bestScore = score; bestBox = floatArrayOf(lx0, ly0, left, right, top, bottom) }
+                    if (hits == 0) break@search
                 }
                 val bx = bestBox!!
                 c.drawLine(mx, my, bx[0], bx[1], leaderPaint)
