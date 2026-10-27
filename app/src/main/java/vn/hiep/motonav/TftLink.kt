@@ -243,6 +243,12 @@ object TftLink {
     // mới quá 1 s (khoảng cách giữa 2 lần xe ACK, trừ 1 s) — tính cả lúc app CỐ Ý chờ ở nhịp B/C,
     // nên nhịp nào gửi thưa đi cũng không "ăn gian" được con số.
     @Volatile private var paceMode = 0
+    // build-231 — thử cỡ ảnh: luân phiên mỗi 2 cửa sổ tftStat giữa ảnh thường (0 = L, quality 14,
+    // ~10 KB) và ảnh nhỏ (1 = S, hạ quality tới khi ≤ SMALL_TARGET_BYTES). So bằng gapL/gapS trong tftStat.
+    @Volatile private var sizeMode = 0
+    private const val SMALL_TARGET_BYTES = 6500
+    private val gapBySize = LongArray(2)
+    private val spanBySize = LongArray(2)
     private var statWindows = 0
     private var lastAckAt = 0L
     private var statGapMs = 0L
@@ -299,11 +305,14 @@ object TftLink {
             val totSpan = (now - totFrom).coerceAtLeast(1)
             val m = paceMode
             gapByMode[m] += statGapMs; spanByMode[m] += span
+            val sm = sizeMode
+            gapBySize[sm] += statGapMs; spanBySize[sm] += span
             fun pct(a: Long, b: Long) = if (b <= 0) -1.0 else Math.round(a * 1000.0 / b) / 10.0
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "bikeKmh" to bikeSpeedKmh, "resend" to statResend, "resendHit" to statResendHit,
+                    "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
                     "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]))
@@ -314,6 +323,7 @@ object TftLink {
             // Thử nghiệm 221–224 xong (log 27/10, 27 phút): A tốt nhất (gap ≈15%) — B ≈21–25%, C ≈25–30%.
             // Chốt cố định nhịp A, bỏ luân phiên.
             paceMode = 0
+            sizeMode = (statWindows / 2) % 2
         }
     }
 
@@ -549,6 +559,7 @@ object TftLink {
         c.drawColor(Color.BLACK)
         val route = skRoute
         val anchorX = w / 2f
+        var carX = anchorX // tam giác xe (chỉ vẽ) — xem build-231 ở khối nét đỏ
         // Nhích điểm xe lên khỏi mép dưới (0.82->0.72) — theo phản hồi thực tế: khi tuyến rẽ ngang
         // ngay gần vị trí hiện tại, đoạn rẽ bị khuất sát đáy khung, không thấy đường đi đâu.
         // "var" vì ở nhánh có tuyến, anchorY được tính lại theo toScreen(0,0) — vị trí xe trên màn
@@ -900,11 +911,14 @@ object TftLink {
                     if (d < bestD) { bestD = d; bestPx = px; bestPy = py; bestNext = a + 1 }
                 }
                 if (bestD < 25.0) {
-                    path.moveTo(anchorX, toScreen(0.0, 0.0)[1])
-                    routePx.add(floatArrayOf(anchorX, toScreen(0.0, 0.0)[1]))
                     val prx = bestPx * cosH - bestPy * sinH
                     val pry = bestPx * sinH + bestPy * cosH
                     val (psx, psy) = toScreen(prx, pry)
+                    // build-231: CHỈ tam giác xe (vẽ) dời ngang về tim nét đỏ khi lệch < 12 m — phép
+                    // chiếu/xoay/3D giữ nguyên vị trí GPS thật (khác bản 220 đã bị gỡ).
+                    if (bestD < 12.0) carX = psx.coerceIn(anchorX - h * 0.12f, anchorX + h * 0.12f)
+                    path.moveTo(carX, toScreen(0.0, 0.0)[1])
+                    routePx.add(floatArrayOf(carX, toScreen(0.0, 0.0)[1]))
                     path.lineTo(psx, psy)
                     routePx.add(floatArrayOf(psx, psy))
                     started = true
@@ -1031,9 +1045,9 @@ object TftLink {
         val carPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
         val carR = h * 0.085f
         val carPath = android.graphics.Path().apply {
-            moveTo(anchorX, anchorY - carR)
-            lineTo(anchorX - carR * 0.7f, anchorY + carR * 0.6f)
-            lineTo(anchorX + carR * 0.7f, anchorY + carR * 0.6f)
+            moveTo(carX, anchorY - carR)
+            lineTo(carX - carR * 0.7f, anchorY + carR * 0.6f)
+            lineTo(carX + carR * 0.7f, anchorY + carR * 0.6f)
             close()
         }
         c.drawPath(carPath, carPaint)
@@ -1141,6 +1155,16 @@ object TftLink {
         // nhưng KHÔNG kỳ vọng hết hẳn "reload" — nếu vẫn còn, nhiều khả năng là giới hạn phần cứng/
         // khoảng cách Bluetooth phía xe chứ không phải thứ sửa thêm bằng code được nữa.
         bmp.compress(Bitmap.CompressFormat.JPEG, 14, out)
+        if (sizeMode == 1 && out.size() > SMALL_TARGET_BYTES) {
+            // Ảnh nhỏ: hạ quality từng bước tới khi ≤ SMALL_TARGET_BYTES (hoặc quality 4).
+            var q = 11
+            while (q >= 4) {
+                out.reset()
+                bmp.compress(Bitmap.CompressFormat.JPEG, q, out)
+                if (out.size() <= SMALL_TARGET_BYTES) break
+                q -= 3
+            }
+        }
         bmp.recycle()
         return out.toByteArray()
     }

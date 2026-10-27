@@ -73,8 +73,9 @@ object GoongVector {
             if (maxzoom in 1..22) maxZ = maxzoom
         }
         if (urls.isEmpty()) throw RuntimeException("style không có nguồn vector")
-        tileZoom = maxZ.coerceIn(13, 15)
+        tileZoom = maxZ.coerceIn(12, 14) // log 27/10: z15 trả 404 toàn bộ → tối đa z14
         tileUrls = urls
+        TripLog.ev("goongTiles", "tpl" to urls[0].replace(Regex("api_key=[^&]*"), "api_key=*"), "maxzoom" to maxZ, "z" to tileZoom)
         return urls
     }
 
@@ -104,7 +105,11 @@ object GoongVector {
                 TripLog.ev("goongTiles", "fail" to ck, "err" to e.message)
             }
         }
-        if (failed == 9 || out.isEmpty()) return null
+        if (failed == 9 || out.isEmpty()) {
+            // Toàn bộ mảnh lỗi (404…): lần sau thử mức zoom thấp hơn một bậc.
+            if (z > 12) tileZoom = z - 1
+            return null
+        }
         return out
     }
 

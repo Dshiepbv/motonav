@@ -1061,12 +1061,15 @@ class DriveService : Service(), LocationListener {
     private var goongCenterLat = 0.0
     private var goongCenterLon = 0.0
     private var goongFailAt = 0L
+    private var goongFailCount = 0
 
     private fun ensureGoongWays(lat: Double, lon: Double) {
         val key = prefs.goongTileKey // mảnh vector cần Map Tiles Key (không phải REST API Key)
         if (key.isBlank() || goongFetching) return
         if (Live.goongWays != null && Geo.distance(goongCenterLat, goongCenterLon, lat, lon) < 800.0) return
-        if (SystemClock.elapsedRealtime() - goongFailAt < 30000) return
+        // Lùi dần khi lỗi liên tục (30 s, 2 phút, 10 phút) — log 27/10: 404 mỗi ~3 s suốt chuyến.
+        val backoff = when { goongFailCount <= 0 -> 0L; goongFailCount == 1 -> 30_000L; goongFailCount == 2 -> 120_000L; else -> 600_000L }
+        if (SystemClock.elapsedRealtime() - goongFailAt < backoff) return
         goongFetching = true
         goongExec.execute {
             try {
@@ -1074,12 +1077,13 @@ class DriveService : Service(), LocationListener {
                 if (w != null) {
                     Live.goongWays = w
                     goongCenterLat = lat; goongCenterLon = lon
+                    goongFailCount = 0
                     TripLog.ev("goongTiles", "ok" to w.size)
                 } else {
-                    goongFailAt = SystemClock.elapsedRealtime()
+                    goongFailAt = SystemClock.elapsedRealtime(); goongFailCount++
                 }
             } catch (e: Exception) {
-                goongFailAt = SystemClock.elapsedRealtime()
+                goongFailAt = SystemClock.elapsedRealtime(); goongFailCount++
                 TripLog.ev("goongTiles", "err" to e.message)
             } finally {
                 goongFetching = false
