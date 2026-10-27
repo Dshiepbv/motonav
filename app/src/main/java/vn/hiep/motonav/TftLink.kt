@@ -811,6 +811,37 @@ object TftLink {
             val routePx = ArrayList<FloatArray>()
             var started = false
             var i = idx0
+            // Tuyến đỏ phải bắt đầu ĐÚNG tại mũi tên xe (phản hồi thực tế: "mất đường đỏ chỗ định
+            // vị"). Trước đây nét đỏ bắt đầu từ điểm gấp khúc GẦN NHẤT của tuyến (idx0) — trên đoạn
+            // đường thẳng dài, điểm này có thể cách xe hàng trăm mét (phía trước hoặc phía sau), nên
+            // quanh mũi tên xe trống trơn. Nay chiếu vị trí xe lên đoạn tuyến kề idx0, bắt đầu vẽ từ
+            // chính vị trí xe (nếu xe cách tuyến < 25 m) → điểm chiếu → các điểm tuyến phía trước.
+            // Chỉ đổi điểm bắt đầu của nét đỏ, không đụng phép chiếu 3D/xoay.
+            run {
+                var bestD = Double.MAX_VALUE
+                var bestPx = 0.0; var bestPy = 0.0; var bestNext = idx0
+                for (a in intArrayOf(idx0 - 1, idx0)) {
+                    if (a < 0 || a + 1 >= route.lats.size) continue
+                    val ax = proj.x(route.lons[a]); val ay = proj.y(route.lats[a])
+                    val bx = proj.x(route.lons[a + 1]); val by = proj.y(route.lats[a + 1])
+                    val sdx = bx - ax; val sdy = by - ay
+                    val len2 = sdx * sdx + sdy * sdy
+                    val t = if (len2 < 0.01) 0.0 else (-(ax * sdx + ay * sdy) / len2).coerceIn(0.0, 1.0)
+                    val px = ax + t * sdx; val py = ay + t * sdy
+                    val d = Math.hypot(px, py)
+                    if (d < bestD) { bestD = d; bestPx = px; bestPy = py; bestNext = a + 1 }
+                }
+                if (bestD < 25.0) {
+                    path.moveTo(anchorX, toScreen(0.0, 0.0)[1])
+                    val prx = bestPx * cosH - bestPy * sinH
+                    val pry = bestPx * sinH + bestPy * cosH
+                    val (psx, psy) = toScreen(prx, pry)
+                    path.lineTo(psx, psy)
+                    routePx.add(floatArrayOf(psx, psy))
+                    started = true
+                    i = bestNext
+                }
+            }
             while (i < iEnd) {
                 val dx = proj.x(route.lons[i])
                 val dy = proj.y(route.lats[i])

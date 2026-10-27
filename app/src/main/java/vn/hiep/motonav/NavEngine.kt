@@ -163,8 +163,9 @@ class NavEngine(
                 // bắt đi ngược 239° trong khi xe chạy 57°, đoạn ngược dài dần 25→340 m):
                 //  1) Xuất phát từ điểm ~40 m phía trước xe trên ĐÚNG con đường đang đi (OSM), không
                 //     dùng toạ độ GPS thô → Goong không gắn nhầm sang đường bên cạnh.
-                //  2) Loại hẳn mọi tuyến có quay đầu (bước "uturn" hoặc bẻ ngược >150° trong ≤60 m)
-                //     trong 3 km đầu, tuyến xuất phát ngược hướng, tuyến kéo ngược lại vết vừa đi.
+                //  2) Loại tuyến xuất phát ngược hướng, tuyến kéo ngược lại vết vừa đi, tuyến quay đầu
+                //     trong 1 km đầu để chạy về lại đường cũ. Quay đầu nằm sẵn trong lộ trình đi tiếp
+                //     (vòng chân cầu…) và tuyến tìm lúc bắt đầu chuyến thì giữ nguyên.
                 //  3) Không còn tuyến nào hợp lệ → thử ép đi qua điểm phía trước xa dần (150/400/800 m).
                 //  4) Vẫn không có → KHÔNG nhận tuyến quay đầu: giữ "đi tiếp", đi thêm 150 m rồi tìm lại.
                 val on = if (moving) RoutePick.locate(Live.osm, lat, lon, heading!!) else null
@@ -183,11 +184,6 @@ class NavEngine(
                 val clean = list.filter { !BlockedRoads.blocksPath(ctx, it.lats, it.lons) }
                 if (clean.isNotEmpty() && clean.size < list.size) list = clean
                 list = RoutePick.rank(list, heading, forwardFirst = heading != null)
-                // "Nhất định không quay đầu" áp cho MỌI lần tìm đường, kể cả lúc đứng yên/mới bắt đầu
-                // (log 27/10 18:22: tuyến tìm lúc đứng đèn đỏ có bước quay đầu ở cầu Hoá An): còn tuyến
-                // không quay đầu thì bỏ hết tuyến có quay đầu.
-                val noU = list.filter { RoutePick.uturnAt(it) < 0 }
-                if (noU.isNotEmpty()) list = noU
                 var holdForward = false
                 if (moving) {
                     val ok = list.filter { RoutePick.rejectReason(it, heading, trailNow) == null }

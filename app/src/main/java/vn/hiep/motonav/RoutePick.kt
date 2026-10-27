@@ -209,7 +209,7 @@ object RoutePick {
      * đường cũ dù xe đã đi tiếp 300–500 m). [trail] = các vị trí gần đây (cũ → mới) kèm hướng đi.
      * Đếm tổng quãng tuyến (trong 1 km đầu) nằm sát vết xe vừa đi (≤ 25 m) mà đi NGƯỢC chiều vết đó.
      */
-    fun backtrackM(r: Route, trail: List<DoubleArray>): Double {
+    fun backtrackM(r: Route, trail: List<DoubleArray>, radius: Double = 25.0): Double {
         if (trail.size < 2) return 0.0
         var back = 0.0
         var c = 20.0
@@ -219,7 +219,7 @@ object RoutePick {
             val b = bearingAt(r, c - 10.0, c + 10.0)
             for (tp in trail) {
                 if (tp[2] < 0) continue
-                if (Geo.distance(p.first, p.second, tp[0], tp[1]) <= 25.0 && Geo.angleDiff(b, tp[2]) > 120) {
+                if (Geo.distance(p.first, p.second, tp[0], tp[1]) <= radius && Geo.angleDiff(b, tp[2]) > 120) {
                     back += 10.0
                     break
                 }
@@ -229,12 +229,18 @@ object RoutePick {
         return back
     }
 
-    /** Lý do loại tuyến theo ràng buộc "không quay đầu", null = hợp lệ. */
+    /**
+     * Lý do loại tuyến khi TÌM LẠI tuyến (đi lệch), null = hợp lệ. Theo Hiệp: "không quay đầu" nghĩa
+     * là không bắt quay lại tuyến cũ/đường vừa đi — còn quay đầu nằm sẵn trong lộ trình đi tiếp
+     * (vòng xuống chân cầu, quay đầu đúng điểm để sang bên kia đường) thì vẫn phải giữ.
+     */
     fun rejectReason(r: Route, heading: Double?, trail: List<DoubleArray>): String? {
         if (isBackward(r, heading)) return "startBackward"
-        val u = uturnAt(r)
-        if (u >= 0) return "uturn@" + u.toInt()
         if (backtrackM(r, trail) >= 40.0) return "backtrack"
+        // Quay đầu trong 1 km đầu rồi chạy ngược lại sát vết vừa đi (làn bên kia dải phân cách, ≤60 m)
+        // = kéo về tuyến cũ → loại. Quay đầu xong đi hướng khác → giữ.
+        val u = uturnAt(r, 1000.0)
+        if (u >= 0 && backtrackM(r, trail, 60.0) >= 40.0) return "uturnBack@" + u.toInt()
         return null
     }
 
