@@ -43,11 +43,13 @@ class SettingsActivity : Activity() {
         }
         scroll.addView(list)
         setContentView(scroll)
+        autoUpdatePending = intent?.getBooleanExtra(EXTRA_AUTO_UPDATE, false) == true
     }
 
     override fun onResume() {
         super.onResume()
         build()
+        fillPanel()
     }
 
     private fun dp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics).toInt()
@@ -217,7 +219,7 @@ class SettingsActivity : Activity() {
 
     /** Hàng "Cập nhật phần mềm" — bấm là tự kiểm tra rồi tải+cài luôn, thanh tiến độ hiện ngay dưới
      * dòng này (không mở bảng hỏi riêng), đúng kiểu NConnect. */
-    private fun updateRow() {
+    private fun updateRow(autoStart: Boolean = false) {
         divider()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -274,6 +276,7 @@ class SettingsActivity : Activity() {
             }
         }
         top.setOnClickListener { Updater.checkInline(this, prefs, ::setState) }
+        if (autoStart) Updater.checkInline(this, prefs, ::setState)
     }
 
     /** Hàng bấm để mở một thao tác. */
@@ -292,25 +295,341 @@ class SettingsActivity : Activity() {
 
     private fun status(ok: Boolean) = if (ok) "✅ Đã bật" else "⚠️ Chưa bật – chạm để cấp"
 
+    // ---------- Trang chính kiểu lưới biểu tượng theo nhóm; bấm vào hiện khung nhỏ ở giữa để chỉnh ----------
+
+    private class Tile(
+        val icon: String,
+        val label: String,
+        val summary: String? = null,
+        val summaryColor: Int? = null,
+        val onTap: () -> Unit,
+    )
+
+    /** Các mục đã chắc chắn dùng (bật sẵn, không cần chỉnh nữa) tạm ẩn — bấm dòng cuối trang để hiện lại. */
+    private var showHidden = false
+    private var autoUpdatePending = false
+
+    private var panel: android.app.Dialog? = null
+    private var panelFill: (() -> Unit)? = null
+    private var panelBody: LinearLayout? = null
+
+    private val okGreen = Color.parseColor("#5DD3A6")
+    private val warnOrange = Color.parseColor("#FFB454")
+
+    private fun columns(): Int {
+        val wdp = resources.displayMetrics.widthPixels / resources.displayMetrics.density
+        return (wdp / 115f).toInt().coerceIn(3, 5)
+    }
+
+    private fun tileView(t: Tile): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        setPadding(dp(4f), dp(12f), dp(4f), dp(12f))
+        background = android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(Color.parseColor("#33FFFFFF")), null, rounded(Color.WHITE, 10f),
+        )
+        isClickable = true
+        setOnClickListener { t.onTap() }
+        addView(tv(24f).apply { text = t.icon; gravity = Gravity.CENTER })
+        addView(tv(12.5f, Color.parseColor("#E6EAEE")).apply {
+            text = t.label
+            gravity = Gravity.CENTER
+            setPadding(0, dp(6f), 0, 0)
+        })
+        if (t.summary != null) {
+            addView(tv(10.5f, t.summaryColor ?: muted).apply {
+                text = t.summary
+                gravity = Gravity.CENTER
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, dp(2f), 0, 0)
+            })
+        }
+    }
+
+    /** Một nhóm: dải tiêu đề chữ hoa + lưới biểu tượng (giống trang "Site Settings" mẫu). */
+    private fun section(title: String, tiles: List<Tile>) {
+        if (tiles.isEmpty()) return
+        val r = dp(12f).toFloat()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(card, 12f, panelBorder, 1f)
+        }
+        box.addView(tv(11.5f, muted, true).apply {
+            text = title.uppercase()
+            letterSpacing = 0.06f
+            setPadding(dp(14f), dp(9f), dp(14f), dp(9f))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#12161B"))
+                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+            }
+        })
+        box.addView(View(this).apply { setBackgroundColor(panelBorder) }, LinearLayout.LayoutParams(-1, 1))
+        val cols = columns()
+        var row: LinearLayout? = null
+        tiles.forEachIndexed { i, t ->
+            if (i % cols == 0) {
+                row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(dp(4f), if (i == 0) dp(6f) else 0, dp(4f), 0)
+                }
+                box.addView(row)
+            }
+            row!!.addView(tileView(t), LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        val rem = tiles.size % cols
+        if (rem != 0) repeat(cols - rem) { row!!.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f)) }
+        box.addView(View(this), LinearLayout.LayoutParams(-1, dp(6f)))
+        list.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
+    }
+
+    /** Khung nhỏ nổi giữa màn hình chứa các tuỳ chỉnh của 1 mục. Bấm ra ngoài (hoặc ✕) để đóng. */
+    private fun openPanel(icon: String, title: String, fill: () -> Unit) {
+        panel?.let { old -> panel = null; old.dismiss() }
+        val d = android.app.Dialog(this)
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(card, 18f, panelBorder, 1f)
+            setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
+        }
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(6f))
+        }
+        top.addView(tv(20f).apply { text = icon })
+        top.addView(tv(16f, Color.WHITE, true).apply { text = title; setPadding(dp(10f), 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+        top.addView(tv(18f, muted).apply {
+            text = "✕"
+            setPadding(dp(14f), dp(4f), dp(4f), dp(4f))
+            setOnClickListener { d.dismiss() }
+        })
+        outer.addView(top)
+        val maxH = (resources.displayMetrics.heightPixels * 0.7).toInt()
+        val scroll = object : ScrollView(this) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST))
+            }
+        }
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        scroll.addView(body)
+        outer.addView(scroll, LinearLayout.LayoutParams(-1, -2))
+        d.setContentView(outer)
+        d.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        d.setCanceledOnTouchOutside(true)
+        d.setOnDismissListener {
+            if (panel === d) {
+                panel = null
+                panelFill = null
+                panelBody = null
+                build()
+            }
+        }
+        panel = d
+        panelFill = fill
+        panelBody = body
+        fillPanel()
+        d.show()
+        val w = minOf((resources.displayMetrics.widthPixels * 0.92).toInt(), dp(560f))
+        d.window?.setLayout(w, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+        d.window?.setDimAmount(0.6f)
+    }
+
+    private fun fillPanel() {
+        val b = panelBody ?: return
+        val f = panelFill ?: return
+        b.removeAllViews()
+        group = b
+        f()
+        group = null
+    }
+
+    /** Vẽ lại trang chính (tóm tắt dưới mỗi biểu tượng) và khung đang mở (nếu có). */
+    private fun refresh() {
+        build()
+        fillPanel()
+    }
+
+    /** Dòng chữ mờ trong khung (thông tin, không bấm). */
+    private fun noteRow(text: String, color: Int = muted) {
+        divider()
+        group?.addView(tv(12.5f, color).apply { this.text = text; setPadding(0, dp(10f), 0, dp(10f)) })
+    }
+
     private fun build() {
         list.removeAllViews()
         list.addView(tv(26f, Color.WHITE, true).apply { text = "Cài đặt" })
 
-        header("🧪", "Thử nghiệm")
-        toggle(
-            "Khớp đường kiểu mới (HMM)",
-            null,
-            prefs.hmmMatch,
-            note = "Xét cả chuỗi vị trí vừa đi để biết xe đang ở đường nào – ít nhầm đường song song, cầu vượt, đường gom. Tắt: dùng cách cũ (cách mới vẫn chạy ngầm để ghi nhật ký so sánh)",
-        ) { prefs.hmmMatch = it }
-        toggle(
-            "Dự đoán vị trí giữa 2 lần GPS",
-            null,
-            prefs.predict,
-            note = "Mũi tên và bản đồ chạy liên tục theo tốc độ thay vì nhích từng giây",
-        ) { prefs.predict = it }
+        val packOk = try { OfflinePack.open(this) } catch (_: Exception) { false }
+        val usageOk = ForegroundApp.hasPermission(this)
+        val overlayOk = Settings.canDrawOverlays(this)
+        val notifOk = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")?.contains(packageName) == true
+        val permsOk = usageOk && overlayOk && notifOk
+        val nPoints = CameraStore.all(this).size
+        val themes = listOf("Tự động", "Sáng", "Tối")
+        val sizes = listOf("Nhỏ", "Vừa", "Lớn")
+        val scales = listOf(0.8f, 1f, 1.3f)
 
-        header("🔋", "Pin")
+        section(
+            "Dẫn đường",
+            listOf(
+                Tile("🗺️", "Bản đồ", "Nền ${themes.getOrElse(prefs.mapTheme) { "?" }}" + if (prefs.rotateMap) " · xoay" else "") {
+                    openPanel("🗺️", "Bản đồ") { fillMap() }
+                },
+                Tile("🧭", "Định tuyến", "Xe: ${prefs.goongVehicle}") { openPanel("🧭", "Định tuyến") { fillRouting() } },
+                Tile("🔊", "Âm thanh", if (prefs.voice) "Giọng đọc bật" else "Tắt giọng đọc") {
+                    openPanel("🔊", "Âm thanh & cảnh báo") { fillSound() }
+                },
+                Tile(
+                    "📟", "Màn TFT xe",
+                    when {
+                        !prefs.tftLink -> "Tắt"
+                        TftLink.authed -> "Đã kết nối"
+                        else -> "Chưa kết nối"
+                    },
+                    when {
+                        !prefs.tftLink -> null
+                        TftLink.authed -> okGreen
+                        else -> warnOrange
+                    },
+                ) { openPanel("📟", "Màn TFT xe") { fillTft() } },
+            ),
+        )
+
+        section(
+            "Tốc độ & cảnh báo",
+            listOf(
+                Tile("⚡", "Tốc độ giới hạn", "${if (prefs.moped) "≤50cc" else "Mô tô"} · báo +${prefs.tolerance}") {
+                    openPanel("⚡", "Tốc độ giới hạn") { fillSpeed() }
+                },
+                Tile("⚠️", "Điểm cảnh báo", "$nPoints điểm") { openPanel("⚠️", "Camera & điểm cảnh báo") { fillAlerts() } },
+                Tile(
+                    "🪟", "Ô nổi Maps",
+                    if (prefs.overlay) "Bật · ${sizes.getOrElse(scales.indexOf(prefs.overlayScale)) { "Vừa" }}" else "Tắt",
+                ) { openPanel("🪟", "Ô nổi trên Google Maps") { fillOverlay() } },
+            ),
+        )
+
+        section(
+            "Hệ thống",
+            listOf(
+                Tile("🔋", "Pin", if (prefs.batterySaver) "Tiết kiệm" else "Bình thường") { openPanel("🔋", "Pin") { fillBattery() } },
+                Tile(
+                    "💾", "Dữ liệu offline",
+                    if (packOk) "Ngày ${OfflinePack.date}" else "Chưa tải",
+                    if (packOk) null else warnOrange,
+                ) { openPanel("💾", "Dữ liệu ngoại tuyến") { fillOffline() } },
+                Tile(
+                    "▶️", "Chạy nền & quyền",
+                    if (!permsOk) "Thiếu quyền" else if (Live.serviceRunning) "Đang chạy" else "Đang dừng",
+                    if (!permsOk) warnOrange else null,
+                ) { openPanel("▶️", "Chạy nền & quyền") { fillBackground() } },
+                Tile("📤", "Gửi nhật ký", "3 chuyến gần nhất") { AppActions.sendTripLogs(this) },
+                Tile("⬆️", "Cập nhật", "Bản ${Updater.currentVersion(this)}") { openUpdatePanel(auto = false) },
+            ),
+        )
+
+        if (showHidden) {
+            section(
+                "Nâng cao (đã ẩn)",
+                listOf(
+                    Tile("🧪", "Thử nghiệm", if (prefs.hmmMatch) "HMM bật" else "HMM tắt") {
+                        openPanel("🧪", "Thử nghiệm") { fillExperimental() }
+                    },
+                    Tile("🔑", "Mã API", "Goong / VietMap") { openPanel("🔑", "Mã API & VietMap") { fillKeys() } },
+                    Tile("📷", "Camera CSGT", OfficialCameras.status(this).let { "${it.first}/${it.second} điểm" }) {
+                        openPanel("📷", "Camera theo thông báo CSGT") { fillOfficialCams() }
+                    },
+                    Tile("🛠️", "Chẩn đoán TFT") { openPanel("🛠️", "Chẩn đoán màn TFT") { fillTftDiag() } },
+                    Tile("📱", "Hướng dẫn máy") { openPanel("📱", "Hướng dẫn theo hãng máy") { fillDeviceGuides() } },
+                ),
+            )
+        }
+
+        list.addView(
+            tv(12.5f, Color.parseColor("#7CC4FF")).apply {
+                text = if (showHidden) "Ẩn các mục nâng cao" else "Hiện các mục đã ẩn (nâng cao)"
+                gravity = Gravity.CENTER
+                setPadding(0, dp(18f), 0, dp(8f))
+                setOnClickListener {
+                    showHidden = !showHidden
+                    build()
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+
+        if (autoUpdatePending) {
+            autoUpdatePending = false
+            openUpdatePanel(auto = true)
+        }
+    }
+
+    private fun openUpdatePanel(auto: Boolean) {
+        var first = auto
+        openPanel("⬆️", "Cập nhật phần mềm") {
+            updateRow(first)
+            first = false
+        }
+    }
+
+    // ---------- Nội dung từng khung ----------
+
+    private fun fillMap() {
+        toggle("Xoay bản đồ theo hướng đi", null, prefs.rotateMap, note = "Như Google Maps: đang chạy thì bản đồ xoay theo hướng đi, dừng/chậm thì bản đồ đứng yên, chỉ mũi tên xoay. Tắt thì luôn hướng Bắc lên trên") {
+            prefs.rotateMap = it
+        }
+        toggle("Tự thu phóng theo tốc độ", null, prefs.autoZoom, note = "Thu nhỏ dần khi chạy trên 20, 40, 60 km/h") { prefs.autoZoom = it }
+        choice("Nền bản đồ", null, listOf("Tự động", "Sáng", "Tối"), prefs.mapTheme, note = "Tự động: nền tối từ 18h đến 6h sáng") {
+            prefs.mapTheme = it
+        }
+        toggle("Thời tiết dọc tuyến", null, prefs.weather, note = "Biểu tượng nắng/mưa tại chỗ đổi thời tiết, theo giờ anh tới. Dữ liệu Open-Meteo.com (CC BY 4.0)") {
+            prefs.weather = it
+        }
+    }
+
+    private fun fillRouting() {
+        val vehicles = listOf("car", "bike", "taxi", "truck", "hd")
+        choice(
+            "Loại xe gửi cho Goong",
+            null,
+            vehicles,
+            vehicles.indexOf(prefs.goongVehicle).coerceAtLeast(0),
+            note = "Tài liệu Goong không ghi rõ giá trị nào cho xe máy. \"car\" ưu tiên đường ô tô, né hẻm nhỏ. \"bike\" gần với xe 2 bánh hơn. \"hd\" dành cho xe ôm công nghệ. Thử trên 1-2 tuyến quen, chọn cái dẫn đúng thực tế nhất",
+        ) {
+            prefs.goongVehicle = vehicles[it]
+        }
+    }
+
+    private fun fillSound() {
+        toggle("Giọng đọc", null, prefs.voice, note = "Tiếng bíp và dải chữ cảnh báo luôn bật") { prefs.voice = it }
+        toggle("Đọc giới hạn khi đổi đoạn đường", null, prefs.announceLimit) { prefs.announceLimit = it }
+    }
+
+    private fun fillSpeed() {
+        choice("Loại xe", null, listOf("Mô tô (>50cc)", "Xe gắn máy (≤50cc)"), if (prefs.moped) 1 else 0) {
+            prefs.moped = it == 1
+        }
+        choice("Khu vực", null, listOf("Tự động", "Trong khu dân cư", "Ngoài khu dân cư"), prefs.areaMode, note = "Dùng khi đường chưa có biển trên bản đồ") {
+            prefs.areaMode = it
+        }
+        toggle("Ước tính khi thiếu biển", null, prefs.estimate, note = "Tính theo Thông tư 38/2024 cho xe máy") { prefs.estimate = it }
+        val tols = listOf(0, 3, 5, 10)
+        choice("Báo vượt tốc khi quá", null, tols.map { "+$it" }, tols.indexOf(prefs.tolerance).coerceAtLeast(0)) {
+            prefs.tolerance = tols[it]
+        }
+    }
+
+    private fun fillOverlay() {
+        toggle("Hiện ô nổi", null, prefs.overlay, note = "Biển giới hạn, tốc độ, cảnh báo nổi trên Google Maps") { prefs.overlay = it }
+        val scales = listOf(0.8f, 1f, 1.3f)
+        choice("Cỡ ô nổi", null, listOf("Nhỏ", "Vừa", "Lớn"), scales.indexOf(prefs.overlayScale).let { if (it < 0) 1 else it }) {
+            prefs.overlayScale = scales[it]
+        }
+    }
+
+    private fun fillBattery() {
         toggle(
             "Tiết kiệm pin",
             null,
@@ -337,92 +656,171 @@ class SettingsActivity : Activity() {
                     .show()
             }
         }
+    }
 
-        header("🗺️", "Dẫn đường & bản đồ")
-        toggle("Xoay bản đồ theo hướng đi", null, prefs.rotateMap, note = "Như Google Maps: đang chạy theo hướng đường, dừng/chậm theo la bàn. Tắt thì luôn hướng Bắc lên trên") {
-            prefs.rotateMap = it
+    private fun fillAlerts() {
+        val n = CameraStore.all(this).size
+        action("Nhập danh sách từ file", "Đang có $n điểm", note = "Hỗ trợ file KML (Google My Maps), CSV, JSON") {
+            startActivityForResult(
+                Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), REQ_IMPORT,
+            )
         }
-        toggle("Tự thu phóng theo tốc độ", null, prefs.autoZoom, note = "Thu nhỏ dần khi chạy trên 20, 40, 60 km/h") { prefs.autoZoom = it }
-        choice("Nền bản đồ", null, listOf("Tự động", "Sáng", "Tối"), prefs.mapTheme, note = "Tự động: nền tối từ 18h đến 6h sáng") {
-            prefs.mapTheme = it
+        action("Xuất danh sách ra file CSV", null, note = "Để chia sẻ cho người khác") {
+            startActivityForResult(
+                Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("text/csv").putExtra(Intent.EXTRA_TITLE, "canh-bao-motonav.csv"),
+                REQ_EXPORT,
+            )
         }
-        toggle("Thời tiết dọc tuyến", null, prefs.weather, note = "Biểu tượng nắng/mưa tại chỗ đổi thời tiết, theo giờ anh tới. Dữ liệu Open-Meteo.com (CC BY 4.0)") {
-            prefs.weather = it
+        action("Xoá điểm gần vị trí hiện tại", null, note = "Trong bán kính 300 m") {
+            val ok = Live.gpsOk && CameraStore.removeNearest(this, Live.lat, Live.lon)
+            toast(if (ok) "Đã xoá điểm gần nhất." else "Không có điểm nào trong 300 m.")
+            refresh()
         }
-        toggle("Tô màu kẹt xe trên tuyến", null, prefs.traffic, note = "Dữ liệu kẹt xe của VietMap: cam = chậm, đỏ = kẹt, đỏ sẫm = kẹt nặng") {
-            prefs.traffic = it
+        action("Xoá tất cả điểm tự thêm", null, Color.parseColor("#FF6B60")) {
+            AlertDialog.Builder(this)
+                .setMessage("Xoá tất cả $n điểm cảnh báo đã thêm?")
+                .setPositiveButton("Xoá") { _, _ -> CameraStore.clear(this); refresh() }
+                .setNegativeButton("Huỷ", null)
+                .show()
         }
-        toggle("Tránh đường cao tốc", null, prefs.avoidHighway, note = "Tuyến tìm được sẽ né đường cao tốc (motorway) khi có thể. Phà luôn được né sẵn, không cần bật. Chưa né được đường đất/chưa trải nhựa — API tìm đường không hỗ trợ") {
-            prefs.avoidHighway = it
+        // Tính năng "vùng tốc độ cố định" đã tạm bỏ — chỉ còn dọn dữ liệu cũ nếu máy từng lưu.
+        val zp = ZonePolygons.count(this)
+        val zn = WayLimits.count(this)
+        if (zp > 0 || zn > 0) {
+            action("Xoá dữ liệu vùng tốc độ cố định cũ (${zp + zn})", null, Color.parseColor("#FF6B60"), note = "Tính năng này đã tạm bỏ") {
+                AlertDialog.Builder(this)
+                    .setMessage("Xoá toàn bộ dữ liệu vùng/đoạn đường tốc độ cố định đã lưu trước đây?")
+                    .setPositiveButton("Xoá") { _, _ -> ZonePolygons.clear(this); WayLimits.clear(this); refresh() }
+                    .setNegativeButton("Huỷ", null)
+                    .show()
+            }
         }
-        val keysOk = prefs.vietmapKey.isNotBlank()
-        val tileKeyOk = prefs.vietmapTileKey.isNotBlank()
+    }
+
+    private fun fillTft() {
+        toggle(
+            "Đẩy dẫn đường lên màn xe",
+            if (prefs.tftDevice.isNotBlank()) "Thiết bị: ${prefs.tftDeviceName.ifBlank { prefs.tftDevice }}" else "Chưa chọn thiết bị",
+            prefs.tftLink,
+            note = "Gửi bản đồ dẫn đường, mũi tên rẽ, khoảng cách, giờ đến lên màn xe qua Bluetooth.",
+        ) { on ->
+            if (on && !hasBtPermission()) {
+                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQ_BT_PERM)
+                toast("Cho phép quyền Bluetooth rồi bật lại")
+            } else {
+                prefs.tftLink = on
+            }
+            refresh()
+        }
+        action(
+            "Chọn thiết bị màn xe",
+            if (prefs.tftDevice.isNotBlank()) "Đang chọn: ${prefs.tftDeviceName.ifBlank { prefs.tftDevice }}" else "Ghép đôi (pair) với màn xe trong Cài đặt Bluetooth của máy trước, rồi chọn ở đây",
+            note = "Danh sách lấy từ các thiết bị Bluetooth đã ghép đôi (pair) với điện thoại.",
+        ) { pickTftDevice() }
+        if (!prefs.tftLink) return
+        val tftStatus = when {
+            TftLink.authed -> {
+                val n = TftLink.frameTxCount
+                if (n > 0) "✅ Đã kết nối — đã gửi $n khung ảnh" else "✅ Đã kết nối — chờ dẫn đường để gửi khung ảnh"
+            }
+            TftLink.connected -> "🔄 Đã nối Bluetooth, đang bắt tay với xe (bước ${TftLink.handshakeStep}/3)…"
+            else -> "⚠️ Chưa kết nối" + (TftLink.lastError?.let { " – $it" } ?: "")
+        }
+        action(
+            "Trạng thái kết nối",
+            tftStatus,
+            note = "Chạm để xem lại trạng thái mới nhất. Cần bật \"Theo dõi tốc độ & camera\" (hoặc đang dẫn đường) để app chạy nền và kết nối.",
+        ) { refresh() }
+    }
+
+    private fun fillOffline() {
+        val packOk = try { OfflinePack.open(this) } catch (_: Exception) { false }
+        action(
+            "Dữ liệu ngoại tuyến TP.HCM",
+            if (packOk) "✅ Đã có (ngày ${OfflinePack.date}, ${OfflinePack.file(this).length() / 1_000_000} MB) — chạm để cập nhật" else "Chưa tải — chạm để tải",
+            note = "Tải một lần đường, tốc độ, camera, biển báo của TP.HCM mở rộng → nhanh hơn, mất mạng vẫn chạy. Tự cập nhật hằng tuần trên GitHub",
+        ) { Updater.downloadPack(this, prefs) { refresh() } }
+    }
+
+    private fun fillBackground() {
+        toggle("Theo dõi tốc độ & camera", null, Live.serviceRunning, note = "Chạy nền khi dùng app") { on ->
+            if (on) {
+                Live.userStopped = false
+                DriveService.start(this)
+            } else {
+                Live.userStopped = true
+                DriveService.stop(this)
+            }
+        }
+        // Quyền đã cấp thì ẩn đi cho gọn — chỉ hiện quyền còn thiếu.
+        val usageOk = ForegroundApp.hasPermission(this)
+        val overlayOk = Settings.canDrawOverlays(this)
+        val notifOk = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")?.contains(packageName) == true
+        if (usageOk && overlayOk && notifOk) {
+            noteRow("✅ Đã cấp đủ quyền (tự bật/tắt ô nổi, hiện ô nổi, đọc chỉ dẫn Google Maps)", okGreen)
+        }
+        if (!usageOk) {
+            action("Quyền tự bật/tắt ô nổi theo Google Maps", status(false), note = "Tìm MotoNav → bật \"Cho phép truy cập dữ liệu sử dụng\"") {
+                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+            }
+        }
+        if (!overlayOk) {
+            action("Quyền hiện ô nổi", status(false)) {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            }
+        }
+        if (!notifOk) {
+            action("Quyền đọc chỉ dẫn Google Maps", status(false), note = "Android 13+: Thông tin ứng dụng → ⋮ → Cho phép cài đặt bị hạn chế") {
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
+        }
+    }
+
+    private fun fillExperimental() {
+        toggle(
+            "Khớp đường kiểu mới (HMM)",
+            null,
+            prefs.hmmMatch,
+            note = "Xét cả chuỗi vị trí vừa đi để biết xe đang ở đường nào – ít nhầm đường song song, cầu vượt, đường gom. Tắt: dùng cách cũ (cách mới vẫn chạy ngầm để ghi nhật ký so sánh)",
+        ) { prefs.hmmMatch = it }
+        toggle(
+            "Dự đoán vị trí giữa 2 lần GPS",
+            null,
+            prefs.predict,
+            note = "Mũi tên và bản đồ chạy liên tục theo tốc độ thay vì nhích từng giây",
+        ) { prefs.predict = it }
+    }
+
+    private fun fillKeys() {
+        val goongStatus = if (prefs.goongKey.isBlank() && prefs.goongTileKey.isBlank()) "Chưa nhập mã — đang dùng VietMap" else "✅ Đang dùng Goong (đã bỏ VietMap)"
+        action(
+            "Mã API Goong",
+            goongStatus,
+            note = "Có mã REST API là app dùng thẳng Goong định tuyến, không dự phòng VietMap. Có thêm Map Tiles Key là bản đồ nền cũng tự chuyển sang Goong",
+        ) { GoongKeyDialog.show(this, prefs) { refresh() } }
         val keysStatus = when {
-            !keysOk -> "⚠️ Chưa nhập mã default – cần để tìm đường"
-            !tileKeyOk -> "⚠️ Thiếu mã \"public tile\" – bản đồ sẽ trắng"
+            prefs.vietmapKey.isBlank() -> "⚠️ Chưa nhập mã default"
+            prefs.vietmapTileKey.isBlank() -> "⚠️ Thiếu mã \"public tile\""
             else -> "✅ Đã nhập đủ 2 mã"
         }
-        action("Mã API VietMap", keysStatus, note = "Cần 2 mã riêng: \"default\" (tìm đường/tìm kiếm) và \"public tile\" (hiện bản đồ nền)") {
-            KeyDialog.show(this, prefs) { build() }
+        action("Mã API VietMap", keysStatus, note = "Chỉ dùng khi KHÔNG có mã Goong. Cần 2 mã: \"default\" (tìm đường/tìm kiếm) và \"public tile\" (bản đồ nền)") {
+            KeyDialog.show(this, prefs) { refresh() }
         }
+        toggle("Tô màu kẹt xe trên tuyến (VietMap)", null, prefs.traffic, note = "Chỉ có tác dụng khi định tuyến bằng VietMap — Goong chưa có dữ liệu kẹt xe") {
+            prefs.traffic = it
+        }
+        toggle("Tránh đường cao tốc (VietMap)", null, prefs.avoidHighway, note = "Chỉ có tác dụng khi định tuyến bằng VietMap — Goong chưa hỗ trợ né cao tốc") {
+            prefs.avoidHighway = it
+        }
+    }
 
-        header("🧪", "Goong (thử nghiệm)")
-        val goongStatus = when {
-            prefs.goongKey.isBlank() && prefs.goongTileKey.isBlank() -> "Chưa nhập mã — đang dùng VietMap"
-            else -> "✅ Đang dùng Goong (đã bỏ VietMap)"
-        }
-        // Theo yêu cầu "ưu tiên Goong, bỏ hẳn VietMap nếu Goong ok": không còn âm thầm rơi về
-        // VietMap khi Goong lỗi nữa (lỗi thật hiện rõ lên màn hình để biết ngay) — và bản đồ nền
-        // cũng tự chuyển sang Goong ngay khi có Map Tiles Key, không cần chọn riêng "Bản đồ nền"
-        // (đã bỏ mục chọn đó, trước đây hay bị quên bật nên nhập mã xong vẫn tưởng chưa có tác dụng).
-        action(
-            "Mã API Goong (định tuyến)",
-            goongStatus,
-            note = "Có mã REST API là app dùng THẲNG Goong định tuyến, không còn dự phòng VietMap — lỗi gì hiện rõ lên màn hình. Có thêm Map Tiles Key là bản đồ nền cũng tự chuyển sang Goong luôn. Chưa có né cao tốc/kẹt xe khi dùng Goong",
-        ) {
-            GoongKeyDialog.show(this, prefs) { build() }
-        }
-        val vehicles = listOf("car", "bike", "taxi", "truck", "hd")
-        choice(
-            "Loại xe gửi cho Goong",
-            null,
-            vehicles,
-            vehicles.indexOf(prefs.goongVehicle).coerceAtLeast(0),
-            note = "CHƯA XÁC NHẬN giá trị nào đúng cho xe máy — tài liệu Goong không ghi rõ. \"bike\" nhiều khả năng là xe đạp, không phải xe máy. Thử từng giá trị trên 1-2 tuyến quen thuộc, chọn cái cho tuyến đúng thực tế nhất",
-        ) {
-            prefs.goongVehicle = vehicles[it]
-        }
-
-        header("⚡", "Tốc độ giới hạn")
-        choice("Loại xe", null, listOf("Mô tô (>50cc)", "Xe gắn máy (≤50cc)"), if (prefs.moped) 1 else 0) {
-            prefs.moped = it == 1
-        }
-        choice("Khu vực", null, listOf("Tự động", "Trong khu dân cư", "Ngoài khu dân cư"), prefs.areaMode, note = "Dùng khi đường chưa có biển trên bản đồ") {
-            prefs.areaMode = it
-        }
-        toggle("Ước tính khi thiếu biển", null, prefs.estimate, note = "Tính theo Thông tư 38/2024 cho xe máy") { prefs.estimate = it }
-        val tols = listOf(0, 3, 5, 10)
-        choice("Báo vượt tốc khi quá", null, tols.map { "+$it" }, tols.indexOf(prefs.tolerance).coerceAtLeast(0)) {
-            prefs.tolerance = tols[it]
-        }
-
-        header("🔊", "Âm thanh & cảnh báo")
-        toggle("Giọng đọc", null, prefs.voice, note = "Tiếng bíp và dải chữ cảnh báo luôn bật") { prefs.voice = it }
-        toggle("Đọc giới hạn khi đổi đoạn đường", null, prefs.announceLimit) { prefs.announceLimit = it }
-
-        header("🪟", "Ô nổi trên Google Maps")
-        toggle("Hiện ô nổi", null, prefs.overlay, note = "Biển giới hạn, tốc độ, cảnh báo nổi trên Google Maps") { prefs.overlay = it }
-        val scales = listOf(0.8f, 1f, 1.3f)
-        choice("Cỡ ô nổi", null, listOf("Nhỏ", "Vừa", "Lớn"), scales.indexOf(prefs.overlayScale).let { if (it < 0) 1 else it }) {
-            prefs.overlayScale = scales[it]
-        }
-
-        header("📷", "Camera theo thông báo CSGT")
+    private fun fillOfficialCams() {
         val (okN, totalN) = OfficialCameras.status(this)
         action(
             "Đã định vị $okN/$totalN điểm",
             Live.officialProgress,
-            note = "Ngã tư do CSGT TP.HCM, Hà Nội, Đắk Lắk công bố. App tự tìm toạ độ trên OpenStreetMap. Chạm vào dòng này để xem nguồn và các điểm chưa định vị được",
+            note = "Ngã tư do CSGT TP.HCM, Hà Nội, Đắk Lắk công bố. App tự tìm toạ độ trên OpenStreetMap. Chạm để xem nguồn và các điểm chưa định vị được",
         ) {
             val failed = OfficialCameras.failedTitles(this)
             val srcs = try { OfficialCameras.entries(this).map { it.src }.distinct() } catch (_: Exception) { emptyList() }
@@ -441,267 +839,113 @@ class SettingsActivity : Activity() {
             Live.userStopped = false
             DriveService.stop(this)
             android.os.Handler(mainLooper).postDelayed({ DriveService.start(this) }, 800)
-            build()
+            refresh()
         }
+    }
 
-        header("⚠️", "Camera & điểm cảnh báo")
-        val n = CameraStore.all(this).size
-        action("Nhập danh sách từ file", "Đang có $n điểm", note = "Hỗ trợ file KML (Google My Maps), CSV, JSON") {
-            startActivityForResult(
-                Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), REQ_IMPORT,
-            )
+    private fun fillTftDiag() {
+        if (!prefs.tftLink) {
+            noteRow("Bật \"Đẩy dẫn đường lên màn xe\" (mục Màn TFT xe) trước.")
+            return
         }
-        action("Xuất danh sách ra file CSV", null, note = "Để chia sẻ cho người khác") {
-            startActivityForResult(
-                Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-                    .setType("text/csv").putExtra(Intent.EXTRA_TITLE, "canh-bao-motonav.csv"),
-                REQ_EXPORT,
-            )
-        }
-        action("Xoá điểm gần vị trí hiện tại", null, note = "Trong bán kính 300 m") {
-            val ok = Live.gpsOk && CameraStore.removeNearest(this, Live.lat, Live.lon)
-            toast(if (ok) "Đã xoá điểm gần nhất." else "Không có điểm nào trong 300 m.")
-            build()
-        }
-        action("Xoá tất cả điểm tự thêm", null, Color.parseColor("#FF6B60")) {
-            AlertDialog.Builder(this)
-                .setMessage("Xoá tất cả $n điểm cảnh báo đã thêm?")
-                .setPositiveButton("Xoá") { _, _ -> CameraStore.clear(this); build() }
-                .setNegativeButton("Huỷ", null)
-                .show()
-        }
-        // Tính năng "vùng tốc độ cố định" (vẽ ranh giới / gán theo đoạn đường) đã tạm bỏ —
-        // chỉ còn dọn dữ liệu cũ nếu máy đã từng lưu lúc thử nghiệm trước đây.
-        val zp = ZonePolygons.count(this)
-        val zn = WayLimits.count(this)
-        if (zp > 0 || zn > 0) {
-            action("Xoá dữ liệu vùng tốc độ cố định cũ (${zp + zn})", null, Color.parseColor("#FF6B60"), note = "Tính năng này đã tạm bỏ") {
-                AlertDialog.Builder(this)
-                    .setMessage("Xoá toàn bộ dữ liệu vùng/đoạn đường tốc độ cố định đã lưu trước đây?")
-                    .setPositiveButton("Xoá") { _, _ -> ZonePolygons.clear(this); WayLimits.clear(this); build() }
-                    .setNegativeButton("Huỷ", null)
-                    .show()
+        val frameStatus = when {
+            !TftLink.authed -> "Cần bắt tay xong với xe trước"
+            TftLink.lastFrameError != null && TftLink.frameTxCount == 0 -> "⚠️ ${TftLink.lastFrameError}"
+            TftLink.frameTxCount > 0 -> {
+                val ackMs = TftLink.lastFrameAckMs
+                val ackTxt = if (ackMs >= 0) "ACK sau ${ackMs}ms" else "chưa có ACK lần nào"
+                "✅ Đã gửi ${TftLink.frameTxCount} khung (${TftLink.screenW}x${TftLink.screenH}) — $ackTxt" +
+                    (TftLink.lastFrameError?.let { " · $it" } ?: "")
             }
+            else -> "Chưa gửi khung nào — chạm để gửi thử 20 khung chữ"
         }
-
-        header("📟", "Màn TFT xe (Bluetooth)")
-        toggle(
-            "Đẩy dẫn đường lên màn xe",
-            if (prefs.tftDevice.isNotBlank()) "Thiết bị: ${prefs.tftDeviceName.ifBlank { prefs.tftDevice }}" else "Chưa chọn thiết bị",
-            prefs.tftLink,
-            note = "Gửi mũi tên rẽ, khoảng cách, tên đường, giờ đến — dạng CHỮ rất nhẹ qua Bluetooth, không gửi hình ảnh nên không nghẽn/disconnect như các app khác. Thử nghiệm giai đoạn 1: mã mũi tên rẽ bên màn xe chưa được xác nhận 100%, cần chạy thử thực tế.",
-        ) { on ->
-            if (on && !hasBtPermission()) {
-                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQ_BT_PERM)
-                toast("Cho phép quyền Bluetooth rồi bật lại")
+        action("Kênh ảnh — gửi thử 20 khung chữ", frameStatus, note = "Gửi 20 khung \"TEST #n\" (không cần đang dẫn đường) để kiểm tra riêng kênh ảnh.") {
+            if (TftLink.authed) {
+                TftLink.stopTestFrames()
+                TftLink.sendTestFrames(20)
+                toast("Đang gửi 20 khung ảnh test…")
             } else {
-                prefs.tftLink = on
+                toast("Chưa bắt tay xong với xe")
             }
+            refresh()
         }
         action(
-            "Chọn thiết bị màn xe",
-            if (prefs.tftDevice.isNotBlank()) "Đang chọn: ${prefs.tftDeviceName.ifBlank { prefs.tftDevice }}" else "Ghép đôi (pair) với màn xe trong Cài đặt Bluetooth của máy trước, rồi chọn ở đây",
-            note = "Danh sách lấy từ các thiết bị Bluetooth đã ghép đôi (pair) với điện thoại.",
-        ) { pickTftDevice() }
-        if (prefs.tftLink) {
-            val tftStatus = when {
-                TftLink.authed -> {
-                    val n = TftLink.txCount
-                    val txDetail = when {
-                        n <= 0 && Live.ownNav && Live.offRoute -> " — chưa gửi (đang lệch tuyến, chờ bắt lại)"
-                        n <= 0 -> " — chưa gửi gói dẫn đường nào (chưa dẫn đường thật/chưa có tuyến)"
-                        else -> {
-                            val agoS = (System.currentTimeMillis() - TftLink.lastTxAt) / 1000
-                            " — đã gửi $n lần, lần cuối $agoS giây trước"
-                        }
-                    }
-                    "✅ Đã bắt tay xong, đang gửi dữ liệu$txDetail"
-                }
-                TftLink.connected -> {
-                    val step = TftLink.handshakeStep
-                    val detail = if (TftLink.rxBytes <= 0L) {
-                        " (chưa nhận được gì từ xe — 0 byte)"
-                    } else {
-                        " (đã nhận ${TftLink.rxBytes} byte, bước $step/3, cmd gần nhất 0x${TftLink.lastCmdSeen.toString(16)})"
-                    }
-                    "🔄 Đã nối Bluetooth, đang bắt tay với xe…$detail"
-                }
-                else -> "⚠️ Chưa kết nối" + (TftLink.lastError?.let { " – $it" } ?: "")
-            }
-            action(
-                "Kiểm tra trạng thái kết nối",
-                tftStatus,
-                note = "Chạm để xem lại trạng thái mới nhất. Cần bật \"Theo dõi tốc độ & camera\" (hoặc đang dẫn đường) để app chạy nền và thử kết nối.",
-            ) { build() }
-
-            // ---- Giai đoạn 2: kênh ảnh (sketch tuyến đường thật khi đang dẫn đường + nút test) ----
-            val frameStatus = when {
-                !TftLink.authed -> "Cần bắt tay xong (dòng trên) trước đã"
-                TftLink.lastFrameError != null && TftLink.frameTxCount == 0 -> "⚠️ ${TftLink.lastFrameError}"
-                TftLink.frameTxCount > 0 -> {
-                    val ackMs = TftLink.lastFrameAckMs
-                    val ackTxt = if (ackMs >= 0) "ACK sau ${ackMs}ms" else "chưa có ACK lần nào"
-                    "✅ Đã gửi ${TftLink.frameTxCount} khung ảnh (${TftLink.screenW}x${TftLink.screenH}) — $ackTxt" +
-                        (TftLink.lastFrameError?.let { " · $it" } ?: "")
-                }
-                else -> "Chưa gửi khung nào — tự gửi khi đang dẫn đường thật, hoặc chạm để gửi thử 20 khung chữ"
-            }
-            action(
-                "Kênh ảnh (giai đoạn 2) — khung bản đồ sketch",
-                frameStatus,
-                note = "Khi đang dẫn đường thật, app tự vẽ khung nét trắng trên nền đen (hình dạng đoạn đường + điểm rẽ sắp tới, xe luôn hướng lên) và gửi lên màn xe mỗi ~1,5 giây — tách riêng khỏi kênh chữ nên không làm chậm kênh chữ. Chạm nút này để gửi thử 20 khung chữ \"TEST #n\" (không cần đang dẫn đường) — dùng để kiểm tra riêng kênh ảnh.",
-            ) {
-                if (TftLink.authed) {
-                    TftLink.stopTestFrames()
-                    TftLink.sendTestFrames(20)
-                    toast("Đang gửi 20 khung ảnh test…")
-                } else {
-                    toast("Chưa bắt tay xong với xe")
-                }
-                build()
-            }
-            action(
-                "Test 100 khung \"dạng đường\" cách nhau 500ms",
-                if (TftLink.routeTestRunning) "🔄 Đang gửi — chạm để dừng giữa chừng" else "Chạm để gửi 100 khung vẽ tuyến zigzag giả (không cần GPS/tuyến thật), cách đều 500ms, không chờ ACK rồi mới gửi tiếp",
-                note = "Để kiểm tra riêng: gửi nhịp nhanh cố định (không phụ thuộc ACK xe trả về nhanh/chậm) có tự gây \"Lỗi kết nối\" hay không — tách khỏi mọi tuyến đường/GPS thật. Gửi xong vào \"Gửi nhật ký chuyến đi\" để lấy log, các khung này có tag \"route-test-500ms\".",
-            ) {
-                if (TftLink.routeTestRunning) {
-                    TftLink.stopRouteTestFrames()
-                    toast("Đã dừng test")
-                } else if (TftLink.authed) {
-                    TftLink.sendRouteTestFrames(100, 500)
-                    toast("Đang gửi 100 khung dạng đường, cách nhau 500ms…")
-                } else {
-                    toast("Chưa bắt tay xong với xe")
-                }
-                build()
-            }
-            action(
-                "Test hiệu chỉnh dung lượng khung (5 loại × 10)",
-                if (TftLink.calibActive) "🔄 Đang chạy — chạm để dừng giữa chừng" else "Chạm để chạy: chữ đơn giản → nhiều chữ → siêu nhẹ → đường phức tạp → bản đồ nặng",
-                note = "Gửi lần lượt 5 loại khung (mỗi loại 10 khung, cách nhau 1,2s, cùng chất lượng JPEG với khung thật) từ nhẹ tới nặng, mỗi khung tự ghi dung lượng + thời gian ACK vào nhật ký chuyến đi. Gửi xong, vào \"Gửi nhật ký chuyến đi\" ở trên để lấy ra đối chiếu loại nào/dung lượng bao nhiêu thì xe bắt đầu chậm hẳn hoặc mất kết nối. Đứng yên lúc chạy để không lẫn với khung dẫn đường thật.",
-            ) {
-                if (TftLink.calibActive) {
-                    TftLink.stopCalibration()
-                    toast("Đã dừng test hiệu chỉnh")
-                } else if (TftLink.authed) {
-                    TftLink.runCalibration()
-                    toast("Đang chạy test hiệu chỉnh (50 khung, ~1-2 phút)…")
-                } else {
-                    toast("Chưa bắt tay xong với xe")
-                }
-                build()
-            }
-
-            // ---- Chẩn đoán bước 1/3 của "bắt cặp BLE" (thử nghiệm, chưa phải tính năng chính) ----
-            val ccuStatus = when {
-                CcuAuth.running -> "🔄 Đang hỏi xe…"
-                CcuAuth.ccuCode != null -> "✅ Mã CCU: \"${CcuAuth.ccuCode}\" · Passkey: \"${CcuAuth.passkey}\""
-                CcuAuth.error != null -> "⚠️ ${CcuAuth.error}"
-                else -> "Chưa thử"
-            }
-            action(
-                "Thử nghiệm: dò mã CCU + passkey (bước 1 BLE)",
-                ccuStatus,
-                note = "Bước đầu để làm hiện icon dẫn đường trên màn xe (khác kênh dữ liệu ở trên) — xong sẽ tự chuyển sang bước 2+3 luôn (giống app gốc, không chờ bấm nút riêng). Chạm để dò lại.",
-            ) {
-                if (!hasBleScanPermission() || !hasBtPermission()) {
-                    requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), REQ_BLE_PERM)
-                }
-                CcuAuth.queryOnce(this, prefs.tftDevice)
-                build()
-            }
-
-            // ---- Chẩn đoán bước 2+3: quét + kết nối BLE, đăng ký nhận dữ liệu, gửi hello + xác thực ----
-            val bleStatus = when {
-                CcuBle.running -> "🔄 ${CcuBle.stage}"
-                CcuBle.error != null -> "⚠️ ${CcuBle.error}"
-                CcuBle.authError != null -> "⚠️ Đăng ký ${CcuBle.subscribedCount}/${CcuBle.expectedCount} OK, nhưng bước gửi xác thực lỗi: ${CcuBle.authError}"
-                CcuBle.subscribedCount > 0 -> "✅ Đăng ký ${CcuBle.subscribedCount}/${CcuBle.expectedCount} · ${CcuBle.authStage}"
-                else -> "Chưa thử"
-            }
-            val bleNote = buildString {
-                append("Cần bấm bước 1 lấy mã CCU trước. Quét BLE tìm đúng màn xe, kết nối GATT, đăng ký nhận dữ liệu rồi gửi hello + xác thực (mã CCU/passkey) — chạm để thử lại.")
-                CcuBle.missingChars?.let { append("\nChưa đăng ký được: ") ; append(it) }
-                CcuBle.lastNotify?.let { append("\nXe phản hồi gần nhất: ") ; append(it) }
-            }
-            action(
-                "Thử nghiệm: quét + kết nối BLE + xác thực (bước 2+3)",
-                bleStatus,
-                note = bleNote,
-            ) {
-                if (!hasBleScanPermission() || !hasBtPermission()) {
-                    requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), REQ_BLE_PERM)
-                } else {
-                    CcuBle.connectOnce(this, prefs.tftDevice, CcuAuth.ccuCode, CcuAuth.passkey)
-                }
-                build()
-            }
-        }
-
-        header("⚙️", "Hệ thống")
-        val packOk = try { OfflinePack.open(this) } catch (_: Exception) { false }
-        action(
-            "Dữ liệu ngoại tuyến TP.HCM",
-            if (packOk) "✅ Đã có (ngày ${OfflinePack.date}, ${OfflinePack.file(this).length() / 1_000_000} MB)" else "Chưa tải",
-            note = "Tải một lần đường, tốc độ, camera, biển báo của TP.HCM mở rộng → nhanh hơn, mất mạng vẫn chạy. Tự cập nhật hằng tuần trên GitHub. Chạm để tải/cập nhật",
-        ) { Updater.downloadPack(this, prefs) { build() } }
-        action(
-            "Gửi nhật ký chuyến đi",
-            null,
-            note = "Gửi các chuyến gần nhất (đã nén) qua Zalo / Drive / Gmail để kiểm tra lỗi. Nhật ký chỉ lưu trong app, tự xoá sau 7 ngày",
+            "Test 100 khung \"dạng đường\" cách nhau 500ms",
+            if (TftLink.routeTestRunning) "🔄 Đang gửi — chạm để dừng giữa chừng" else "Tuyến zigzag giả, cách đều 500ms, không chờ ACK",
+            note = "Kiểm tra riêng nhịp gửi nhanh cố định có gây \"Lỗi kết nối\" không. Các khung có tag \"route-test-500ms\" trong nhật ký.",
         ) {
-            val files = TripLog.files(this).take(3)
-            if (files.isEmpty()) {
-                toast("Chưa có nhật ký nào")
+            if (TftLink.routeTestRunning) {
+                TftLink.stopRouteTestFrames()
+                toast("Đã dừng test")
+            } else if (TftLink.authed) {
+                TftLink.sendRouteTestFrames(100, 500)
+                toast("Đang gửi 100 khung dạng đường, cách nhau 500ms…")
             } else {
-                val uris = ArrayList(files.map { TripLogProvider.uri(this, it) })
-                val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                    type = "application/gzip"
-                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-                    putExtra(Intent.EXTRA_SUBJECT, "Nhật ký MotoNav")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                startActivity(Intent.createChooser(send, "Gửi nhật ký"))
+                toast("Chưa bắt tay xong với xe")
             }
-        }
-        updateRow()
-        toggle("Theo dõi tốc độ & camera", null, Live.serviceRunning, note = "Chạy nền khi dùng app") { on ->
-            if (on) {
-                Live.userStopped = false
-                DriveService.start(this)
-            } else {
-                Live.userStopped = true
-                DriveService.stop(this)
-            }
+            refresh()
         }
         action(
-            "Máy Xiaomi / Redmi / POCO",
-            null,
-            note = "Thông tin ứng dụng → Quyền khác → bật \"Hiển thị cửa sổ bật lên khi chạy trong nền\" để ô nổi hiện được",
+            "Test hiệu chỉnh dung lượng khung (5 loại × 10)",
+            if (TftLink.calibActive) "🔄 Đang chạy — chạm để dừng giữa chừng" else "Chữ đơn giản → nhiều chữ → siêu nhẹ → đường phức tạp → bản đồ nặng",
+            note = "Mỗi khung tự ghi dung lượng + thời gian ACK vào nhật ký. Đứng yên lúc chạy.",
         ) {
+            if (TftLink.calibActive) {
+                TftLink.stopCalibration()
+                toast("Đã dừng test hiệu chỉnh")
+            } else if (TftLink.authed) {
+                TftLink.runCalibration()
+                toast("Đang chạy test hiệu chỉnh (50 khung, ~1-2 phút)…")
+            } else {
+                toast("Chưa bắt tay xong với xe")
+            }
+            refresh()
+        }
+        val ccuStatus = when {
+            CcuAuth.running -> "🔄 Đang hỏi xe…"
+            CcuAuth.ccuCode != null -> "✅ Mã CCU: \"${CcuAuth.ccuCode}\" · Passkey: \"${CcuAuth.passkey}\""
+            CcuAuth.error != null -> "⚠️ ${CcuAuth.error}"
+            else -> "Chưa thử"
+        }
+        action("Thử nghiệm: dò mã CCU + passkey (bước 1 BLE)", ccuStatus, note = "Bước đầu để làm hiện icon dẫn đường trên màn xe — xong tự chuyển sang bước 2+3.") {
+            if (!hasBleScanPermission() || !hasBtPermission()) {
+                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), REQ_BLE_PERM)
+            }
+            CcuAuth.queryOnce(this, prefs.tftDevice)
+            refresh()
+        }
+        val bleStatus = when {
+            CcuBle.running -> "🔄 ${CcuBle.stage}"
+            CcuBle.error != null -> "⚠️ ${CcuBle.error}"
+            CcuBle.authError != null -> "⚠️ Đăng ký ${CcuBle.subscribedCount}/${CcuBle.expectedCount} OK, nhưng bước gửi xác thực lỗi: ${CcuBle.authError}"
+            CcuBle.subscribedCount > 0 -> "✅ Đăng ký ${CcuBle.subscribedCount}/${CcuBle.expectedCount} · ${CcuBle.authStage}"
+            else -> "Chưa thử"
+        }
+        val bleNote = buildString {
+            append("Cần bấm bước 1 lấy mã CCU trước. Quét BLE tìm đúng màn xe, kết nối GATT, đăng ký nhận dữ liệu rồi gửi hello + xác thực.")
+            CcuBle.missingChars?.let { append("\nChưa đăng ký được: "); append(it) }
+            CcuBle.lastNotify?.let { append("\nXe phản hồi gần nhất: "); append(it) }
+        }
+        action("Thử nghiệm: quét + kết nối BLE + xác thực (bước 2+3)", bleStatus, note = bleNote) {
+            if (!hasBleScanPermission() || !hasBtPermission()) {
+                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), REQ_BLE_PERM)
+            } else {
+                CcuBle.connectOnce(this, prefs.tftDevice, CcuAuth.ccuCode, CcuAuth.passkey)
+            }
+            refresh()
+        }
+    }
+
+    private fun fillDeviceGuides() {
+        action("Máy Xiaomi / Redmi / POCO", null, note = "Thông tin ứng dụng → Quyền khác → bật \"Hiển thị cửa sổ bật lên khi chạy trong nền\" để ô nổi hiện được") {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
         }
         action(
             "Máy OPPO / Realme / OnePlus (ColorOS)",
             null,
-            note = "Ngoài \"Thông tin ứng dụng → Pin → Không hạn chế\" bên dưới, ColorOS còn có mục riêng: Cài đặt → Pin → Quản lý pin ứng dụng → MotoNav → bật \"Cho phép chạy nền\"; và Cài đặt → Ứng dụng → Quản lý khởi động → bật MotoNav. Thiếu bước này app hay bị hệ điều hành tạm dừng luồng nền vài giây, đúng kiểu làm màn xe báo \"Lỗi kết nối\" dù nội dung khung ảnh không hề nặng.",
+            note = "Cài đặt → Pin → Quản lý pin ứng dụng → MotoNav → bật \"Cho phép chạy nền\"; và Cài đặt → Ứng dụng → Quản lý khởi động → bật MotoNav. Thiếu bước này app hay bị tạm dừng luồng nền vài giây, làm màn xe báo \"Lỗi kết nối\".",
         ) {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
-        }
-        action(
-            "Quyền tự bật/tắt ô nổi theo Google Maps",
-            status(ForegroundApp.hasPermission(this)),
-            note = "Tìm MotoNav → bật \"Cho phép truy cập dữ liệu sử dụng\"",
-        ) {
-            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-        }
-        action("Quyền hiện ô nổi", status(Settings.canDrawOverlays(this))) {
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-        }
-        val notif = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")?.contains(packageName) == true
-        action("Quyền đọc chỉ dẫn Google Maps", status(notif), note = "Android 13+: Thông tin ứng dụng → ⋮ → Cho phép cài đặt bị hạn chế") {
-            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
         action("Thông tin ứng dụng", null, note = "Pin: chọn \"Không hạn chế\" để không bị tắt khi chạy nền") {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
@@ -722,11 +966,11 @@ class SettingsActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_BT_PERM && hasBtPermission()) {
             prefs.tftLink = true
-            build()
+            refresh()
         }
         if (requestCode == REQ_BLE_PERM && hasBtPermission() && hasBleScanPermission()) {
             CcuBle.connectOnce(this, prefs.tftDevice, CcuAuth.ccuCode, CcuAuth.passkey)
-            build()
+            refresh()
         }
     }
 
@@ -755,7 +999,7 @@ class SettingsActivity : Activity() {
                     prefs.tftDevice = d.address
                     prefs.tftDeviceName = d.name ?: d.address
                     toast("Đã chọn ${d.name ?: d.address}")
-                    build()
+                    refresh()
                 }
                 .setNegativeButton("Huỷ", null)
                 .show()
@@ -789,10 +1033,11 @@ class SettingsActivity : Activity() {
         } catch (e: Exception) {
             toast("Lỗi đọc/ghi file: ${e.message}")
         }
-        build()
+        refresh()
     }
 
     companion object {
+        const val EXTRA_AUTO_UPDATE = "autoUpdate"
         private const val REQ_IMPORT = 51
         private const val REQ_EXPORT = 52
         private const val REQ_BT_PERM = 53

@@ -105,4 +105,22 @@ object AppActions {
             }
         }
     }
+
+    /** Gửi 3 nhật ký chuyến gần nhất (đã nén) qua Zalo / Drive / Gmail — dùng chung cho menu ☰ màn
+     * chính và đầu trang Cài đặt. */
+    fun sendTripLogs(a: Activity) {
+        val files = TripLog.files(a).take(3)
+        if (files.isEmpty()) {
+            Toast.makeText(a, "Chưa có nhật ký nào", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uris = ArrayList(files.map { TripLogProvider.uri(a, it) })
+        val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "application/gzip"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            putExtra(Intent.EXTRA_SUBJECT, "Nhật ký MotoNav")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        a.startActivity(Intent.createChooser(send, "Gửi nhật ký"))
+    }
 }

@@ -760,6 +760,8 @@ class NavActivity : Activity() {
             "📝   Ghi chú sự cố (vào nhật ký)",
             "🚧   Báo đường đang đứng bị chặn",
             "⚙   Cài đặt",
+            "📤   Gửi nhật ký chuyến đi",
+            "⬆   Cập nhật phần mềm",
             "🗺   Mở Google Maps",
             "⏱   Màn hình tốc độ lớn",
             if (Live.serviceRunning) "⏸   Tạm dừng theo dõi tốc độ" else "▶   Bật theo dõi tốc độ",
@@ -771,9 +773,11 @@ class NavActivity : Activity() {
                     0 -> noteDialog()
                     1 -> reportBlocked()
                     2 -> startActivity(Intent(this, SettingsActivity::class.java))
-                    3 -> AppActions.openGoogleMaps(this, prefs)
-                    4 -> startActivity(Intent(this, MainActivity::class.java))
-                    5 -> if (Live.serviceRunning) {
+                    3 -> AppActions.sendTripLogs(this)
+                    4 -> startActivity(Intent(this, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_AUTO_UPDATE, true))
+                    5 -> AppActions.openGoogleMaps(this, prefs)
+                    6 -> startActivity(Intent(this, MainActivity::class.java))
+                    7 -> if (Live.serviceRunning) {
                         Live.userStopped = true
                         DriveService.stop(this)
                     } else {
