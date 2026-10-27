@@ -833,6 +833,7 @@ object TftLink {
                 }
                 if (bestD < 25.0) {
                     path.moveTo(anchorX, toScreen(0.0, 0.0)[1])
+                    routePx.add(floatArrayOf(anchorX, toScreen(0.0, 0.0)[1]))
                     val prx = bestPx * cosH - bestPy * sinH
                     val pry = bestPx * sinH + bestPy * cosH
                     val (psx, psy) = toScreen(prx, pry)
@@ -859,6 +860,7 @@ object TftLink {
                 val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
                 val (lx, ly) = toScreen(rx, ry)
                 path.lineTo(lx, ly)
+                routePx.add(floatArrayOf(lx, ly))
             }
             // Nhãn tên-đường-sắp-rẽ gắn trên bản đồ (đường kẻ nối + nền đen) — giữ lại kiểu chỉ này
             // theo yêu cầu, nhưng bỏ chấm tròn ở đầu đường kẻ, và neo KHÔNG còn đúng tại điểm rẽ
@@ -912,8 +914,27 @@ object TftLink {
             // chỗ nét đỏ chạm sát nét trắng; nền đen đồng nhất quanh nét giữ màu đỏ rõ hơn.
             val casingPaint = Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 14f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
             val linePaint = Paint().apply { color = Color.rgb(255, 0, 0); style = Paint.Style.STROKE; strokeWidth = 9.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-            c.drawPath(path, casingPaint)
-            c.drawPath(path, linePaint)
+            // Nét đỏ cong mềm (theo yêu cầu "uốn cong mềm mại, đừng xù xì"): dựng lại đường từ các
+            // điểm màn hình — bỏ điểm sát nhau (< 3 px, gây răng cưa), rồi nối bằng đường cong bậc 2
+            // qua trung điểm từng cặp điểm (góc gấp thành cung tròn mượt, vẫn đi đúng hình tuyến).
+            val sp = ArrayList<FloatArray>()
+            for (pt in routePx) {
+                val last = sp.lastOrNull()
+                if (last == null || Math.hypot((pt[0] - last[0]).toDouble(), (pt[1] - last[1]).toDouble()) >= 3.0) sp.add(pt)
+            }
+            val drawPath = if (sp.size >= 3) {
+                android.graphics.Path().apply {
+                    moveTo(sp[0][0], sp[0][1])
+                    for (k in 1 until sp.size - 1) {
+                        val mx2 = (sp[k][0] + sp[k + 1][0]) / 2f
+                        val my2 = (sp[k][1] + sp[k + 1][1]) / 2f
+                        quadTo(sp[k][0], sp[k][1], mx2, my2)
+                    }
+                    lineTo(sp[sp.size - 1][0], sp[sp.size - 1][1])
+                }
+            } else path
+            c.drawPath(drawPath, casingPaint)
+            c.drawPath(drawPath, linePaint)
         }
         // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up) — to hơn trước (0.06->0.085) theo yêu
         // cầu "điểm định vị to ra chút" để dễ thấy giữa tuyến xanh/nhánh trắng.
