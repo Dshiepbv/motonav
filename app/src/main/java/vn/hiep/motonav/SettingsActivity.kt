@@ -334,24 +334,23 @@ class SettingsActivity : Activity() {
 
     private fun tileView(t: Tile, accent: Int): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-        setPadding(dp(4f), dp(12f), dp(4f), dp(8f))
+        gravity = Gravity.CENTER
+        setPadding(dp(4f), dp(4f), dp(4f), dp(4f))
         background = android.graphics.drawable.RippleDrawable(
             android.content.res.ColorStateList.valueOf(Color.parseColor("#26FFFFFF")), null, rounded(Color.WHITE, 14f),
         )
         isClickable = true
         setOnClickListener { t.onTap() }
-        addView(iconBox(t.icon, accent, 52f, 26f), LinearLayout.LayoutParams(dp(52f), dp(52f)))
-        // Tên: luôn chiếm đúng 2 dòng (căn giữa) để dòng trạng thái các ô cùng hàng thẳng nhau.
+        addView(iconBox(t.icon, accent, 46f, 23f), LinearLayout.LayoutParams(dp(46f), dp(46f)))
+        // Tên: 1 dòng (các nhãn đều ngắn) để cả trang gọn vừa 1 màn hình; ô cùng hàng vẫn thẳng nhau.
         addView(
             tv(13f, Color.parseColor("#EEF1F4")).apply {
                 text = t.label
                 gravity = Gravity.CENTER
-                setLines(2)
+                maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
-                setLineSpacing(0f, 0.95f)
             },
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) },
         )
         addView(
             tv(11.5f, t.summaryColor ?: Color.parseColor("#C2CAD3")).apply {
@@ -374,16 +373,16 @@ class SettingsActivity : Activity() {
                 cornerRadius = dp(16f).toFloat()
                 setStroke(1, Brand.border)
             }
-            setPadding(dp(12f), dp(14f), dp(12f), dp(10f))
+            setPadding(dp(12f), dp(12f), dp(12f), dp(8f))
         }
         box.addView(tv(11.5f, Color.parseColor("#AEB7C1"), true).apply {
             text = title.uppercase()
             letterSpacing = 0.08f
-            setPadding(dp(6f), 0, dp(6f), dp(10f))
+            setPadding(dp(6f), 0, dp(6f), dp(8f))
         })
         box.addView(View(this).apply { setBackgroundColor(Color.parseColor("#232A32")) }, LinearLayout.LayoutParams(-1, 1))
         val cols = 3
-        val tileH = dp(138f)
+        val tileH = curTileH
         var row: LinearLayout? = null
         tiles.forEachIndexed { i, t ->
             if (i % cols == 0) {
@@ -399,7 +398,19 @@ class SettingsActivity : Activity() {
         if (rem != 0) repeat(cols - rem) {
             row!!.addView(View(this), LinearLayout.LayoutParams(0, tileH, 1f).apply { setMargins(dp(4f), 0, dp(4f), 0) })
         }
-        list.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14f) })
+        list.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
+    }
+
+    /** Chiều cao mỗi ô, tính theo chiều cao màn hình để các nhóm chính (4 hàng, 3 nhóm) nằm gọn trong
+     * 1 màn — không phải kéo. Màn thấp thì ô thu lại (tối thiểu 96dp), màn cao thì giãn ra (tối đa 124dp). */
+    private var curTileH = 0
+    private fun fitTileHeight(rows: Int, sections: Int): Int {
+        val screenH = resources.displayMetrics.heightPixels
+        val overhead = dp(44f) + // tiêu đề "Cài đặt"
+            sections * dp(64f) + // tiêu đề nhóm + viền/đệm + khoảng cách giữa các nhóm
+            dp(68f) + // nút "Hiện các mục nâng cao"
+            dp(64f) // thanh trạng thái + thanh điều hướng của máy
+        return ((screenH - overhead) / rows).coerceIn(dp(96f), dp(124f))
     }
 
     /** Khung nhỏ nổi giữa màn hình chứa các tuỳ chỉnh của 1 mục. Bấm ra ngoài (hoặc ✕) để đóng. */
@@ -478,7 +489,8 @@ class SettingsActivity : Activity() {
 
     private fun build() {
         list.removeAllViews()
-        list.addView(tv(26f, Color.WHITE, true).apply { text = "Cài đặt" })
+        list.addView(tv(22f, Color.WHITE, true).apply { text = "Cài đặt"; setPadding(dp(4f), 0, 0, 0) })
+        curTileH = fitTileHeight(rows = 4, sections = 3)
 
         val packOk = try { OfflinePack.open(this) } catch (_: Exception) { false }
         val usageOk = ForegroundApp.hasPermission(this)
@@ -497,9 +509,6 @@ class SettingsActivity : Activity() {
                     openPanel(R.drawable.ic_set_map, "Bản đồ") { fillMap() }
                 },
                 Tile(R.drawable.ic_set_routing, "Định tuyến", "Xe: ${prefs.goongVehicle}") { openPanel(R.drawable.ic_set_routing, "Định tuyến") { fillRouting() } },
-                Tile(R.drawable.ic_set_sound, "Âm thanh", if (prefs.voice) "Giọng đọc bật" else "Tắt giọng đọc") {
-                    openPanel(R.drawable.ic_set_sound, "Âm thanh & cảnh báo") { fillSound() }
-                },
                 Tile(
                     R.drawable.ic_set_tft, "Màn TFT xe",
                     when {
@@ -523,16 +532,19 @@ class SettingsActivity : Activity() {
                     openPanel(R.drawable.ic_set_speed, "Tốc độ giới hạn") { fillSpeed() }
                 },
                 Tile(R.drawable.ic_set_alert, "Điểm cảnh báo", "$nPoints điểm") { openPanel(R.drawable.ic_set_alert, "Camera & điểm cảnh báo") { fillAlerts() } },
-                Tile(
-                    R.drawable.ic_set_overlay, "Ô nổi Maps",
-                    if (prefs.overlay) "Bật · ${sizes.getOrElse(scales.indexOf(prefs.overlayScale)) { "Vừa" }}" else "Tắt",
-                ) { openPanel(R.drawable.ic_set_overlay, "Ô nổi trên Google Maps") { fillOverlay() } },
+                Tile(R.drawable.ic_set_sound, "Âm thanh", if (prefs.voice) "Giọng đọc bật" else "Tắt giọng đọc") {
+                    openPanel(R.drawable.ic_set_sound, "Âm thanh & cảnh báo") { fillSound() }
+                },
             ),
         )
 
         section(
             "Hệ thống",
             listOf(
+                Tile(
+                    R.drawable.ic_set_overlay, "Ô nổi Maps",
+                    if (prefs.overlay) "Bật · ${sizes.getOrElse(scales.indexOf(prefs.overlayScale)) { "Vừa" }}" else "Tắt",
+                ) { openPanel(R.drawable.ic_set_overlay, "Ô nổi trên Google Maps") { fillOverlay() } },
                 Tile(R.drawable.ic_set_battery, "Pin", if (prefs.batterySaver) "Tiết kiệm" else "Bình thường") { openPanel(R.drawable.ic_set_battery, "Pin") { fillBattery() } },
                 Tile(
                     R.drawable.ic_set_offline, "Dữ liệu offline",
@@ -588,8 +600,8 @@ class SettingsActivity : Activity() {
         }
         list.addView(pill, LinearLayout.LayoutParams(-2, -2).apply {
             gravity = Gravity.CENTER_HORIZONTAL
-            topMargin = dp(18f)
-            bottomMargin = dp(10f)
+            topMargin = dp(12f)
+            bottomMargin = dp(6f)
         })
 
         if (autoUpdatePending) {

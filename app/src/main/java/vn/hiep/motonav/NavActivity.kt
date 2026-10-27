@@ -315,21 +315,30 @@ class NavActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(6f), 0, 0)
         }
-        fun chip(label: String, onClick: () -> Unit, onLong: () -> Unit) = TextView(this).apply {
-            text = label
-            contentDescription = when (label) { "🏠" -> "Nhà"; "💼" -> "Công ty"; else -> "Yêu thích" }
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-            background = rounded(Color.parseColor("#2C343E"), 20f)
-            setPadding(dp(4f), dp(6f), dp(4f), dp(6f))
+        // Nút Nhà · Công ty · Yêu thích: icon nét mảnh đỏ trong ô bo góc nền đỏ mờ — cùng phong cách
+        // icon Cài đặt/menu và tone logo (thay emoji 3D).
+        fun chip(icon: Int, desc: String, onClick: () -> Unit, onLong: () -> Unit) = android.widget.FrameLayout(this).apply {
+            contentDescription = desc
+            background = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(Color.parseColor("#33FFFFFF")),
+                rounded((Brand.redIcon and 0x00FFFFFF) or 0x26000000, 14f),
+                null,
+            )
+            isClickable = true
+            addView(
+                android.widget.ImageView(this@NavActivity).apply {
+                    setImageResource(icon)
+                    setColorFilter(Brand.redIcon)
+                },
+                android.widget.FrameLayout.LayoutParams(dp(24f), dp(24f), Gravity.CENTER),
+            )
             setOnClickListener { onClick() }
             setOnLongClickListener { onLong(); true }
         }
-        val clp = { LinearLayout.LayoutParams(dp(60f), -2).apply { setMargins(0, 0, dp(8f), 0) } }
-        chips.addView(chip("🏠", { goSaved("home") }, { setPlaceDialog("home") }), clp())
-        chips.addView(chip("💼", { goSaved("work") }, { setPlaceDialog("work") }), clp())
-        chips.addView(chip("⭐", { favoritesDialog() }, { favoritesDialog() }), clp())
+        val clp = { LinearLayout.LayoutParams(dp(60f), dp(44f)).apply { setMargins(0, 0, dp(8f), 0) } }
+        chips.addView(chip(R.drawable.ic_set_home, "Nhà", { goSaved("home") }, { setPlaceDialog("home") }), clp())
+        chips.addView(chip(R.drawable.ic_set_work, "Công ty", { goSaved("work") }, { setPlaceDialog("work") }), clp())
+        chips.addView(chip(R.drawable.ic_set_star, "Yêu thích", { favoritesDialog() }, { favoritesDialog() }), clp())
         searchBox.addView(chips, LinearLayout.LayoutParams(-1, -2))
         results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val sc = ScrollView(this).apply { addView(results) }
