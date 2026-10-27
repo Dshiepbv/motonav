@@ -243,12 +243,14 @@ object TftLink {
     // mới quá 1 s (khoảng cách giữa 2 lần xe ACK, trừ 1 s) — tính cả lúc app CỐ Ý chờ ở nhịp B/C,
     // nên nhịp nào gửi thưa đi cũng không "ăn gian" được con số.
     @Volatile private var paceMode = 0
-    // build-231 — thử cỡ ảnh: luân phiên mỗi 2 cửa sổ tftStat giữa ảnh thường (0 = L, quality 14,
-    // ~10 KB) và ảnh nhỏ (1 = S, hạ quality tới khi ≤ SMALL_TARGET_BYTES). So bằng gapL/gapS trong tftStat.
+    // build-232 — thử gửi khung NGAY SAU tin cmd 0x41 của xe (xe gửi ~1 lần/giây kể cả lúc màn đứng):
+    // luân phiên mỗi 2 cửa sổ tftStat giữa gửi như thường (0 = N) và đồng bộ theo 0x41 (1 = X).
+    // Thí nghiệm cỡ ảnh (231) cho thấy ảnh nhỏ không giúp gì nên đã bỏ.
     @Volatile private var sizeMode = 0
-    private const val SMALL_TARGET_BYTES = 6500
     private val gapBySize = LongArray(2)
     private val spanBySize = LongArray(2)
+    private val ev41Lock = Object()
+    @Volatile private var last41At = 0L
     private var statWindows = 0
     private var lastAckAt = 0L
     private var statGapMs = 0L
@@ -311,8 +313,8 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
-                    "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
+                    "bikeKmh" to bikeSpeedKmh, "sync" to "NX"[sm].toString(),
+                    "gapN" to pct(gapBySize[0], spanBySize[0]), "gapX" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
                     "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]))
@@ -1155,16 +1157,6 @@ object TftLink {
         // nhưng KHÔNG kỳ vọng hết hẳn "reload" — nếu vẫn còn, nhiều khả năng là giới hạn phần cứng/
         // khoảng cách Bluetooth phía xe chứ không phải thứ sửa thêm bằng code được nữa.
         bmp.compress(Bitmap.CompressFormat.JPEG, 14, out)
-        if (sizeMode == 1 && out.size() > SMALL_TARGET_BYTES) {
-            // Ảnh nhỏ: hạ quality từng bước tới khi ≤ SMALL_TARGET_BYTES (hoặc quality 4).
-            var q = 11
-            while (q >= 4) {
-                out.reset()
-                bmp.compress(Bitmap.CompressFormat.JPEG, q, out)
-                if (out.size() <= SMALL_TARGET_BYTES) break
-                q -= 3
-            }
-        }
         bmp.recycle()
         return out.toByteArray()
     }
@@ -1197,6 +1189,14 @@ object TftLink {
                     if (paceMode == 1) {
                         val wait = riskWaitMs(System.currentTimeMillis())
                         if (wait > 0) sleepQuiet(wait)
+                    }
+                    // Chế độ X: chờ tin 0x41 kế tiếp của xe (tối đa 1,3 s) rồi gửi ngay sau đó.
+                    if (sizeMode == 1) {
+                        val since = last41At
+                        synchronized(ev41Lock) {
+                            if (last41At == since) try { (ev41Lock as Object).wait(1300) } catch (_: InterruptedException) {}
+                        }
+                        sleepQuiet(40)
                     }
                     try {
                         sendFrame(buildSketchFrame())
@@ -1777,6 +1777,7 @@ object TftLink {
                         }
                     }
                     if (cmd == 0x41 && payload.size >= 2) bikeSpeedKmh = payload[1].toInt() and 0xFF
+                    if (cmd == 0x41) synchronized(ev41Lock) { last41At = System.currentTimeMillis(); (ev41Lock as Object).notifyAll() }
                     when (cmd) {
                         0x42 -> { // 1/3: xe gửi serial → trả khả năng hỗ trợ
                             // Xe có thể gửi lại cmd này nhiều lần (loan báo định kỳ) kể cả sau khi đã
