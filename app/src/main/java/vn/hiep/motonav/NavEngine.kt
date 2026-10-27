@@ -29,6 +29,14 @@ class NavEngine(
     // Mốc thời gian bắt đầu "gần như đứng yên, gần đích" — dự phòng tự kết thúc chuyến khi đường
     // không vào sát được tới điểm đến thật (cổng/bãi xe riêng...). 0 = chưa ở trạng thái đó.
     private var nearDestSince = 0L
+    // Vết xe vừa đi (≈2 phút gần nhất): [lat, lon, hướng (-1 = không rõ), thời điểm] — để loại tuyến
+    // kéo ngược về đoạn đường vừa đi qua.
+    private val trail = ArrayDeque<DoubleArray>()
+    // Lần tìm lại gần nhất không ra tuyến nào thoả "không quay đầu": giữ tuyến cũ, đi tiếp thêm một
+    // đoạn rồi mới tìm lại (đếm số lần để nới dần điểm ép đi tiếp ra xa hơn).
+    @Volatile private var noUturnFails = 0
+    @Volatile private var destGen = 0
+    @Volatile private var destChanged = false
 
     fun start(lat: Double, lon: Double, name: String?) {
         prefs.saveTrip(lat, lon, name)
@@ -44,6 +52,28 @@ class NavEngine(
         if (Live.gpsOk) requestRoute(Live.lat, Live.lon, if (Live.heading >= 0) Live.heading else null, offerChoice = true)
         else Live.routeStatus = "Đang chờ GPS để tìm đường…"
         Live.changed()
+        // Chốt điểm đến về cổng / lối vào / bãi gửi xe (OSM) — chạy song song, không bắt chờ: tìm
+        // đường ngay tới toạ độ gốc trước, có kết quả (lệch > 15 m) thì tìm lại tới điểm mới.
+        val gen = ++destGen
+        destChanged = false
+        Thread({
+            try {
+                val acc = DestAccess.resolve(lat, lon, name)
+                if (acc != null && gen == destGen && Live.ownNav) {
+                    val moved = Geo.distance(lat, lon, acc.lat, acc.lon)
+                    TripLog.ev("destSnap", "kind" to acc.kind, "label" to acc.label, "d" to moved, "lat" to acc.lat, "lon" to acc.lon)
+                    if (moved > 15.0) {
+                        Live.destLat = acc.lat
+                        Live.destLon = acc.lon
+                        destChanged = true
+                    }
+                } else if (acc == null) {
+                    TripLog.ev("destSnap", "kind" to "none")
+                }
+            } catch (e: Exception) {
+                TripLog.ev("destSnap", "err" to (e.message ?: "?"))
+            }
+        }, "dest-access").apply { isDaemon = true; start() }
     }
 
     /** Kết thúc chuyến (người dùng bấm Kết thúc hoặc đã đến nơi): xoá chuyến đã lưu. */
@@ -118,30 +148,77 @@ class NavEngine(
         // không ai biết Goong đang có lỗi. Chỉ dùng VietMap khi CHƯA nhập mã Goong nào cả. LƯU Ý:
         // Goong không có né cao tốc/dữ liệu kẹt xe xác nhận được (xem comment đầu GoongMap.kt) —
         // hai tuỳ chọn đó trong Cài đặt chỉ có tác dụng khi dùng VietMap.
-        fun findRoutes(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> {
-            if (goongKey.isNotBlank()) {
-                return GoongMap.routes(goongKey, lat, lon, dLat, dLon, prefs.goongVehicle, alt, via)
-            }
-            return VietMap.routes(vmKey, lat, lon, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway)
+        // Chỉ áp ràng buộc hướng khi xe đang chạy thật (đứng yên thì hướng la bàn không đáng tin).
+        val moving = heading != null && heading >= 0 && Live.speedKmh > 6
+        val trailNow: List<DoubleArray> = synchronized(trail) {
+            // Chỉ lấy vết đã đi qua (cũ hơn 3 giây, cách xe > 30 m) — đoạn ngay quanh xe không tính.
+            val now = SystemClock.elapsedRealtime().toDouble()
+            trail.filter { now - it[3] > 3000 && Geo.distance(lat, lon, it[0], it[1]) > 30 }
         }
+        val fails = noUturnFails
         executor.execute {
             try {
+                // build-214 — ràng buộc "dự đoán hướng xe, nhất định không quay đầu" (log 27/10: Goong
+                // tự gắn điểm xuất phát vào đường gần nhất — đường cũ/làn song hành — nên tuyến mới
+                // bắt đi ngược 239° trong khi xe chạy 57°, đoạn ngược dài dần 25→340 m):
+                //  1) Xuất phát từ điểm ~40 m phía trước xe trên ĐÚNG con đường đang đi (OSM), không
+                //     dùng toạ độ GPS thô → Goong không gắn nhầm sang đường bên cạnh.
+                //  2) Loại hẳn mọi tuyến có quay đầu (bước "uturn" hoặc bẻ ngược >150° trong ≤60 m)
+                //     trong 3 km đầu, tuyến xuất phát ngược hướng, tuyến kéo ngược lại vết vừa đi.
+                //  3) Không còn tuyến nào hợp lệ → thử ép đi qua điểm phía trước xa dần (150/400/800 m).
+                //  4) Vẫn không có → KHÔNG nhận tuyến quay đầu: giữ "đi tiếp", đi thêm 150 m rồi tìm lại.
+                val on = if (moving) RoutePick.locate(Live.osm, lat, lon, heading!!) else null
+                val origin = if (on != null) RoutePick.walk(on, 40.0) else (lat to lon)
+                val startLat = on?.lat ?: lat
+                val startLon = on?.lon ?: lon
+                fun fromOrigin(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> {
+                    val raw = if (goongKey.isNotBlank()) GoongMap.routes(goongKey, origin.first, origin.second, dLat, dLon, prefs.goongVehicle, alt, via)
+                    else VietMap.routes(vmKey, origin.first, origin.second, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway)
+                    return if (on != null) raw.map { RoutePick.prepend(it, startLat, startLon) } else raw
+                }
                 // Luôn lấy vài tuyến để tự chọn tuyến tốt nhất (tránh kẹt xe / ngắn nhất)
-                var list = findRoutes(true)
+                var list = fromOrigin(true)
                 // Né các đoạn người dùng tự báo "đường bị chặn" (dữ liệu bản đồ cũ): bỏ bớt tuyến
                 // đi ngang điểm đó nếu còn tuyến khác không dính
                 val clean = list.filter { !BlockedRoads.blocksPath(ctx, it.lats, it.lons) }
                 if (clean.isNotEmpty() && clean.size < list.size) list = clean
                 list = RoutePick.rank(list, heading, forwardFirst = heading != null)
-                // Quẹo nhầm / lệch tuyến: không bắt quay đầu – ép đi tiếp qua một điểm phía trước
-                if (heading != null && (reroute || Live.speedKmh > 8) && RoutePick.isBackward(list.first(), heading)) {
-                    try {
-                        val ap = RoutePick.aheadPoint(Live.osm, lat, lon, heading)
-                        val vr = findRoutes(false, listOf(ap)).first()
-                        if (!RoutePick.isBackward(vr, heading)) list = listOf(vr) + list
-                    } catch (_: Exception) {
+                var holdForward = false
+                if (moving) {
+                    val ok = list.filter { RoutePick.rejectReason(it, heading, trailNow) == null }
+                    TripLog.ev("routeCheck", "cands" to list.size, "ok" to ok.size,
+                        "why" to list.joinToString(",") { RoutePick.rejectReason(it, heading, trailNow) ?: "ok" },
+                        "originShift" to (on != null), "fails" to fails)
+                    if (ok.isNotEmpty()) {
+                        list = ok
+                    } else {
+                        var found: Route? = null
+                        val dists = when {
+                            fails >= 2 -> listOf(800.0, 1500.0)
+                            fails == 1 -> listOf(400.0, 800.0)
+                            else -> listOf(150.0, 400.0)
+                        }
+                        for (dAhead in dists) {
+                            try {
+                                val ap = if (on != null) RoutePick.walk(on, 40.0 + dAhead) else RoutePick.aheadPoint(Live.osm, lat, lon, heading!!, dAhead)
+                                val vr = fromOrigin(false, listOf(ap)).first()
+                                val why = RoutePick.rejectReason(vr, heading, trailNow)
+                                TripLog.ev("routeVia", "ahead" to dAhead, "why" to (why ?: "ok"))
+                                if (why == null) { found = vr; break }
+                            } catch (_: Exception) {
+                            }
+                        }
+                        if (found != null) list = listOf(found) else holdForward = true
                     }
                 }
+                if (holdForward && reroute) {
+                    // Không nhận tuyến quay đầu — giữ nguyên, báo đi tiếp; NavEngine.onLocation sẽ tìm
+                    // lại sau khi xe đi thêm ≥150 m.
+                    noUturnFails = fails + 1
+                    TripLog.ev("routeHold", "fails" to noUturnFails)
+                    return@execute
+                }
+                noUturnFails = 0
                 if (!offerChoice && list.size > 1) list = list.take(1)
                 val r = list.first()
                 if (Live.ownNav) {
@@ -173,6 +250,19 @@ class NavEngine(
 
     fun onLocation(lat: Double, lon: Double, heading: Double?, speedMps: Double) {
         if (!Live.ownNav) return
+        synchronized(trail) {
+            val nowT = SystemClock.elapsedRealtime().toDouble()
+            val last = trail.lastOrNull()
+            if (last == null || Geo.distance(last[0], last[1], lat, lon) >= 8.0) {
+                trail.addLast(doubleArrayOf(lat, lon, if (heading != null && speedMps > 1.5) heading else -1.0, nowT))
+            }
+            while (trail.isNotEmpty() && nowT - trail.first()[3] > 120_000) trail.removeFirst()
+        }
+        if (destChanged && !routing && Live.route != null) {
+            destChanged = false
+            requestRoute(lat, lon, heading)
+            return
+        }
         val r = Live.route
         if (r == null) {
             if (!routing && Live.routeError == null) requestRoute(lat, lon, heading)
@@ -296,8 +386,21 @@ class NavEngine(
         // đi ĐÚNG tuyến (d chỉ 1-5m), gây định tuyến lại vô ích liên tục ngay trước khi tới nơi.
         rerouteTimes.removeAll { now - it > 120_000 }
         val urgent = bestD > 45 || (nearDest && off)
-        val gap = if (rerouteTimes.size >= 3) 50_000 else if (urgent) 4_500 else 6_000
-        if (moving && (offCount >= 2 || bestD > 35 || urgent) && !routing && now - lastReroute > gap) {
+        // build-214: sau ≥3 lần tìm lại trong 2 phút, hoặc lần trước không ra tuyến "không quay đầu",
+        // giãn theo QUÃNG ĐƯỜNG đã đi (≥150 m) thay vì chờ cứng 50 s — log 27/10: chờ 50 s giữ tuyến
+        // quay đầu sai suốt ~350 m. Vẫn tối thiểu 6 s giữa 2 lần để không dồn lượt Goong.
+        val sinceLast = Geo.distance(lat, lon, rrLat, rrLon)
+        val gapOk = if (rerouteTimes.size >= 3 || noUturnFails > 0) {
+            now - lastReroute > 6_000 && sinceLast >= 150.0
+        } else {
+            now - lastReroute > (if (urgent) 4_500 else 6_000)
+        }
+        if (off && noUturnFails > 0 && !routing) Live.routeStatus = "Đi tiếp — đang tìm đường không phải quay đầu…"
+        if (!off && noUturnFails > 0) {
+            noUturnFails = 0
+            if (!routing) Live.routeStatus = null
+        }
+        if (moving && (offCount >= 2 || bestD > 35 || urgent) && !routing && gapOk) {
             rerouteTimes.add(now)
             TripLog.ev("reroute", "d" to bestD, "n" to offCount, "spd" to speedMps, "hdg" to heading)
             rrLat = lat; rrLon = lon

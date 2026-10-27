@@ -109,6 +109,9 @@ object AppActions {
     /** Gửi 3 nhật ký chuyến gần nhất (đã nén) qua Zalo / Drive / Gmail — dùng chung cho menu ☰ màn
      * chính và đầu trang Cài đặt. */
     fun sendTripLogs(a: Activity) {
+        // Ghi kèm 10 khung ảnh gần nhất đã gửi lên màn TFT (nếu đang có chuyến) để xem lại đúng hình
+        // xe nhận được.
+        try { TftLink.dumpRecentFrames() } catch (_: Exception) {}
         val files = TripLog.files(a).take(3)
         if (files.isEmpty()) {
             Toast.makeText(a, "Chưa có nhật ký nào", Toast.LENGTH_SHORT).show()

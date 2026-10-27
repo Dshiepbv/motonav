@@ -217,6 +217,65 @@ object TftLink {
     // chữa được chuỗi dài; vẫn rút theo yêu cầu để nhịp gửi bám sát 1-2s hơn.
     private const val ACK_WAIT_MS = 1000L
 
+    // build-214, theo log 20261027-144231 (2346 khung, 15,2% quá 1s): khung KHÔNG mất — xe chỉ
+    // "đứng" 3,5–6s theo nhịp 5/10s rồi ACK dồn cả loạt khung đã cũ. Gửi thêm khung trong lúc xe
+    // đứng chỉ chất thêm hàng đợi khung lỗi thời. Nay chỉ còn MỘT khung "đang bay": quá ACK_WAIT_MS
+    // thì vẫn chờ tiếp (không gửi khung mới) tới STALL_WAIT_MS, xe hồi là gửi ngay khung mới nhất.
+    // 6s vẫn dưới ngưỡng im lặng 10–19s khiến xe báo "Lỗi kết nối".
+    private const val STALL_WAIT_MS = 6000L
+
+    // Thống kê "đứng hình" — tftStat mỗi 60s: tỉ lệ thời gian xe không nhận khung mới (đây mới là
+    // con số người lái thấy, khác với tỉ lệ khung quá 1s trước đây — 1 lần đứng từng bị đếm 4 khung).
+    private var statFrom = 0L
+    private var statFrames = 0
+    private var statSlow = 0
+    private var statLost = 0
+    private var statStallMs = 0L
+    private var totFrames = 0
+    private var totSlow = 0
+    private var totLost = 0
+    private var totStallMs = 0L
+    private var totFrom = 0L
+
+    private fun recordFrameStat(ackMs: Long, lost: Boolean) {
+        val now = System.currentTimeMillis()
+        if (statFrom == 0L) statFrom = now
+        if (totFrom == 0L) totFrom = now
+        statFrames++; totFrames++
+        if (ackMs > ACK_WAIT_MS) {
+            val stall = ackMs - ACK_WAIT_MS / 2
+            statSlow++; totSlow++
+            statStallMs += stall; totStallMs += stall
+            if (lost) { statLost++; totLost++ }
+            try { TripLog.ev("tftStall", "ms" to ackMs, "lost" to lost) } catch (_: Exception) {}
+        }
+        val span = now - statFrom
+        if (span >= 60_000) {
+            val totSpan = (now - totFrom).coerceAtLeast(1)
+            try {
+                TripLog.ev("tftStat", "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
+                    "freezePct" to Math.round(statStallMs * 1000.0 / span) / 10.0,
+                    "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
+                    "totFreezePct" to Math.round(totStallMs * 1000.0 / totSpan) / 10.0, "totLost" to totLost)
+            } catch (_: Exception) {}
+            statFrom = now; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L
+        }
+    }
+
+    /** Vài khung JPEG gần nhất đã gửi lên xe — ghi vào nhật ký khi bấm "Gửi nhật ký" để xem lại
+     * đúng hình xe nhận được (trước đây chỉ đoán qua ảnh chụp màn xe). */
+    private const val RECENT_FRAMES = 10
+    private val recentFrames = ArrayDeque<Pair<Int, ByteArray>>()
+
+    fun dumpRecentFrames() {
+        val list = synchronized(recentFrames) { recentFrames.toList() }
+        for ((seq, jpg) in list) {
+            try {
+                TripLog.ev("tftShot", "seq" to seq, "jpg" to android.util.Base64.encodeToString(jpg, android.util.Base64.NO_WRAP))
+            } catch (_: Exception) {}
+        }
+    }
+
     /**
      * Gửi một khung ảnh JPEG lên màn xe (cmd 0 / sub 1 — dò được từ NConnect: payload =
      * [loại khung][số thứ tự LE16][ảnh JPEG, đệm tối thiểu 2050 byte]). Chờ xe trả ACK (cmd 0x50)
@@ -250,14 +309,18 @@ object TftLink {
         // (nếu rốt cuộc vẫn tới) không gây lỗi gì — chỉ đơn giản không còn ai đứng đợi nó ở đây nữa
         // (case 0x50 vẫn cập nhật [ackedFrame] bình thường). CHƯA xác nhận trên xe thật việc rút
         // ngắn này có thực sự giảm "xoay" hay khiến xe dồn khung tệ hơn — cần chạy thử thực tế.
-        val deadline = sentAt + ACK_WAIT_MS
+        synchronized(recentFrames) {
+            recentFrames.addLast(seq to jpeg)
+            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
+        }
+        val deadline = sentAt + STALL_WAIT_MS
         var timedOut = false
         var interrupted = false
         synchronized(ackLock) {
             while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
                 val now = System.currentTimeMillis()
                 if (now >= deadline) {
-                    lastFrameError = "Khung #$seq chưa ACK sau ${ACK_WAIT_MS}ms — bỏ chờ, gửi khung mới"
+                    lastFrameError = "Khung #$seq chưa ACK sau ${STALL_WAIT_MS}ms — bỏ chờ, gửi khung mới"
                     timedOut = true
                     break
                 }
@@ -281,18 +344,23 @@ object TftLink {
         // liên tục bật to hộp lỗi). Bỏ hẳn việc chủ động đóng kết nối — giữ lại nhịp gửi thích ứng
         // (giãn ra khi ACK chậm) để không dồn thêm khung, còn lại để xe tự xử lý ACK chậm như
         // NConnect gốc vẫn vậy (cùng giới hạn phần cứng, không phải lỗi protocol sửa được từ xa).
+        val waited = System.currentTimeMillis() - sentAt
         if (timedOut) {
-            lastFrameAckMs = ACK_WAIT_MS // để sketchLoop giãn nhịp tiếp theo ra xa, không dồn thêm khung
+            lastFrameAckMs = STALL_WAIT_MS
         } else {
-            lastFrameAckMs = System.currentTimeMillis() - sentAt
+            lastFrameAckMs = waited
             lastFrameError = null
             frameTxCount++
         }
+        recordFrameStat(waited, timedOut)
         // Ghi vào nhật ký chuyến đi (dung lượng khung thật gửi đi + thời gian ACK) — để sau này xem
         // lại có thể đối chiếu xem ACK bắt đầu chậm hẳn từ cỡ khung bao nhiêu byte, tìm ra một mức
         // dung lượng "an toàn" thay vì đoán mò bằng chất lượng JPEG.
         try {
-            TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "ackMs" to (if (timedOut) null else lastFrameAckMs), "timedOut" to timedOut, "tag" to tag)
+            // timedOut giữ nghĩa cũ (quá ACK_WAIT_MS) để so được với log các bản trước; lost = quá
+            // STALL_WAIT_MS vẫn không có ACK.
+            TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "ackMs" to (if (timedOut) null else lastFrameAckMs),
+                "timedOut" to (timedOut || waited > ACK_WAIT_MS), "lost" to (if (timedOut) true else null), "tag" to tag)
         } catch (_: Exception) {
         }
         return true
@@ -739,6 +807,8 @@ object TftLink {
             val ptCount = iEnd - idx0
             val pathStep = (ptCount / 260).coerceAtLeast(1)
             val path = android.graphics.Path()
+            // Toạ độ màn hình của tuyến đỏ — để nhãn tên đường tự né, không đè lên tuyến.
+            val routePx = ArrayList<FloatArray>()
             var started = false
             var i = idx0
             while (i < iEnd) {
@@ -748,6 +818,7 @@ object TftLink {
                 val ry = dx * sinH + dy * cosH
                 val (sx, sy) = toScreen(rx, ry)
                 if (!started) { path.moveTo(sx, sy); started = true } else path.lineTo(sx, sy)
+                routePx.add(floatArrayOf(sx, sy))
                 i += pathStep
             }
             // Đảm bảo luôn vẽ tới điểm cuối thực (iEnd-1) kể cả khi bước nhảy bỏ qua nó.
@@ -758,10 +829,6 @@ object TftLink {
                 val (lx, ly) = toScreen(rx, ry)
                 path.lineTo(lx, ly)
             }
-            // Tuyến chính đổi sang đỏ tươi theo yêu cầu (trước là xanh) để nổi bật rõ giữa các nhánh
-            // đường trắng/xám. Dày 8.5f giữ như cũ.
-            val linePaint = Paint().apply { color = Color.rgb(255, 30, 30); style = Paint.Style.STROKE; strokeWidth = 8.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-            c.drawPath(path, linePaint)
             // Nhãn tên-đường-sắp-rẽ gắn trên bản đồ (đường kẻ nối + nền đen) — giữ lại kiểu chỉ này
             // theo yêu cầu, nhưng bỏ chấm tròn ở đầu đường kẻ, và neo KHÔNG còn đúng tại điểm rẽ
             // (skManLat/skManLon) nữa — ở đó nhiều đường giao cắt chồng lên nhau trên hình, chấm/đường
@@ -782,17 +849,40 @@ object TftLink {
                 val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
                 val leaderPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
-                val lx = (mx + h * 0.16f).coerceAtMost(w - h * 0.02f)
-                val ly = (my - h * 0.1f).coerceAtLeast(h * 0.1f)
-                c.drawLine(mx, my, lx, ly, leaderPaint)
                 val tw = labelPaint.measureText(nextSt)
                 val padX = h * 0.022f; val padY = h * 0.02f
-                val boxLeft = (lx - tw / 2f - padX).coerceAtLeast(2f)
-                val boxRight = (boxLeft + tw + padX * 2f).coerceAtMost(w - 2f)
-                val cxText = (boxLeft + boxRight) / 2f
-                c.drawRect(boxLeft, ly - h * 0.08f - padY, boxRight, ly + h * 0.026f + padY, bgPaint)
-                c.drawText(nextSt, cxText, ly, labelPaint)
+                // Ảnh thực tế (27/10): nền đen của nhãn nằm ĐÈ lên đúng đoạn tuyến đỏ quanh khúc rẽ
+                // (nhãn vẽ sau tuyến, neo lệch lên-phải cố định) — nhìn như tuyến đỏ bị mất đoạn. Thử 4
+                // hướng đặt nhãn quanh điểm neo, chọn hướng có ít điểm tuyến lọt vào khung nhãn nhất.
+                // Tuyến đỏ vẫn được vẽ SAU nhãn (bên dưới) nên kể cả lúc buộc phải chồng lên vẫn thấy đỏ.
+                val offs = arrayOf(floatArrayOf(0.16f, -0.1f), floatArrayOf(-0.16f, -0.1f), floatArrayOf(0.16f, 0.12f), floatArrayOf(-0.16f, 0.12f))
+                var bestBox: FloatArray? = null
+                var bestHits = Int.MAX_VALUE
+                for (o in offs) {
+                    val lx0 = (mx + h * o[0]).coerceIn(h * 0.02f, w - h * 0.02f)
+                    val ly0 = (my + h * o[1]).coerceIn(h * 0.1f, h * 0.95f)
+                    val left = (lx0 - tw / 2f - padX).coerceAtLeast(2f)
+                    val right = (left + tw + padX * 2f).coerceAtMost(w - 2f)
+                    val top = ly0 - h * 0.08f - padY
+                    val bottom = ly0 + h * 0.026f + padY
+                    var hits = 0
+                    for (pt in routePx) if (pt[0] in (left - 6f)..(right + 6f) && pt[1] in (top - 6f)..(bottom + 6f)) hits++
+                    if (hits < bestHits) { bestHits = hits; bestBox = floatArrayOf(lx0, ly0, left, right, top, bottom) }
+                    if (hits == 0) break
+                }
+                val bx = bestBox!!
+                c.drawLine(mx, my, bx[0], bx[1], leaderPaint)
+                val cxText = (bx[2] + bx[3]) / 2f
+                c.drawRect(bx[2], bx[4], bx[3], bx[5], bgPaint)
+                c.drawText(nextSt, cxText, bx[1], labelPaint)
             }
+            // Tuyến chính đỏ tươi — vẽ SAU CÙNG trong phần bản đồ (sau nhánh đường + nhãn) để không gì
+            // che được. Thêm viền đen dày bên dưới: JPEG chất lượng thấp (4:2:0) làm nhạt màu đỏ ở
+            // chỗ nét đỏ chạm sát nét trắng; nền đen đồng nhất quanh nét giữ màu đỏ rõ hơn.
+            val casingPaint = Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 14f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+            val linePaint = Paint().apply { color = Color.rgb(255, 0, 0); style = Paint.Style.STROKE; strokeWidth = 9.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+            c.drawPath(path, casingPaint)
+            c.drawPath(path, linePaint)
         }
         // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up) — to hơn trước (0.06->0.085) theo yêu
         // cầu "điểm định vị to ra chút" để dễ thấy giữa tuyến xanh/nhánh trắng.
@@ -1506,7 +1596,10 @@ object TftLink {
                     // nhận được nhịp 10s đến từ đâu.
                     if (cmd != 0x50) {
                         try {
-                            TripLog.ev("tftRx", "cmd" to cmd, "sub" to sub, "len" to payload.size, "authed" to authed)
+                            // Kèm nội dung gói ngắn (hex) — cmd 0x41 (3 byte) xe gửi ~1 lần/giây kể cả lúc
+                            // đứng hình, chưa rõ ý nghĩa; xem có cờ "bận" báo trước nhịp đứng 5/10s không.
+                            val hex = if (payload.size <= 16) payload.joinToString("") { String.format("%02x", it.toInt() and 0xFF) } else null
+                            TripLog.ev("tftRx", "cmd" to cmd, "sub" to sub, "len" to payload.size, "authed" to authed, "hex" to hex)
                         } catch (_: Exception) {
                         }
                     }
