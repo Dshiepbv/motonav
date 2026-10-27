@@ -94,6 +94,7 @@ object MapHttp {
     }
 
     @Volatile var lastLog: String? = null
+    @Volatile var lastLogAtMs: Long = 0L
     @Volatile var lastTileInfo: String? = null
 
     /** Bắt thông báo lỗi của thư viện bản đồ (vd "HTTP status code 401") để hiện lên màn hình. */
@@ -102,7 +103,19 @@ object MapHttp {
             private fun keep(msg: String?) {
                 if (msg == null) return
                 val m = msg.lowercase()
-                if (m.contains("http") || m.contains("tile") || m.contains("failed") || m.contains("error")) lastLog = msg.take(160)
+                // Theo phản hồi thực tế "màn app qua giờ vẫn hiện chữ đỏ" dù mã API/mạng bình thường:
+                // thư viện bản đồ (MapLibre) tự log dòng kiểu "Request failed due to a permanent
+                // error: Canceled" mỗi khi một yêu cầu tải mảnh bị HUỶ — chuyện BÌNH THƯỜNG xảy ra
+                // liên tục lúc người dùng di/zoom bản đồ hoặc app tạm chuyển nền, không phải lỗi
+                // thật. [lastLog] trước đây không tự xoá (chỉ xoá lúc gọi [reset]) nên 1 dòng log
+                // thoáng qua kiểu này kẹt đỏ màn hình hàng giờ liền. Bỏ hẳn các dòng "cancel", và
+                // thêm hạn dùng ở [activeLog] để dòng log khác (lỗi thật) cũng tự hết hạn sau ít giây
+                // thay vì kẹt vĩnh viễn.
+                if (m.contains("cancel")) return
+                if (m.contains("http") || m.contains("tile") || m.contains("failed") || m.contains("error")) {
+                    lastLog = msg.take(160)
+                    lastLogAtMs = System.currentTimeMillis()
+                }
             }
             override fun v(tag: String, msg: String) {}
             override fun v(tag: String, msg: String, tr: Throwable) {}
@@ -119,11 +132,20 @@ object MapHttp {
 
     fun reset() {
         lastLog = null
+        lastLogAtMs = 0L
         lastTileInfo = null
         okCount = 0
         failCount = 0
         lastFailCode = 0
         lastFailUrl = null
+    }
+
+    /** [lastLog] còn "hiệu lực" trong ít giây kể từ lúc ghi nhận — quá hạn coi như không có gì,
+     * tránh 1 dòng log thoáng qua (lỗi mạng chập chờn thật sự, không phải "cancel" đã lọc ở trên)
+     * kẹt đỏ màn hình vĩnh viễn dù sự cố đã qua từ lâu. Dùng hàm này thay vì đọc thẳng [lastLog]. */
+    fun activeLog(): String? {
+        val m = lastLog ?: return null
+        return if (System.currentTimeMillis() - lastLogAtMs <= 15000L) m else null
     }
 
     /** Câu báo lỗi cho người dùng, null nếu bản đồ tải bình thường. */

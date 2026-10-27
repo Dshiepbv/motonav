@@ -2118,7 +2118,7 @@ class NavActivity : Activity() {
         // Đã chuyển bản đồ nền VietMap sang ảnh raster .png (phương án B, tạm) — mảnh không còn là
         // protobuf nên hết cần xem byte thô để chẩn đoán gzip/"invalid tag" như lúc còn dùng mảnh
         // vector; chỉ cần câu lỗi gọn thường (mã Tilemap sai, hết lượt, lỗi HTTP...).
-        val mapErr = MapHttp.problem() ?: styleError ?: MapHttp.lastLog
+        val mapErr = MapHttp.problem() ?: styleError ?: MapHttp.activeLog()
         statusText.text = mapErr ?: Live.routeError ?: Live.routeStatus
             ?: listOfNotNull(Live.destName?.takeIf { nav }?.let { "Đến: $it" }, Live.wxSummary?.takeIf { nav }?.let { "☂ $it" })
                 .joinToString("\n")
