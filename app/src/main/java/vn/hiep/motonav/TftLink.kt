@@ -600,7 +600,7 @@ object TftLink {
             val zoomMul = when (skZoomStep) {
                 -3 -> 0.4; -2 -> 0.55; -1 -> 0.75; 1 -> 1.3; 2 -> 1.65; 3 -> 2.0; else -> 1.0
             }
-            // Theo yêu cầu: dưới 50km/h phóng to 300% (maxAhead còn 1/3), 50-60km/h phóng to 200%
+            // Theo yêu cầu: dưới 50km/h phóng to 400% (maxAhead còn 1/4), 50-60km/h phóng to 200%
             // (còn 1/2), trên đó về mức bình thường — tốc độ thấp thường là đường nhỏ/khu đông dân
             // cư/vòng xoay, cần thấy rõ chi tiết gần hơn là nhìn xa.
             // Đứng yên hoặc đi lăng quăng quanh mốc 50/60km/h: tốc độ GPS hay nhiễu nhảy quanh 0 hoặc
@@ -617,7 +617,7 @@ object TftLink {
                 }
             }
             val spdMul = when (skSpdTier) {
-                2 -> 1.0 / 3.0
+                2 -> 0.25 // đi chậm: ~450 m (trước 1/3 ≈ 600 m), Sếp muốn zoom to hơn
                 1 -> 0.5
                 else -> 1.0
             }
