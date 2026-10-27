@@ -551,23 +551,32 @@ object TftLink {
                 val sx = anchorX + (rx * tiltLateralFactor(ry)).toFloat()
                 return floatArrayOf(sx, sy)
             }
+            // Theo phản hồi thực tế sau khi lên xe chạy thử: (1) mũi tên định vị + ETA bị đẩy xuống
+            // thấp hơn trước vì anchor của khung nghiêng (0.80) thấp hơn khung phẳng cũ (0.72); (2)
+            // mũi tên định vị hay nhìn như "văng ra ngoài đường" — vì độ xoè ngang của phối cảnh
+            // nghiêng rất mạnh ngay sát xe (ry≈0, hệ số xoè lớn nhất), nên sai số match-vị-trí nhỏ bị
+            // phóng đại thành lệch hẳn khỏi nét đường. SỬA cả hai cùng lúc: chỉ bắt đầu nghiêng dần từ
+            // sau [tiltRampM] mét tính từ xe — một đoạn ngắn ngay trước mặt luôn vẽ gần-như-phẳng
+            // (độ xoè nhỏ như 2D) để định vị luôn nằm đúng trên nét đường, xa hơn mới nghiêng dần vào
+            // 3D đầy đủ theo tốc độ. Nhờ vậy tại đúng vị trí xe (ry=0) khung LUÔN là công thức phẳng
+            // cũ (anchorY quay lại 0.72 như trước), không còn bị đẩy xuống nữa — không cần chỉnh riêng.
+            val tiltRampM = 40.0
+            fun smooth01(x: Double): Double { val cl = x.coerceIn(0.0, 1.0); return cl * cl * (3.0 - 2.0 * cl) }
             fun toScreen(rx: Double, ry: Double): FloatArray {
-                if (tiltT <= 0.001) return flatToScreen(rx, ry)
+                val effT = tiltT * smooth01(ry / tiltRampM)
+                if (effT <= 0.001) return flatToScreen(rx, ry)
                 val f = flatToScreen(rx, ry)
                 val g = tiltToScreen(rx, ry)
                 return floatArrayOf(
-                    f[0] + (g[0] - f[0]) * tiltT.toFloat(),
-                    f[1] + (g[1] - f[1]) * tiltT.toFloat()
+                    f[0] + (g[0] - f[0]) * effT.toFloat(),
+                    f[1] + (g[1] - f[1]) * effT.toFloat()
                 )
             }
             anchorY = toScreen(0.0, 0.0)[1]
-            // Camera ảo lùi sau xe [tiltCamBack] mét — điểm nào lùi quá gần/qua mặt camera sẽ vọt
-            // méo ở cực nghiêng (t=1), nên giới hạn phía sau cũng trộn theo tiltT: t=0 (phẳng) giữ
-            // nguyên giới hạn rộng cũ (-drawAhead*0.3), t=1 (nghiêng đầy) xiết lại sát camera thật —
-            // tránh 1 way vừa có điểm rất xa sau lưng vừa có điểm trong khung nối thành 1 nét chéo
-            // dài sai lệch băng ngang màn hình.
-            val tiltBehindLimit = -(tiltCamBack + tiltCamH / Math.tan(tiltTheta)) * 0.85
-            val behindLimit = -drawAhead * 0.3 + (tiltBehindLimit - (-drawAhead * 0.3)) * tiltT
+            // Đoạn ngay sau xe (ry<=0) luôn qua nhánh phẳng (effT=0, xem smooth01 ở trên) nên công
+            // thức nghiêng không bao giờ được dùng ở đó nữa — không còn cần xiết riêng giới hạn phía
+            // sau theo tiltT như bản trước, trả về đúng giới hạn rộng cũ.
+            val behindLimit = -drawAhead * 0.3
 
             // Phạm vi tuyến chính sẽ vẽ (idx0..iEnd) — tính trước để dùng làm "lưới" phát hiện nhánh
             // đường THỰC SỰ gắn vào trục chính (xem bên dưới).
