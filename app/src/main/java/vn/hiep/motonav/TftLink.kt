@@ -641,16 +641,7 @@ object TftLink {
                 val sgn = if (ry >= 0) 1.0 else -1.0
                 val warped = Math.pow((Math.abs(ry) / maxAhead).coerceAtMost(2.0), 0.55)
                 val sy = aY - (sgn * warped * (aY - hzY)).toFloat()
-                // Độ xoè ngang phải cùng thang với độ nén dọc. Log + khung thật 27/10 (build-215, đứng
-                // đèn đỏ, chỗ rẽ kế tiếp 3,5 km → maxAhead 3600 m): trục dọc bị nén theo maxAhead
-                // (~0,04 px/m ở 1 km) nhưng trục ngang vẫn theo camera cố định (~0,19 px/m) — gấp ~5
-                // lần, nên khúc cua 38° hiện thành gần như bẻ vuông góc sang trái ngay trước xe. Giới
-                // hạn độ xoè ngang ≤ 1,3 × độ nén dọc tại cùng khoảng cách (1,3 ≈ 1/sin 50°, đúng
-                // tỉ lệ phối cảnh của camera nghiêng 50°) để góc cua trên màn đúng với thực tế.
-                val ryEff = Math.max(Math.abs(ry), 20.0)
-                val dSy = (aY - hzY) * 0.55 * Math.pow((ryEff / maxAhead).coerceAtMost(2.0), -0.45) / maxAhead
-                val lat = Math.min(tiltLateralFactor(ry), 1.3 * dSy)
-                val sx = anchorX + (rx * lat).toFloat()
+                val sx = anchorX + (rx * tiltLateralFactor(ry)).toFloat()
                 return floatArrayOf(sx, sy)
             }
             // Theo phản hồi thực tế sau khi lên xe chạy thử: (1) mũi tên định vị + ETA bị đẩy xuống

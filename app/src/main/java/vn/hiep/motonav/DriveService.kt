@@ -294,17 +294,12 @@ class DriveService : Service(), LocationListener {
                     currentStreet = Live.street ?: "",
                     etaMinutes = (Live.etaMs / 60000L).toInt(),
                 )
-                // Đang bám đúng tuyến: vẽ TFT theo vị trí đã gắn lên tuyến + hướng tuyến phía trước
-                // (giống bản đồ trên điện thoại) thay vì GPS thô + hướng GPS. Ảnh thực tế 27/10: dừng
-                // xe sau một lần định vị nhảy, hướng GPS cuối cùng bị sai → khung TFT xoay ngang, tuyến
-                // đỏ nằm ngang và không bắt đầu đúng ở mũi tên xe.
-                val snapOk = navOn && Live.route != null && (Live.snapLat != 0.0 || Live.snapLon != 0.0)
                 TftLink.updateSketch(
                     active = navOn,
                     route = Live.route,
-                    lat = if (snapOk) Live.snapLat else Live.lat,
-                    lon = if (snapOk) Live.snapLon else Live.lon,
-                    headingDeg = if (snapOk && Live.roadBearing >= 0) Live.roadBearing else Live.heading,
+                    lat = Live.lat,
+                    lon = Live.lon,
+                    headingDeg = Live.heading,
                     maneuverLat = Live.maneuverLat,
                     maneuverLon = Live.maneuverLon,
                     sign = Live.maneuverSign,
