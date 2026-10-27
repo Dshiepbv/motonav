@@ -284,7 +284,7 @@ object TftLink {
         }
         if (!lost) {
             if (lastAckAt != 0L) {
-                val gap = (now - lastAckAt - 1000).coerceAtLeast(0)
+                val gap = (now - lastAckAt - 1000).coerceIn(0L, 20_000L) // chặn khoảng mất kết nối dài làm lệch số
                 statGapMs += gap; totGapMs += gap
             }
             lastAckAt = now
