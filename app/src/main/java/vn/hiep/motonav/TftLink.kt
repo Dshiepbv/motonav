@@ -237,6 +237,38 @@ object TftLink {
     private var totStallMs = 0L
     private var totFrom = 0L
 
+    // build-221 — thử nghiệm nhịp gửi, tự luân phiên mỗi 2 phút (2 cửa sổ tftStat) để so trong CÙNG
+    // một chuyến: 0 = A (nghỉ 400 ms như cũ), 1 = B (né cửa sổ dự đoán xe đứng theo nhịp 10 s),
+    // 2 = C (nghỉ 900 ms). Thước đo chung để so công bằng: gapPct = % thời gian màn KHÔNG có khung
+    // mới quá 1 s (khoảng cách giữa 2 lần xe ACK, trừ 1 s) — tính cả lúc app CỐ Ý chờ ở nhịp B/C,
+    // nên nhịp nào gửi thưa đi cũng không "ăn gian" được con số.
+    @Volatile private var paceMode = 0
+    private var statWindows = 0
+    private var lastAckAt = 0L
+    private var statGapMs = 0L
+    private var totGapMs = 0L
+    private val gapByMode = LongArray(3)
+    private val spanByMode = LongArray(3)
+    @Volatile private var lastStallStart = 0L
+
+    /** Tốc độ đồng hồ xe (km/h) — byte thứ 2 của gói cmd 0x41 xe gửi ~1 lần/giây (giải mã từ log
+     * 27/10: khớp tốc độ GPS ±1–2 km/h). -1 = chưa nhận. */
+    @Volatile var bikeSpeedKmh: Int = -1
+        private set
+
+    /** Còn bao lâu (ms) mới hết cửa sổ rủi ro quanh mốc đứng dự đoán (lần đứng gần nhất + bội số
+     * 10 s): từ 400 ms trước mốc tới 800 ms sau mốc. 0 = gửi được ngay. */
+    private fun riskWaitMs(now: Long): Long {
+        val last = lastStallStart
+        if (last == 0L || now - last > 120_000) return 0L
+        val ph = ((now - last) % 10_000 + 10_000) % 10_000
+        return when {
+            ph >= 9_600 -> 10_000 - ph + 800
+            ph < 800 -> 800 - ph
+            else -> 0L
+        }
+    }
+
     private fun recordFrameStat(ackMs: Long, lost: Boolean) {
         val now = System.currentTimeMillis()
         if (statFrom == 0L) statFrom = now
@@ -247,18 +279,33 @@ object TftLink {
             statSlow++; totSlow++
             statStallMs += stall; totStallMs += stall
             if (lost) { statLost++; totLost++ }
-            try { TripLog.ev("tftStall", "ms" to ackMs, "lost" to lost) } catch (_: Exception) {}
+            lastStallStart = now - ackMs
+            try { TripLog.ev("tftStall", "ms" to ackMs, "lost" to lost, "mode" to paceMode) } catch (_: Exception) {}
+        }
+        if (!lost) {
+            if (lastAckAt != 0L) {
+                val gap = (now - lastAckAt - 1000).coerceAtLeast(0)
+                statGapMs += gap; totGapMs += gap
+            }
+            lastAckAt = now
         }
         val span = now - statFrom
         if (span >= 60_000) {
             val totSpan = (now - totFrom).coerceAtLeast(1)
+            val m = paceMode
+            gapByMode[m] += statGapMs; spanByMode[m] += span
+            fun pct(a: Long, b: Long) = if (b <= 0) -1.0 else Math.round(a * 1000.0 / b) / 10.0
             try {
-                TripLog.ev("tftStat", "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
-                    "freezePct" to Math.round(statStallMs * 1000.0 / span) / 10.0,
+                TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
+                    "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
+                    "bikeKmh" to bikeSpeedKmh,
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
-                    "totFreezePct" to Math.round(totStallMs * 1000.0 / totSpan) / 10.0, "totLost" to totLost)
+                    "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
+                    "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]))
             } catch (_: Exception) {}
-            statFrom = now; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L
+            statFrom = now; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
+            statWindows++
+            paceMode = (statWindows / 2) % 3
         }
     }
 
@@ -1078,6 +1125,12 @@ object TftLink {
                 // Trừ lúc đang chạy test hiệu chỉnh (runCalibration) — để không chen khung vào giữa,
                 // làm lẫn lộn số thứ tự/ACK của bộ test.
                 if (!calibRunning && !routeTestRunning) {
+                    // Nhịp B: tránh gửi khung đúng lúc dự đoán xe sắp "đứng" (theo nhịp 10 s học từ lần
+                    // đứng gần nhất) — chờ qua cửa sổ rủi ro rồi mới gửi khung mới nhất.
+                    if (paceMode == 1) {
+                        val wait = riskWaitMs(System.currentTimeMillis())
+                        if (wait > 0) sleepQuiet(wait)
+                    }
                     try {
                         sendFrame(buildSketchFrame())
                     } catch (_: Exception) {
@@ -1094,7 +1147,8 @@ object TftLink {
                 // khung, 0 timeout). sendFrame() nay cũng chỉ còn chờ ACK tối đa 1,5s (trước 6s — xem
                 // ACK_WAIT_MS), nên khoảng lặng xấu nhất giữa 2 khung giờ chỉ còn ~1,9s (1,5s chờ ACK
                 // + 0,4s nghỉ), thay vì 6,4s trước đây.
-                sleepQuiet(400)
+                // Nhịp C: nghỉ dài hơn (900 ms) giữa 2 khung — ít khung hơn, thử xem có ít lần đứng hơn.
+                sleepQuiet(if (paceMode == 2) 900 else 400)
             } else {
                 sleepQuiet(400)
             }
@@ -1655,6 +1709,7 @@ object TftLink {
                         } catch (_: Exception) {
                         }
                     }
+                    if (cmd == 0x41 && payload.size >= 2) bikeSpeedKmh = payload[1].toInt() and 0xFF
                     when (cmd) {
                         0x42 -> { // 1/3: xe gửi serial → trả khả năng hỗ trợ
                             // Xe có thể gửi lại cmd này nhiều lần (loan báo định kỳ) kể cả sau khi đã
