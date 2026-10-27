@@ -57,6 +57,41 @@ object GoongMap {
         }
     }
 
+    /** Gợi ý địa chỉ khi gõ (Goong Place AutoComplete) — ưu tiên kết quả gần vị trí hiện tại.
+     * refId có tiền tố "goong:" để [place] / NavActivity biết lấy toạ độ từ Goong. */
+    fun autocomplete(key: String, text: String, focusLat: Double?, focusLon: Double?): List<Suggestion> {
+        var url = "$REST_BASE/Place/AutoComplete?api_key=" + enc(key) + "&input=" + enc(text) + "&limit=10&more_compound=true"
+        if (focusLat != null && focusLon != null) url += "&location=" + enc(ll(focusLat, focusLon)) + "&radius=50"
+        val root = JSONObject(get(url))
+        val status = root.optString("status", "OK")
+        if (status != "OK" && status != "ZERO_RESULTS") throw RuntimeException("Goong tìm kiếm: $status")
+        val arr = root.optJSONArray("predictions") ?: JSONArray()
+        val out = ArrayList<Suggestion>()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val id = o.optString("place_id")
+            if (id.isBlank()) continue
+            val sf = o.optJSONObject("structured_formatting")
+            val desc = o.optString("description")
+            val name = sf?.optString("main_text")?.ifBlank { null } ?: desc
+            val addr = sf?.optString("secondary_text")?.ifBlank { null } ?: desc
+            out.add(Suggestion("goong:$id", name, addr))
+        }
+        return out
+    }
+
+    /** Toạ độ của một gợi ý (Goong Place Detail). */
+    fun place(key: String, refId: String): Place {
+        val id = refId.removePrefix("goong:")
+        val root = JSONObject(get("$REST_BASE/Place/Detail?place_id=" + enc(id) + "&api_key=" + enc(key)))
+        val r = root.optJSONObject("result") ?: throw RuntimeException("Goong: không lấy được địa điểm")
+        val loc = r.optJSONObject("geometry")?.optJSONObject("location")
+        val lat = loc?.optDouble("lat", Double.NaN) ?: Double.NaN
+        val lon = loc?.optDouble("lng", Double.NaN) ?: Double.NaN
+        if (lat.isNaN() || lon.isNaN()) throw RuntimeException("Không lấy được toạ độ địa điểm")
+        return Place(lat, lon, r.optString("name").ifBlank { r.optString("formatted_address") })
+    }
+
     /** Thao tác rẽ Goong trả về thực tế là chữ thường không tiền tố, cách nhau bằng dấu cách
      * (vd "left", "right", "slight right"...) — KHÔNG phải kiểu "turn-left" của Google như tưởng ban đầu.
      * Dùng contains() cho an toàn vì chưa có danh sách đầy đủ chính thức từ Goong. */

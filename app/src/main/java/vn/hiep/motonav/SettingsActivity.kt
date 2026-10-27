@@ -833,7 +833,7 @@ class SettingsActivity : Activity() {
         action(
             "Mã API Goong",
             goongStatus,
-            note = "Có mã REST API là app dùng thẳng Goong định tuyến, không dự phòng VietMap. Có thêm Map Tiles Key là bản đồ nền cũng tự chuyển sang Goong",
+            note = "Có mã REST API là app dùng Goong để tìm địa chỉ và định tuyến. Có thêm Map Tiles Key là bản đồ nền cũng tự chuyển sang Goong",
         ) { GoongKeyDialog.show(this, prefs) { refresh() } }
         val keysStatus = when {
             prefs.vietmapKey.isBlank() -> "⚠️ Chưa nhập mã default"

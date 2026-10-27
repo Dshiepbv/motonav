@@ -1112,8 +1112,11 @@ class NavActivity : Activity() {
     private fun doSearch(q: String) {
         val text = q.trim()
         if (text.length < 2) return
+        // Theo yêu cầu "tìm địa chỉ, dẫn đường, nền bản đồ lấy của Goong hết": có mã Goong là tìm
+        // bằng Goong; VietMap chỉ còn dự phòng khi Goong lỗi (VietMap từng trả 504 liên tục).
+        val gKey = prefs.goongKey
         val key = prefs.vietmapKey
-        if (key.isBlank()) {
+        if (gKey.isBlank() && key.isBlank()) {
             askKey()
             return
         }
@@ -1122,7 +1125,16 @@ class NavActivity : Activity() {
         val lon = if (Live.gpsOk) Live.lon else null
         io.execute {
             val res = try {
-                VietMap.autocomplete(key, text, lat, lon)
+                if (gKey.isNotBlank()) {
+                    try {
+                        GoongMap.autocomplete(gKey, text, lat, lon)
+                    } catch (e: Exception) {
+                        if (key.isBlank()) throw e
+                        VietMap.autocomplete(key, text, lat, lon)
+                    }
+                } else {
+                    VietMap.autocomplete(key, text, lat, lon)
+                }
             } catch (e: Exception) {
                 ui.post { toast(e.message ?: "Lỗi tìm kiếm") }
                 return@execute
@@ -1152,9 +1164,10 @@ class NavActivity : Activity() {
     private fun pickSuggestion(s: Suggestion) {
         hideKeyboard()
         val key = prefs.vietmapKey
+        val gKey = prefs.goongKey
         io.execute {
             try {
-                val p = VietMap.place(key, s.refId)
+                val p = if (s.refId.startsWith("goong:")) GoongMap.place(gKey, s.refId) else VietMap.place(key, s.refId)
                 ui.post {
                     val target = saveTarget
                     if (target != null) {
@@ -1226,7 +1239,7 @@ class NavActivity : Activity() {
     }
 
     private fun startNavTo(lat: Double, lon: Double, name: String?) {
-        if (prefs.vietmapKey.isBlank()) {
+        if (prefs.goongKey.isBlank() && prefs.vietmapKey.isBlank()) {
             askKey { startNavTo(lat, lon, name) }
             return
         }
@@ -1249,7 +1262,7 @@ class NavActivity : Activity() {
     // ---------- Mã API ----------
 
     private fun ensureReady() {
-        if (prefs.vietmapKey.isBlank()) askKey()
+        if (prefs.goongKey.isBlank() && prefs.vietmapKey.isBlank()) askKey()
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             if (!Live.serviceRunning) {
                 Live.userStopped = false
@@ -1274,7 +1287,8 @@ class NavActivity : Activity() {
     }
 
     private fun askKey(after: (() -> Unit)? = null) {
-        KeyDialog.show(this, prefs) {
+        // Goong là nguồn chính (tìm kiếm, dẫn đường, bản đồ nền) — hỏi mã Goong trước.
+        GoongKeyDialog.show(this, prefs) {
             loadStyle()
             after?.invoke()
         }
