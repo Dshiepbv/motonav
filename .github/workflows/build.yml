@@ -34,8 +34,15 @@ jobs:
           sed -i "s/versionCode = .*/versionCode = ${{ github.run_number }}/" app/build.gradle.kts
           sed -i "s/versionName = \".*\"/versionName = \"0.${{ github.run_number }}\"/" app/build.gradle.kts
 
+      # Lỗi biên dịch được đẩy ra dạng annotation (::error::) để đọc được qua GitHub API khi không
+      # tải được log đầy đủ của job.
       - name: Build
-        run: gradle assembleRelease --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log || {
+            grep -E "^e: |error:|ERROR:|What went wrong|AAPT|Execution failed" build.log | head -30 | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          }
 
       - name: Rename APK
         run: |
