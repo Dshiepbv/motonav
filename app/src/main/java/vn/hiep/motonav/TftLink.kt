@@ -243,14 +243,15 @@ object TftLink {
     // mới quá 1 s (khoảng cách giữa 2 lần xe ACK, trừ 1 s) — tính cả lúc app CỐ Ý chờ ở nhịp B/C,
     // nên nhịp nào gửi thưa đi cũng không "ăn gian" được con số.
     @Volatile private var paceMode = 0
-    // build-232 — thử gửi khung NGAY SAU tin cmd 0x41 của xe (xe gửi ~1 lần/giây kể cả lúc màn đứng):
-    // luân phiên mỗi 2 cửa sổ tftStat giữa gửi như thường (0 = N) và đồng bộ theo 0x41 (1 = X).
-    // Thí nghiệm cỡ ảnh (231) cho thấy ảnh nhỏ không giúp gì nên đã bỏ.
+    // build-233 — theo tài liệu maxdash (iPhone: 1 khung trên đường, ACK ~27 ms + 21 ms/KB) và log của
+    // mình (ACK trung vị chỉ ~72 ms): nghỉ 400 ms giữa 2 khung có thể là điểm nghẽn. Luân phiên mỗi 2
+    // cửa sổ tftStat: paceMode 0 = nghỉ 400 ms, 1 = nghỉ 150 ms, 2 = nghỉ 30 ms (A/B/C trong tftStat).
+    // Thêm yếu tố thứ hai [sizeMode] (đổi mỗi 6 cửa sổ): 0 = không gửi cmd 16, 1 = gửi cmd 16 "báo độ
+    // trễ" [rtt/100 ms, 0] sau mỗi ACK như tài liệu mô tả (chưa quan sát được tác dụng). So bằng gapA/B/C
+    // và gapOff/gapOn. Thử nghiệm gửi theo 0x41 (232) tạm gác lại để không lẫn yếu tố.
     @Volatile private var sizeMode = 0
     private val gapBySize = LongArray(2)
     private val spanBySize = LongArray(2)
-    private val ev41Lock = Object()
-    @Volatile private var last41At = 0L
     private var statWindows = 0
     private var lastAckAt = 0L
     private var statGapMs = 0L
@@ -313,8 +314,8 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "bikeKmh" to bikeSpeedKmh, "sync" to "NX"[sm].toString(),
-                    "gapN" to pct(gapBySize[0], spanBySize[0]), "gapX" to pct(gapBySize[1], spanBySize[1]),
+                    "bikeKmh" to bikeSpeedKmh, "lat16" to sm,
+                    "gapOff" to pct(gapBySize[0], spanBySize[0]), "gapOn" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
                     "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]))
@@ -322,10 +323,8 @@ object TftLink {
             statFrom = now; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
             statResend = 0; statResendHit = 0
             statWindows++
-            // Thử nghiệm 221–224 xong (log 27/10, 27 phút): A tốt nhất (gap ≈15%) — B ≈21–25%, C ≈25–30%.
-            // Chốt cố định nhịp A, bỏ luân phiên.
-            paceMode = 0
-            sizeMode = (statWindows / 2) % 2
+            paceMode = (statWindows / 2) % 3
+            sizeMode = (statWindows / 6) % 2
         }
     }
 
@@ -437,6 +436,11 @@ object TftLink {
             lastFrameAckMs = waited
             lastFrameError = null
             frameTxCount++
+        }
+        // build-233: báo độ trễ (cmd 16, flag 0, [rtt/100 ms, 0], tối đa 255) sau mỗi ACK — theo tài liệu
+        // maxdash; chỉ gửi ở nửa chu kỳ thử nghiệm sizeMode == 1.
+        if (!timedOut && sizeMode == 1) {
+            try { send(pack(byteArrayOf((waited / 100).coerceIn(0L, 255L).toByte(), 0), 16, 0)) } catch (_: Exception) {}
         }
         recordFrameStat(waited, timedOut)
         // Ghi vào nhật ký chuyến đi (dung lượng khung thật gửi đi + thời gian ACK) — để sau này xem
@@ -1184,20 +1188,6 @@ object TftLink {
                 // Trừ lúc đang chạy test hiệu chỉnh (runCalibration) — để không chen khung vào giữa,
                 // làm lẫn lộn số thứ tự/ACK của bộ test.
                 if (!calibRunning && !routeTestRunning) {
-                    // Nhịp B: tránh gửi khung đúng lúc dự đoán xe sắp "đứng" (theo nhịp 10 s học từ lần
-                    // đứng gần nhất) — chờ qua cửa sổ rủi ro rồi mới gửi khung mới nhất.
-                    if (paceMode == 1) {
-                        val wait = riskWaitMs(System.currentTimeMillis())
-                        if (wait > 0) sleepQuiet(wait)
-                    }
-                    // Chế độ X: chờ tin 0x41 kế tiếp của xe (tối đa 1,3 s) rồi gửi ngay sau đó.
-                    if (sizeMode == 1) {
-                        val since = last41At
-                        synchronized(ev41Lock) {
-                            if (last41At == since) try { (ev41Lock as Object).wait(1300) } catch (_: InterruptedException) {}
-                        }
-                        sleepQuiet(40)
-                    }
                     try {
                         sendFrame(buildSketchFrame())
                     } catch (_: Exception) {
@@ -1214,8 +1204,8 @@ object TftLink {
                 // khung, 0 timeout). sendFrame() nay cũng chỉ còn chờ ACK tối đa 1,5s (trước 6s — xem
                 // ACK_WAIT_MS), nên khoảng lặng xấu nhất giữa 2 khung giờ chỉ còn ~1,9s (1,5s chờ ACK
                 // + 0,4s nghỉ), thay vì 6,4s trước đây.
-                // Nhịp C: nghỉ dài hơn (900 ms) giữa 2 khung — ít khung hơn, thử xem có ít lần đứng hơn.
-                sleepQuiet(if (paceMode == 2) 900 else 400)
+                // build-233: nghỉ theo paceMode — 0: 400 ms, 1: 150 ms, 2: 30 ms (xem chú thích paceMode).
+                sleepQuiet(when (paceMode) { 1 -> 150L; 2 -> 30L; else -> 400L })
             } else {
                 sleepQuiet(400)
             }
@@ -1777,7 +1767,6 @@ object TftLink {
                         }
                     }
                     if (cmd == 0x41 && payload.size >= 2) bikeSpeedKmh = payload[1].toInt() and 0xFF
-                    if (cmd == 0x41) synchronized(ev41Lock) { last41At = System.currentTimeMillis(); (ev41Lock as Object).notifyAll() }
                     when (cmd) {
                         0x42 -> { // 1/3: xe gửi serial → trả khả năng hỗ trợ
                             // Xe có thể gửi lại cmd này nhiều lần (loan báo định kỳ) kể cả sau khi đã
