@@ -250,6 +250,11 @@ object TftLink {
     private val gapByMode = LongArray(3)
     private val spanByMode = LongArray(3)
     @Volatile private var lastStallStart = 0L
+    // build-226: khung chưa ACK sau [RESEND_AFTER_MS] thì gửi lại đúng gói đó MỘT lần (cùng số thứ tự)
+    // — thử xem màn có "tỉnh" sớm hơn không. resendHit = số lần ACK tới trong 1 s sau khi gửi lại.
+    private const val RESEND_AFTER_MS = 1000L
+    private var statResend = 0
+    private var statResendHit = 0
 
     /** Tốc độ đồng hồ xe (km/h) — byte thứ 2 của gói cmd 0x41 xe gửi ~1 lần/giây (giải mã từ log
      * 27/10: khớp tốc độ GPS ±1–2 km/h). -1 = chưa nhận. */
@@ -298,14 +303,17 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "bikeKmh" to bikeSpeedKmh,
+                    "bikeKmh" to bikeSpeedKmh, "resend" to statResend, "resendHit" to statResendHit,
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
                     "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]))
             } catch (_: Exception) {}
             statFrom = now; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
+            statResend = 0; statResendHit = 0
             statWindows++
-            paceMode = (statWindows / 2) % 3
+            // Thử nghiệm 221–224 xong (log 27/10, 27 phút): A tốt nhất (gap ≈15%) — B ≈21–25%, C ≈25–30%.
+            // Chốt cố định nhịp A, bỏ luân phiên.
+            paceMode = 0
         }
     }
 
@@ -344,7 +352,8 @@ object TftLink {
         val sentAt = System.currentTimeMillis()
         waitingSeq = seq
         waitingSentAt = sentAt
-        if (!send(pack(payload, 0, 1))) {
+        val packet = pack(payload, 0, 1)
+        if (!send(packet)) {
             lastFrameError = "Gửi khung lỗi (mất kết nối)"
             return false
         }
@@ -363,24 +372,42 @@ object TftLink {
         val deadline = sentAt + STALL_WAIT_MS
         var timedOut = false
         var interrupted = false
-        synchronized(ackLock) {
-            while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
-                val now = System.currentTimeMillis()
-                if (now >= deadline) {
-                    lastFrameError = "Khung #$seq chưa ACK sau ${STALL_WAIT_MS}ms — bỏ chờ, gửi khung mới"
-                    timedOut = true
-                    break
-                }
-                try {
-                    (ackLock as Object).wait((deadline - now).coerceAtLeast(1))
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    interrupted = true
-                    break
+        var resentAt = 0L
+        var resendPending = false
+        while (true) {
+            if (resendPending) {
+                resendPending = false
+                resentAt = System.currentTimeMillis()
+                statResend++
+                try { TripLog.ev("tftResend", "seq" to seq, "afterMs" to (resentAt - sentAt)) } catch (_: Exception) {}
+                if (!send(packet)) break
+            }
+            synchronized(ackLock) {
+                while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
+                    val now = System.currentTimeMillis()
+                    if (now >= deadline) {
+                        lastFrameError = "Khung #$seq chưa ACK sau ${STALL_WAIT_MS}ms — bỏ chờ, gửi khung mới"
+                        timedOut = true
+                        break
+                    }
+                    if (resentAt == 0L && now - sentAt >= RESEND_AFTER_MS) {
+                        resendPending = true
+                        break
+                    }
+                    val until = if (resentAt == 0L) minOf(deadline, sentAt + RESEND_AFTER_MS) else deadline
+                    try {
+                        (ackLock as Object).wait((until - now).coerceAtLeast(1))
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        interrupted = true
+                        break
+                    }
                 }
             }
+            if (!resendPending) break
         }
         if (interrupted) return false
+        if (resentAt != 0L && !timedOut && System.currentTimeMillis() - resentAt <= 1000L) statResendHit++
         // ĐÃ THỬ (v6.48→v6.51) tự đóng socket ép kết nối lại khi ACK chậm liên tiếp, với hy vọng
         // giúp màn xe thoát "Lỗi kết nối" nhanh hơn. Thực tế qua 2 video người dùng gửi: lúc đứng
         // yên chưa có tuyến thì tự gây ra đúng cái lỗi nó định tránh (đã sửa ở v6.51: bỏ áp dụng lúc
