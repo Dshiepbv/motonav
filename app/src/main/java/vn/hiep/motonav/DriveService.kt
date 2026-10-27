@@ -230,6 +230,7 @@ class DriveService : Service(), LocationListener {
         handler.removeCallbacksAndMessages(null)
         thread.quitSafely()
         executor.shutdownNow()
+        goongExec.shutdownNow()
         navExecutor.shutdownNow()
         nav.stop()
         voice.shutdown()
@@ -304,7 +305,7 @@ class DriveService : Service(), LocationListener {
                     maneuverLon = Live.maneuverLon,
                     sign = Live.maneuverSign,
                     roundabout = Live.maneuverSign == 6,
-                    ways = Live.osm?.ways,
+                    ways = Live.goongWays ?: Live.osm?.ways,
                     speedKmh = Live.speedKmh,
                     limitKmh = Live.limit,
                     distanceM = if (Live.navMeters >= 0) Live.navMeters else -1,
@@ -1054,7 +1055,40 @@ class DriveService : Service(), LocationListener {
 
     // ---------- Tải dữ liệu OSM ----------
 
+    // Nét đường TFT từ mảnh vector Goong: tải lại khi xe đi cách tâm lần tải trước > 800 m.
+    private val goongExec = Executors.newSingleThreadExecutor()
+    @Volatile private var goongFetching = false
+    private var goongCenterLat = 0.0
+    private var goongCenterLon = 0.0
+    private var goongFailAt = 0L
+
+    private fun ensureGoongWays(lat: Double, lon: Double) {
+        val key = Prefs.goongKey
+        if (key.isBlank() || goongFetching) return
+        if (Live.goongWays != null && Geo.distance(goongCenterLat, goongCenterLon, lat, lon) < 800.0) return
+        if (SystemClock.elapsedRealtime() - goongFailAt < 30000) return
+        goongFetching = true
+        goongExec.execute {
+            try {
+                val w = GoongVector.ways(key, lat, lon)
+                if (w != null) {
+                    Live.goongWays = w
+                    goongCenterLat = lat; goongCenterLon = lon
+                    TripLog.ev("goongTiles", "ok" to w.size)
+                } else {
+                    goongFailAt = SystemClock.elapsedRealtime()
+                }
+            } catch (e: Exception) {
+                goongFailAt = SystemClock.elapsedRealtime()
+                TripLog.ev("goongTiles", "err" to e.message)
+            } finally {
+                goongFetching = false
+            }
+        }
+    }
+
     private fun ensureData(lat: Double, lon: Double) {
+        ensureGoongWays(lat, lon)
         val snap = snapshot
         val need = snap == null || Geo.distance(snap.centerLat, snap.centerLon, lat, lon) > REFETCH_AT
         if (!need || fetching) return

@@ -83,6 +83,8 @@ object Live {
     @Volatile var text3dVersion = 0
     @Volatile var junctionVersion = 0
     @Volatile var osm: OsmSnapshot? = null
+    /** Nét đường vẽ trên TFT từ mảnh vector Goong (null = chưa có/lỗi → dùng [osm]). */
+    @Volatile var goongWays: List<Way>? = null
 
     // Tốc độ giới hạn sắp đổi phía trước (dọc tuyến)
     @Volatile var nextLimit: Int? = null
