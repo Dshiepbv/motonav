@@ -298,7 +298,7 @@ class SettingsActivity : Activity() {
     // ---------- Trang chính kiểu lưới biểu tượng theo nhóm; bấm vào hiện khung nhỏ ở giữa để chỉnh ----------
 
     private class Tile(
-        val icon: String,
+        val icon: Int,
         val label: String,
         val summary: String? = null,
         val summaryColor: Int? = null,
@@ -316,75 +316,94 @@ class SettingsActivity : Activity() {
     private val okGreen = Color.parseColor("#5DD3A6")
     private val warnOrange = Color.parseColor("#FFB454")
 
-    private fun columns(): Int {
-        val wdp = resources.displayMetrics.widthPixels / resources.displayMetrics.density
-        return (wdp / 115f).toInt().coerceIn(3, 5)
-    }
+    private val iconAccent = Color.parseColor("#5DD3A6")
+    private val iconAccent2 = Color.parseColor("#7CC4FF")
 
-    private fun tileView(t: Tile): View = LinearLayout(this).apply {
+    /** Ô nền bo góc (squircle) màu accent mờ, icon nét mảnh cùng màu ở giữa. */
+    private fun iconBox(icon: Int, accent: Int, sizeDp: Float, iconDp: Float): View =
+        android.widget.FrameLayout(this).apply {
+            background = rounded((accent and 0x00FFFFFF) or 0x24000000, sizeDp * 0.32f)
+            addView(
+                android.widget.ImageView(this@SettingsActivity).apply {
+                    setImageResource(icon)
+                    setColorFilter(accent)
+                },
+                android.widget.FrameLayout.LayoutParams(dp(iconDp), dp(iconDp), Gravity.CENTER),
+            )
+        }
+
+    private fun tileView(t: Tile, accent: Int): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER_HORIZONTAL
-        setPadding(dp(4f), dp(12f), dp(4f), dp(12f))
+        gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+        setPadding(dp(4f), dp(12f), dp(4f), dp(8f))
         background = android.graphics.drawable.RippleDrawable(
-            android.content.res.ColorStateList.valueOf(Color.parseColor("#33FFFFFF")), null, rounded(Color.WHITE, 10f),
+            android.content.res.ColorStateList.valueOf(Color.parseColor("#26FFFFFF")), null, rounded(Color.WHITE, 14f),
         )
         isClickable = true
         setOnClickListener { t.onTap() }
-        addView(tv(24f).apply { text = t.icon; gravity = Gravity.CENTER })
-        addView(tv(12.5f, Color.parseColor("#E6EAEE")).apply {
-            text = t.label
-            gravity = Gravity.CENTER
-            setPadding(0, dp(6f), 0, 0)
-        })
-        if (t.summary != null) {
-            addView(tv(10.5f, t.summaryColor ?: muted).apply {
-                text = t.summary
+        addView(iconBox(t.icon, accent, 52f, 26f), LinearLayout.LayoutParams(dp(52f), dp(52f)))
+        // Tên: luôn chiếm đúng 2 dòng (căn giữa) để dòng trạng thái các ô cùng hàng thẳng nhau.
+        addView(
+            tv(13f, Color.parseColor("#EEF1F4")).apply {
+                text = t.label
+                gravity = Gravity.CENTER
+                setLines(2)
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setLineSpacing(0f, 0.95f)
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) },
+        )
+        addView(
+            tv(11.5f, t.summaryColor ?: Color.parseColor("#C2CAD3")).apply {
+                text = t.summary ?: ""
                 gravity = Gravity.CENTER
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
-                setPadding(0, dp(2f), 0, 0)
-            })
-        }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2f) },
+        )
     }
 
-    /** Một nhóm: dải tiêu đề chữ hoa + lưới biểu tượng (giống trang "Site Settings" mẫu). */
-    private fun section(title: String, tiles: List<Tile>) {
+    /** Một nhóm: khung bo 16dp viền mảnh, tiêu đề chữ hoa, lưới CỐ ĐỊNH 3 cột, mỗi ô cùng kích thước. */
+    private fun section(title: String, tiles: List<Tile>, accent: Int = iconAccent) {
         if (tiles.isEmpty()) return
-        val r = dp(12f).toFloat()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(card, 12f, panelBorder, 1f)
-        }
-        box.addView(tv(11.5f, muted, true).apply {
-            text = title.uppercase()
-            letterSpacing = 0.06f
-            setPadding(dp(14f), dp(9f), dp(14f), dp(9f))
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#12161B"))
-                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+                setColor(card)
+                cornerRadius = dp(16f).toFloat()
+                setStroke(1, Color.parseColor("#2E3741"))
             }
+            setPadding(dp(12f), dp(14f), dp(12f), dp(10f))
+        }
+        box.addView(tv(11.5f, Color.parseColor("#AEB7C1"), true).apply {
+            text = title.uppercase()
+            letterSpacing = 0.08f
+            setPadding(dp(6f), 0, dp(6f), dp(10f))
         })
-        box.addView(View(this).apply { setBackgroundColor(panelBorder) }, LinearLayout.LayoutParams(-1, 1))
-        val cols = columns()
+        box.addView(View(this).apply { setBackgroundColor(Color.parseColor("#232A32")) }, LinearLayout.LayoutParams(-1, 1))
+        val cols = 3
+        val tileH = dp(138f)
         var row: LinearLayout? = null
         tiles.forEachIndexed { i, t ->
             if (i % cols == 0) {
                 row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    setPadding(dp(4f), if (i == 0) dp(6f) else 0, dp(4f), 0)
+                    setPadding(0, dp(6f), 0, 0)
                 }
                 box.addView(row)
             }
-            row!!.addView(tileView(t), LinearLayout.LayoutParams(0, -2, 1f))
+            row!!.addView(tileView(t, accent), LinearLayout.LayoutParams(0, tileH, 1f).apply { setMargins(dp(4f), 0, dp(4f), 0) })
         }
         val rem = tiles.size % cols
-        if (rem != 0) repeat(cols - rem) { row!!.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f)) }
-        box.addView(View(this), LinearLayout.LayoutParams(-1, dp(6f)))
-        list.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12f) })
+        if (rem != 0) repeat(cols - rem) {
+            row!!.addView(View(this), LinearLayout.LayoutParams(0, tileH, 1f).apply { setMargins(dp(4f), 0, dp(4f), 0) })
+        }
+        list.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14f) })
     }
 
     /** Khung nhỏ nổi giữa màn hình chứa các tuỳ chỉnh của 1 mục. Bấm ra ngoài (hoặc ✕) để đóng. */
-    private fun openPanel(icon: String, title: String, fill: () -> Unit) {
+    private fun openPanel(icon: Int, title: String, fill: () -> Unit) {
         panel?.let { old -> panel = null; old.dismiss() }
         val d = android.app.Dialog(this)
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
@@ -398,8 +417,8 @@ class SettingsActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, 0, 0, dp(6f))
         }
-        top.addView(tv(20f).apply { text = icon })
-        top.addView(tv(16f, Color.WHITE, true).apply { text = title; setPadding(dp(10f), 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
+        top.addView(iconBox(icon, iconAccent, 36f, 20f), LinearLayout.LayoutParams(dp(36f), dp(36f)))
+        top.addView(tv(16f, Color.WHITE, true).apply { text = title; setPadding(dp(12f), 0, 0, 0) }, LinearLayout.LayoutParams(0, -2, 1f))
         top.addView(tv(18f, muted).apply {
             text = "✕"
             setPadding(dp(14f), dp(4f), dp(4f), dp(4f))
@@ -474,12 +493,12 @@ class SettingsActivity : Activity() {
         section(
             "Dẫn đường",
             listOf(
-                Tile("🗺️", "Bản đồ", "Nền ${themes.getOrElse(prefs.mapTheme) { "?" }}" + if (prefs.rotateMap) " · xoay" else "") {
-                    openPanel("🗺️", "Bản đồ") { fillMap() }
+                Tile(R.drawable.ic_set_map, "Bản đồ", "Nền ${themes.getOrElse(prefs.mapTheme) { "?" }}" + if (prefs.rotateMap) " · xoay" else "") {
+                    openPanel(R.drawable.ic_set_map, "Bản đồ") { fillMap() }
                 },
-                Tile("🧭", "Định tuyến", "Xe: ${prefs.goongVehicle}") { openPanel("🧭", "Định tuyến") { fillRouting() } },
-                Tile("🔊", "Âm thanh", if (prefs.voice) "Giọng đọc bật" else "Tắt giọng đọc") {
-                    openPanel("🔊", "Âm thanh & cảnh báo") { fillSound() }
+                Tile(R.drawable.ic_set_routing, "Định tuyến", "Xe: ${prefs.goongVehicle}") { openPanel(R.drawable.ic_set_routing, "Định tuyến") { fillRouting() } },
+                Tile(R.drawable.ic_set_sound, "Âm thanh", if (prefs.voice) "Giọng đọc bật" else "Tắt giọng đọc") {
+                    openPanel(R.drawable.ic_set_sound, "Âm thanh & cảnh báo") { fillSound() }
                 },
                 Tile(
                     "📟", "Màn TFT xe",
@@ -493,40 +512,40 @@ class SettingsActivity : Activity() {
                         TftLink.authed -> okGreen
                         else -> warnOrange
                     },
-                ) { openPanel("📟", "Màn TFT xe") { fillTft() } },
+                ) { openPanel(R.drawable.ic_set_tft, "Màn TFT xe") { fillTft() } },
             ),
         )
 
         section(
             "Tốc độ & cảnh báo",
             listOf(
-                Tile("⚡", "Tốc độ giới hạn", "${if (prefs.moped) "≤50cc" else "Mô tô"} · báo +${prefs.tolerance}") {
-                    openPanel("⚡", "Tốc độ giới hạn") { fillSpeed() }
+                Tile(R.drawable.ic_set_speed, "Giới hạn tốc độ", "${if (prefs.moped) "≤50cc" else "Mô tô"} · báo +${prefs.tolerance}") {
+                    openPanel(R.drawable.ic_set_speed, "Tốc độ giới hạn") { fillSpeed() }
                 },
-                Tile("⚠️", "Điểm cảnh báo", "$nPoints điểm") { openPanel("⚠️", "Camera & điểm cảnh báo") { fillAlerts() } },
+                Tile(R.drawable.ic_set_alert, "Điểm cảnh báo", "$nPoints điểm") { openPanel(R.drawable.ic_set_alert, "Camera & điểm cảnh báo") { fillAlerts() } },
                 Tile(
                     "🪟", "Ô nổi Maps",
                     if (prefs.overlay) "Bật · ${sizes.getOrElse(scales.indexOf(prefs.overlayScale)) { "Vừa" }}" else "Tắt",
-                ) { openPanel("🪟", "Ô nổi trên Google Maps") { fillOverlay() } },
+                ) { openPanel(R.drawable.ic_set_overlay, "Ô nổi trên Google Maps") { fillOverlay() } },
             ),
         )
 
         section(
             "Hệ thống",
             listOf(
-                Tile("🔋", "Pin", if (prefs.batterySaver) "Tiết kiệm" else "Bình thường") { openPanel("🔋", "Pin") { fillBattery() } },
+                Tile(R.drawable.ic_set_battery, "Pin", if (prefs.batterySaver) "Tiết kiệm" else "Bình thường") { openPanel(R.drawable.ic_set_battery, "Pin") { fillBattery() } },
                 Tile(
                     "💾", "Dữ liệu offline",
                     if (packOk) "Ngày ${OfflinePack.date}" else "Chưa tải",
                     if (packOk) null else warnOrange,
-                ) { openPanel("💾", "Dữ liệu ngoại tuyến") { fillOffline() } },
+                ) { openPanel(R.drawable.ic_set_offline, "Dữ liệu ngoại tuyến") { fillOffline() } },
                 Tile(
-                    "▶️", "Chạy nền & quyền",
+                    "▶️", "Chạy nền",
                     if (!permsOk) "Thiếu quyền" else if (Live.serviceRunning) "Đang chạy" else "Đang dừng",
                     if (!permsOk) warnOrange else null,
-                ) { openPanel("▶️", "Chạy nền & quyền") { fillBackground() } },
-                Tile("📤", "Gửi nhật ký", "3 chuyến gần nhất") { AppActions.sendTripLogs(this) },
-                Tile("⬆️", "Cập nhật", "Bản ${Updater.currentVersion(this)}") { openUpdatePanel(auto = false) },
+                ) { openPanel(R.drawable.ic_set_background, "Chạy nền & quyền") { fillBackground() } },
+                Tile(R.drawable.ic_set_sendlog, "Gửi nhật ký", "3 chuyến gần nhất") { AppActions.sendTripLogs(this) },
+                Tile(R.drawable.ic_set_update, "Cập nhật", "Bản ${Updater.currentVersion(this)}") { openUpdatePanel(auto = false) },
             ),
         )
 
@@ -534,31 +553,44 @@ class SettingsActivity : Activity() {
             section(
                 "Nâng cao (đã ẩn)",
                 listOf(
-                    Tile("🧪", "Thử nghiệm", if (prefs.hmmMatch) "HMM bật" else "HMM tắt") {
-                        openPanel("🧪", "Thử nghiệm") { fillExperimental() }
+                    Tile(R.drawable.ic_set_flask, "Thử nghiệm", if (prefs.hmmMatch) "HMM bật" else "HMM tắt") {
+                        openPanel(R.drawable.ic_set_flask, "Thử nghiệm") { fillExperimental() }
                     },
-                    Tile("🔑", "Mã API", "Goong / VietMap") { openPanel("🔑", "Mã API & VietMap") { fillKeys() } },
-                    Tile("📷", "Camera CSGT", OfficialCameras.status(this).let { "${it.first}/${it.second} điểm" }) {
-                        openPanel("📷", "Camera theo thông báo CSGT") { fillOfficialCams() }
+                    Tile(R.drawable.ic_set_key, "Mã API", "Goong / VietMap") { openPanel(R.drawable.ic_set_key, "Mã API & VietMap") { fillKeys() } },
+                    Tile(R.drawable.ic_set_camera, "Camera CSGT", OfficialCameras.status(this).let { "${it.first}/${it.second} điểm" }) {
+                        openPanel(R.drawable.ic_set_camera, "Camera theo thông báo CSGT") { fillOfficialCams() }
                     },
-                    Tile("🛠️", "Chẩn đoán TFT") { openPanel("🛠️", "Chẩn đoán màn TFT") { fillTftDiag() } },
-                    Tile("📱", "Hướng dẫn máy") { openPanel("📱", "Hướng dẫn theo hãng máy") { fillDeviceGuides() } },
+                    Tile(R.drawable.ic_set_wrench, "Chẩn đoán TFT") { openPanel(R.drawable.ic_set_wrench, "Chẩn đoán màn TFT") { fillTftDiag() } },
+                    Tile(R.drawable.ic_set_phone, "Hướng dẫn máy") { openPanel(R.drawable.ic_set_phone, "Hướng dẫn theo hãng máy") { fillDeviceGuides() } },
                 ),
+                iconAccent2,
             )
         }
 
-        list.addView(
-            tv(12.5f, Color.parseColor("#7CC4FF")).apply {
-                text = if (showHidden) "Ẩn các mục nâng cao" else "Hiện các mục đã ẩn (nâng cao)"
-                gravity = Gravity.CENTER
-                setPadding(0, dp(18f), 0, dp(8f))
-                setOnClickListener {
-                    showHidden = !showHidden
-                    build()
-                }
-            },
-            LinearLayout.LayoutParams(-1, -2),
-        )
+        val pill = tv(13f, iconAccent2, true).apply {
+            text = if (showHidden) "Ẩn các mục nâng cao" else "Hiện các mục nâng cao"
+            gravity = Gravity.CENTER
+            setPadding(dp(20f), dp(10f), dp(20f), dp(10f))
+            background = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(Color.parseColor("#337CC4FF")),
+                GradientDrawable().apply {
+                    setColor(Color.parseColor("#1A7CC4FF"))
+                    cornerRadius = dp(999f).toFloat()
+                    setStroke(dp(1f), Color.parseColor("#667CC4FF"))
+                },
+                null,
+            )
+            isClickable = true
+            setOnClickListener {
+                showHidden = !showHidden
+                build()
+            }
+        }
+        list.addView(pill, LinearLayout.LayoutParams(-2, -2).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = dp(18f)
+            bottomMargin = dp(10f)
+        })
 
         if (autoUpdatePending) {
             autoUpdatePending = false
@@ -568,7 +600,7 @@ class SettingsActivity : Activity() {
 
     private fun openUpdatePanel(auto: Boolean) {
         var first = auto
-        openPanel("⬆️", "Cập nhật phần mềm") {
+        openPanel(R.drawable.ic_set_update, "Cập nhật phần mềm") {
             updateRow(first)
             first = false
         }
