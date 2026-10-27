@@ -183,6 +183,11 @@ class NavEngine(
                 val clean = list.filter { !BlockedRoads.blocksPath(ctx, it.lats, it.lons) }
                 if (clean.isNotEmpty() && clean.size < list.size) list = clean
                 list = RoutePick.rank(list, heading, forwardFirst = heading != null)
+                // "Nhất định không quay đầu" áp cho MỌI lần tìm đường, kể cả lúc đứng yên/mới bắt đầu
+                // (log 27/10 18:22: tuyến tìm lúc đứng đèn đỏ có bước quay đầu ở cầu Hoá An): còn tuyến
+                // không quay đầu thì bỏ hết tuyến có quay đầu.
+                val noU = list.filter { RoutePick.uturnAt(it) < 0 }
+                if (noU.isNotEmpty()) list = noU
                 var holdForward = false
                 if (moving) {
                     val ok = list.filter { RoutePick.rejectReason(it, heading, trailNow) == null }
