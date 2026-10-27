@@ -1063,7 +1063,7 @@ class DriveService : Service(), LocationListener {
     private var goongFailAt = 0L
 
     private fun ensureGoongWays(lat: Double, lon: Double) {
-        val key = Prefs.goongKey
+        val key = prefs.goongKey
         if (key.isBlank() || goongFetching) return
         if (Live.goongWays != null && Geo.distance(goongCenterLat, goongCenterLon, lat, lon) < 800.0) return
         if (SystemClock.elapsedRealtime() - goongFailAt < 30000) return
