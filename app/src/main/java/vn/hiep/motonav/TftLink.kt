@@ -560,7 +560,13 @@ object TftLink {
             // (độ xoè nhỏ như 2D) để định vị luôn nằm đúng trên nét đường, xa hơn mới nghiêng dần vào
             // 3D đầy đủ theo tốc độ. Nhờ vậy tại đúng vị trí xe (ry=0) khung LUÔN là công thức phẳng
             // cũ (anchorY quay lại 0.72 như trước), không còn bị đẩy xuống nữa — không cần chỉnh riêng.
-            val tiltRampM = 40.0
+            // Theo phản hồi thực tế lần 2: định vị vẫn lệch nhẹ khỏi tâm đường dù đã nâng ngưỡng —
+            // cần một đoạn "gần như phẳng" dài hơn nữa, rồi mới cong dần vào 3D thay vì dốc một lần.
+            // Chọn hằng số sao cho ~80m vẫn gần như 2D (smooth01(80/300)≈0.18), ~150m là mức lưng
+            // chừng "2.5D" (smooth01(150/300)=0.5 đúng — smoothstep đối xứng quanh điểm giữa), rồi
+            // tiếp tục cong mượt (cùng công thức smoothstep, không phải bậc rời rạc) cho tới khi
+            // chạm 3D đầy đủ quanh mốc 300m.
+            val tiltRampM = 300.0
             fun smooth01(x: Double): Double { val cl = x.coerceIn(0.0, 1.0); return cl * cl * (3.0 - 2.0 * cl) }
             fun toScreen(rx: Double, ry: Double): FloatArray {
                 val effT = tiltT * smooth01(ry / tiltRampM)
@@ -805,11 +811,25 @@ object TftLink {
             c.drawText("$remMin ph", cx, sy, statPaint)
             sy += h * 0.12f
             c.drawText(remTxt, cx, sy, statPaint)
-            // ETA bé lại chút (0.17->0.14) + đổi màu đỏ theo yêu cầu.
-            // ETA đổi đỏ tươi hơn + in đậm + dịch xuống thêm một chút theo yêu cầu.
-            val redColor = Color.rgb(255, 30, 30)
-            val etaPaint = Paint().apply { color = redColor; textSize = h * 0.14f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            c.drawText(etaTxt, w * 0.04f, anchorY + h * 0.06f, etaPaint)
+            // ETA đổi từ chữ đỏ trần sang khung kiểu biển báo theo yêu cầu: hình chữ nhật bo viền
+            // nhẹ, viền ngoài đỏ, nền trắng, chữ đen — cùng tinh thần dễ nhận diện ngay như biển
+            // giới hạn tốc độ (bên phải) nhưng hình chữ nhật để phân biệt 2 loại thông tin.
+            val etaTextPaint = Paint().apply { color = Color.BLACK; textSize = h * 0.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val padX2 = h * 0.055f; val padY2 = h * 0.045f
+            val tw2 = etaTextPaint.measureText(etaTxt)
+            val fmE = etaTextPaint.fontMetrics
+            val textH = fmE.descent - fmE.ascent
+            val boxW = tw2 + padX2 * 2f
+            val boxH = textH + padY2 * 2f
+            val boxLeft = w * 0.035f
+            val boxTop = anchorY - h * 0.03f - boxH / 2f
+            val boxRect = android.graphics.RectF(boxLeft, boxTop, boxLeft + boxW, boxTop + boxH)
+            val cornerR = h * 0.035f
+            val etaFillPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+            val etaBorderPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true }
+            c.drawRoundRect(boxRect, cornerR, cornerR, etaFillPaint)
+            c.drawRoundRect(boxRect, cornerR, cornerR, etaBorderPaint)
+            c.drawText(etaTxt, boxRect.centerX(), boxRect.centerY() - (fmE.ascent + fmE.descent) / 2f, etaTextPaint)
         }
         // Chỉ dẫn rẽ — icon mũi tên tự vẽ (KHÔNG ghi chữ "trái"/"phải"), khoảng cách đếm ngược và
         // tên đường sắp quẹo vào, cố định góc trên-trái, KHÔNG nền (theo yêu cầu). Trước đây icon rẽ
@@ -854,9 +874,12 @@ object TftLink {
             }
         }
         val out = ByteArrayOutputStream()
-        // Chất lượng thấp hơn trước (35→22): nội dung chỉ nét trắng trên nền đen, hạ chất lượng gần
-        // như không đổi hình mà khung nhỏ hơn, xe tải/giải mã nhanh hơn, bớt xoay.
-        bmp.compress(Bitmap.CompressFormat.JPEG, 22, out)
+        // Hạ tiếp (22→17) theo log thực tế build 0.160: khung nặng hẳn lên sau khi thêm phối cảnh
+        // nghiêng 3D (đường cong nhiều cạnh hơn fan tuyến thẳng cũ, nén JPEG kém hiệu quả hơn) —
+        // trung bình 10-11KB, timeout xe không kịp ACK 18-23% số khung (so với ~8KB/8% trước đó),
+        // đúng là nguyên nhân "khung ảnh reload liên tục" theo phản hồi thực tế. Nội dung vẫn chỉ
+        // nét trắng/đỏ trên nền đen nên hạ thêm chất lượng gần như không thấy khác biệt bằng mắt.
+        bmp.compress(Bitmap.CompressFormat.JPEG, 17, out)
         bmp.recycle()
         return out.toByteArray()
     }
@@ -988,7 +1011,7 @@ object TftLink {
         }
         c.drawPath(carPath, carPaint)
         val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, 22, out) // cùng chất lượng 22 như khung thật
+        bmp.compress(Bitmap.CompressFormat.JPEG, 17, out) // cùng chất lượng 17 như khung thật
         bmp.recycle()
         return out.toByteArray()
     }
@@ -1086,7 +1109,7 @@ object TftLink {
             }
         }
         val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, 22, out) // cùng chất lượng 22 như khung thật, để số liệu so sánh được
+        bmp.compress(Bitmap.CompressFormat.JPEG, 17, out) // cùng chất lượng 17 như khung thật, để số liệu so sánh được
         bmp.recycle()
         return out.toByteArray()
     }
