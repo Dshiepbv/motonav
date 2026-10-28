@@ -323,8 +323,11 @@ object TftLink {
             statFrom = now; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
             statResend = 0; statResendHit = 0
             statWindows++
-            paceMode = (statWindows / 2) % 3
-            sizeMode = (statWindows / 6) % 2
+            // build-235: log 28/10 — cmd 16 (báo độ trễ) làm màn xe gửi 56 `0b 00` (tạm dừng) liên tục và
+            // hiện "Chỉ đường không khả dụng"; nhịp nghỉ 100/30 ms không tốt hơn 400 ms. Tắt cả hai
+            // thử nghiệm: nhịp cố định 400 ms, không gửi cmd 16.
+            paceMode = 0
+            sizeMode = 0
         }
     }
 
