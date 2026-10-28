@@ -218,7 +218,8 @@ class NavEngine(
                                 val sWhy = shifted?.let { RoutePick.rejectReason(it, heading, trailNow) }
                                 if (shifted != null) TripLog.ev("routeShift", "ahead" to dAhead, "why" to (sWhy ?: "ok"))
                                 if (shifted != null && sWhy == null) { found = shifted; break }
-                                val vr = fromOrigin(false, listOf(ap)).first()
+                                // Mỗi lượt Goong đều tính tiền: đã có tuyến xuất phát từ điểm trước xe thì không gọi thêm "via".
+                                val vr = shifted ?: fromOrigin(false, listOf(ap)).first()
                                 val why = RoutePick.rejectReason(vr, heading, trailNow)
                                 TripLog.ev("routeVia", "ahead" to dAhead, "why" to (why ?: "ok"))
                                 if (why == null) { found = vr; break }
