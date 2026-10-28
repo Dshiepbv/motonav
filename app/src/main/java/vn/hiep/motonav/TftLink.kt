@@ -243,13 +243,10 @@ object TftLink {
     // mới quá 1 s (khoảng cách giữa 2 lần xe ACK, trừ 1 s) — tính cả lúc app CỐ Ý chờ ở nhịp B/C,
     // nên nhịp nào gửi thưa đi cũng không "ăn gian" được con số.
     @Volatile private var paceMode = 0
-    // build-233 — theo tài liệu maxdash (iPhone: 1 khung trên đường, ACK ~27 ms + 21 ms/KB) và log của
-    // mình (ACK trung vị chỉ ~72 ms): nghỉ 400 ms giữa 2 khung có thể là điểm nghẽn. Luân phiên mỗi 2
-    // cửa sổ tftStat: paceMode 0 = nghỉ 400 ms, 1 = nghỉ 100 ms, 2 = nghỉ 30 ms (A/B/C trong tftStat).
-    // Thêm yếu tố thứ hai [sizeMode] (đổi mỗi 6 cửa sổ): 0 = không gửi cmd 16, 1 = gửi cmd 16 "báo độ
-    // trễ" [rtt/100 ms, 0] sau mỗi ACK như tài liệu mô tả (chưa quan sát được tác dụng). So bằng gapA/B/C
-    // và gapOff/gapOn. Thử nghiệm gửi theo 0x41 (232) tạm gác lại để không lẫn yếu tố.
+    // build-231 — thử cỡ ảnh: luân phiên mỗi 2 cửa sổ tftStat giữa ảnh thường (0 = L, quality 14,
+    // ~10 KB) và ảnh nhỏ (1 = S, hạ quality tới khi ≤ SMALL_TARGET_BYTES). So bằng gapL/gapS trong tftStat.
     @Volatile private var sizeMode = 0
+    private const val SMALL_TARGET_BYTES = 6500
     private val gapBySize = LongArray(2)
     private val spanBySize = LongArray(2)
     private var statWindows = 0
@@ -314,8 +311,8 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "bikeKmh" to bikeSpeedKmh, "lat16" to sm,
-                    "gapOff" to pct(gapBySize[0], spanBySize[0]), "gapOn" to pct(gapBySize[1], spanBySize[1]),
+                    "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
                     "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]))
@@ -323,11 +320,10 @@ object TftLink {
             statFrom = now; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
             statResend = 0; statResendHit = 0
             statWindows++
-            // build-235: log 28/10 — cmd 16 (báo độ trễ) làm màn xe gửi 56 `0b 00` (tạm dừng) liên tục và
-            // hiện "Chỉ đường không khả dụng"; nhịp nghỉ 100/30 ms không tốt hơn 400 ms. Tắt cả hai
-            // thử nghiệm: nhịp cố định 400 ms, không gửi cmd 16.
+            // Thử nghiệm 221–224 xong (log 27/10, 27 phút): A tốt nhất (gap ≈15%) — B ≈21–25%, C ≈25–30%.
+            // Chốt cố định nhịp A, bỏ luân phiên.
             paceMode = 0
-            sizeMode = 0
+            sizeMode = 0 // build-236: quay lại bản 231, khoá ảnh thường (bỏ luân phiên ảnh nhỏ)
         }
     }
 
@@ -440,11 +436,6 @@ object TftLink {
             lastFrameError = null
             frameTxCount++
         }
-        // build-233: báo độ trễ (cmd 16, flag 0, [rtt/100 ms, 0], tối đa 255) sau mỗi ACK — theo tài liệu
-        // maxdash; chỉ gửi ở nửa chu kỳ thử nghiệm sizeMode == 1.
-        if (!timedOut && sizeMode == 1) {
-            try { send(pack(byteArrayOf((waited / 100).coerceIn(0L, 255L).toByte(), 0), 16, 0)) } catch (_: Exception) {}
-        }
         recordFrameStat(waited, timedOut)
         // Ghi vào nhật ký chuyến đi (dung lượng khung thật gửi đi + thời gian ACK) — để sau này xem
         // lại có thể đối chiếu xem ACK bắt đầu chậm hẳn từ cỡ khung bao nhiêu byte, tìm ra một mức
@@ -467,7 +458,6 @@ object TftLink {
     @Volatile private var skRoute: Route? = null
     @Volatile private var skLat = 0.0
     @Volatile private var skLon = 0.0
-    @Volatile private var skFixAt = 0L
     @Volatile private var skHeadingDeg = -1.0
     // Hướng hợp lệ gần nhất (khi xe đứng yên/chạy chậm, Live.heading = -1 vì GPS course không đáng
     // tin ở tốc độ thấp — DriveService.onLocation dòng ~401). Trước đây lúc đó khung lấy mặc định
@@ -533,10 +523,8 @@ object TftLink {
         wxLabel: String? = null,
         wxNight: Boolean = false,
         thenDistM: Double = 0.0,
-        fixAtMs: Long = 0L,
     ) {
         skActive = active
-        skFixAt = fixAtMs
         skRoute = route
         skLat = lat
         skLon = lon
@@ -593,23 +581,7 @@ object TftLink {
                 c.drawText("Chờ tuyến đường…", w / 2f, h * 0.52f, p2)
             }
         } else {
-            // Làm mịn chuyển động tam giác/bản đồ: GPS chỉ cập nhật ~1 Hz nên giữa 2 fix hình đứng rồi
-            // nhảy một bước. Ngoại suy vị trí theo tốc độ + hướng từ thời điểm fix (tối đa 1,5 s, chỉ khi
-            // > 3 km/h và có hướng) — chỉ đổi vị trí đầu vào, không đụng xoay/3D.
-            var curLat = skLat; var curLon = skLon
-            run {
-                val fixAt = skFixAt
-                val spd = skSpeedKmh
-                val hd = skHeadingDeg
-                if (fixAt > 0 && spd >= 3 && hd >= 0 && skLat != 0.0) {
-                    val dt = ((System.currentTimeMillis() - fixAt).coerceIn(0L, 1500L)) / 1000.0
-                    val dist = spd / 3.6 * dt
-                    val hr = Math.toRadians(hd)
-                    curLat += dist * Math.cos(hr) / 111320.0
-                    curLon += dist * Math.sin(hr) / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                }
-            }
-            val proj = LocalProjection(curLat, curLon)
+            val proj = LocalProjection(skLat, skLon)
             // Tìm điểm gần vị trí hiện tại nhất trên tuyến. "Ghim" quanh chỉ số khung trước (nếu
             // cùng tuyến) để tránh nhảy xa sang một đoạn khác của tuyến tình cờ ở gần — nguyên nhân
             // đường xanh thỉnh thoảng biến mất rồi lại hiện (báo lỗi thực tế từ xe). Chỉ quét lại
@@ -635,7 +607,7 @@ object TftLink {
                 var bi = skIdxHint
                 var bestCost = Double.MAX_VALUE
                 for (i in lo..hi) {
-                    val d = Geo.distance(curLat, curLon, route.lats[i], route.lons[i])
+                    val d = Geo.distance(skLat, skLon, route.lats[i], route.lons[i])
                     val jump = Math.abs(route.cum[i] - hintCum)
                     val penalty = if (jump > 150.0) (jump - 150.0) * 0.6 else 0.0
                     val cost = d + penalty
@@ -649,7 +621,7 @@ object TftLink {
                 var fi = 0
                 var fbest = Double.MAX_VALUE
                 for (i in route.lats.indices) {
-                    val d = Geo.distance(curLat, curLon, route.lats[i], route.lons[i])
+                    val d = Geo.distance(skLat, skLon, route.lats[i], route.lons[i])
                     if (d < fbest) { fbest = d; fi = i }
                 }
                 idx0 = fi
@@ -1183,6 +1155,16 @@ object TftLink {
         // nhưng KHÔNG kỳ vọng hết hẳn "reload" — nếu vẫn còn, nhiều khả năng là giới hạn phần cứng/
         // khoảng cách Bluetooth phía xe chứ không phải thứ sửa thêm bằng code được nữa.
         bmp.compress(Bitmap.CompressFormat.JPEG, 14, out)
+        if (sizeMode == 1 && out.size() > SMALL_TARGET_BYTES) {
+            // Ảnh nhỏ: hạ quality từng bước tới khi ≤ SMALL_TARGET_BYTES (hoặc quality 4).
+            var q = 11
+            while (q >= 4) {
+                out.reset()
+                bmp.compress(Bitmap.CompressFormat.JPEG, q, out)
+                if (out.size() <= SMALL_TARGET_BYTES) break
+                q -= 3
+            }
+        }
         bmp.recycle()
         return out.toByteArray()
     }
@@ -1210,6 +1192,12 @@ object TftLink {
                 // Trừ lúc đang chạy test hiệu chỉnh (runCalibration) — để không chen khung vào giữa,
                 // làm lẫn lộn số thứ tự/ACK của bộ test.
                 if (!calibRunning && !routeTestRunning) {
+                    // Nhịp B: tránh gửi khung đúng lúc dự đoán xe sắp "đứng" (theo nhịp 10 s học từ lần
+                    // đứng gần nhất) — chờ qua cửa sổ rủi ro rồi mới gửi khung mới nhất.
+                    if (paceMode == 1) {
+                        val wait = riskWaitMs(System.currentTimeMillis())
+                        if (wait > 0) sleepQuiet(wait)
+                    }
                     try {
                         sendFrame(buildSketchFrame())
                     } catch (_: Exception) {
@@ -1226,8 +1214,8 @@ object TftLink {
                 // khung, 0 timeout). sendFrame() nay cũng chỉ còn chờ ACK tối đa 1,5s (trước 6s — xem
                 // ACK_WAIT_MS), nên khoảng lặng xấu nhất giữa 2 khung giờ chỉ còn ~1,9s (1,5s chờ ACK
                 // + 0,4s nghỉ), thay vì 6,4s trước đây.
-                // build-233: nghỉ theo paceMode — 0: 400 ms, 1: 100 ms, 2: 30 ms (xem chú thích paceMode).
-                sleepQuiet(when (paceMode) { 1 -> 100L; 2 -> 30L; else -> 400L })
+                // Nhịp C: nghỉ dài hơn (900 ms) giữa 2 khung — ít khung hơn, thử xem có ít lần đứng hơn.
+                sleepQuiet(if (paceMode == 2) 900 else 400)
             } else {
                 sleepQuiet(400)
             }

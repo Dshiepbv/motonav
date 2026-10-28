@@ -38,10 +38,7 @@ object GoongVector {
             c.readTimeout = 15000
             c.setRequestProperty("User-Agent", "MotoNav/1.0 (Android)")
             val code = c.responseCode
-            if (code !in 200..299) {
-                val eb = try { c.errorStream?.use { String(it.readBytes().copyOf(200).filter { b -> b.toInt() != 0 }.toByteArray()) } } catch (_: Exception) { null }
-                throw RuntimeException("HTTP $code" + (if (!eb.isNullOrBlank()) " $eb" else ""))
-            }
+            if (code !in 200..299) throw RuntimeException("HTTP $code")
             var b = c.inputStream.use { it.readBytes() }
             if (b.size > 2 && b[0] == 0x1f.toByte() && b[1] == 0x8b.toByte()) {
                 b = GZIPInputStream(ByteArrayInputStream(b)).use { it.readBytes() }
@@ -55,85 +52,31 @@ object GoongVector {
     private fun withKey(url: String, key: String): String =
         if (url.contains("api_key=")) url else url + (if (url.contains('?')) "&" else "?") + "api_key=" + URLEncoder.encode(key, "UTF-8")
 
-    private fun mask(u: String) = u.replace(Regex("api_key=[^&]*"), "api_key=*")
-
-    /** Đọc style → mẫu URL mảnh vector. Chọn nguồn mà các lớp đường (line) của style tham chiếu; log
-     * toàn bộ nguồn + lớp để chỉnh lại nếu đoán sai (log 27/10: nguồn đầu tiên "tiles/base" 404). */
+    /** Đọc style → mẫu URL mảnh vector (và zoom tối đa của nguồn). */
     private fun discover(key: String): List<String> {
         tileUrls?.let { return it }
         val style = JSONObject(String(httpGet(GoongMap.tileStyleUrl(key, true))))
         val sources = style.optJSONObject("sources") ?: throw RuntimeException("style không có sources")
-        val urlsBySrc = LinkedHashMap<String, List<String>>()
-        val maxBySrc = HashMap<String, Int>()
-        for (name in sources.keys()) {
-            val sj = sources.getJSONObject(name)
-            if (sj.optString("type") != "vector") continue
-            var tiles = sj.optJSONArray("tiles")
-            var maxzoom = sj.optInt("maxzoom", -1)
-            if (tiles == null && sj.has("url")) {
-                try {
-                    val tj = JSONObject(String(httpGet(withKey(sj.getString("url"), key))))
-                    tiles = tj.optJSONArray("tiles")
-                    if (maxzoom < 0) maxzoom = tj.optInt("maxzoom", -1)
-                } catch (e: Exception) {
-                    TripLog.ev("goongTiles", "srcUrlErr" to mask(sj.getString("url")), "err" to e.message)
-                }
-            }
-            val l = ArrayList<String>()
-            if (tiles != null) for (i in 0 until tiles.length()) l.add(tiles.getString(i))
-            urlsBySrc[name] = l
-            maxBySrc[name] = maxzoom
-        }
-        // Lớp đường trong style: nguồn + source-layer
-        val roadSrc = LinkedHashSet<String>()
-        val layerLog = LinkedHashMap<String, LinkedHashSet<String>>()
-        val layers = style.optJSONArray("layers")
-        if (layers != null) for (i in 0 until layers.length()) {
-            val ly = layers.getJSONObject(i)
-            if (ly.optString("type") != "line") continue
-            val src = ly.optString("source"); val sl = ly.optString("source-layer")
-            if (src.isEmpty() || sl.isEmpty()) continue
-            layerLog.getOrPut(src) { LinkedHashSet() }.add(sl)
-            if (LAYER_OK.containsMatchIn(sl) && !LAYER_NO.containsMatchIn(sl)) roadSrc.add(src)
-        }
-        TripLog.ev("goongTiles", "sources" to urlsBySrc.entries.joinToString(" | ") { (k, v) -> "$k:${maxBySrc[k]}:" + v.joinToString(",") { mask(it) } },
-            "lineLayers" to layerLog.entries.joinToString(" | ") { (k, v) -> "$k=" + v.take(40).joinToString(",") },
-            "roadSrc" to roadSrc.joinToString(","))
-        val chosen = roadSrc.filter { urlsBySrc.containsKey(it) }.ifEmpty { urlsBySrc.keys.toList() }
         val urls = ArrayList<String>()
         var maxZ = 14
-        for (n in chosen) {
-            urls.addAll(urlsBySrc[n] ?: emptyList())
-            val mz = maxBySrc[n] ?: -1
-            if (mz in 1..22) maxZ = mz
+        for (name in sources.keys()) {
+            val s = sources.getJSONObject(name)
+            if (s.optString("type") != "vector") continue
+            var tiles = s.optJSONArray("tiles")
+            var maxzoom = s.optInt("maxzoom", -1)
+            if (tiles == null && s.has("url")) {
+                val tj = JSONObject(String(httpGet(withKey(s.getString("url"), key))))
+                tiles = tj.optJSONArray("tiles")
+                if (maxzoom < 0) maxzoom = tj.optInt("maxzoom", -1)
+            }
+            if (tiles != null) for (i in 0 until tiles.length()) urls.add(tiles.getString(i))
+            if (maxzoom in 1..22) maxZ = maxzoom
         }
         if (urls.isEmpty()) throw RuntimeException("style không có nguồn vector")
-        tileZoom = maxZ.coerceIn(12, 14)
+        tileZoom = maxZ.coerceIn(12, 14) // log 27/10: z15 trả 404 toàn bộ → tối đa z14
         tileUrls = urls
-        TripLog.ev("goongTiles", "tpl" to mask(urls[0]), "maxzoom" to maxZ, "z" to tileZoom)
+        TripLog.ev("goongTiles", "tpl" to urls[0].replace(Regex("api_key=[^&]*"), "api_key=*"), "maxzoom" to maxZ, "z" to tileZoom)
         return urls
-    }
-
-    private var probed = false
-
-    /** Một lần: thử vài mức zoom × kiểu đánh số y (XYZ/TMS) cho mảnh giữa, ghi mã HTTP — để biết mẫu URL đúng. */
-    private fun probe(key: String, urls: List<String>, lat: Double, lon: Double) {
-        if (probed) return
-        probed = true
-        val res = ArrayList<String>()
-        for (z in intArrayOf(10, 12, 13, 14, 15, 16)) {
-            val n = 1 shl z
-            val tx = ((lon + 180.0) / 360.0 * n).toInt()
-            val latRad = Math.toRadians(lat)
-            val ty = ((1.0 - Math.log(Math.tan(latRad) + 1.0 / Math.cos(latRad)) / Math.PI) / 2.0 * n).toInt()
-            for (tms in booleanArrayOf(false, true)) {
-                val y = if (tms) n - 1 - ty else ty
-                val u = withKey(urls[0].replace("{z}", z.toString()).replace("{x}", tx.toString()).replace("{y}", y.toString()), key)
-                val r = try { "${httpGet(u).size}B" } catch (e: Exception) { e.message?.take(40) ?: "err" }
-                res.add("z$z${if (tms) "t" else "x"}=$r")
-            }
-        }
-        TripLog.ev("goongProbe", "res" to res.joinToString(" "))
     }
 
     /** Đường (dạng Way) quanh vị trí từ 3x3 mảnh. null = không lấy được. */
@@ -165,7 +108,6 @@ object GoongVector {
         if (failed == 9 || out.isEmpty()) {
             // Toàn bộ mảnh lỗi (404…): lần sau thử mức zoom thấp hơn một bậc.
             if (z > 12) tileZoom = z - 1
-            try { probe(key, urls, lat, lon) } catch (_: Exception) {}
             return null
         }
         return out

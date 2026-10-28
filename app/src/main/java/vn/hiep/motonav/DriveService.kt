@@ -300,7 +300,6 @@ class DriveService : Service(), LocationListener {
                     route = Live.route,
                     lat = Live.lat,
                     lon = Live.lon,
-                    fixAtMs = Live.fixAtMs,
                     headingDeg = Live.heading,
                     maneuverLat = Live.maneuverLat,
                     maneuverLon = Live.maneuverLon,
@@ -409,7 +408,6 @@ class DriveService : Service(), LocationListener {
         val movingHeading: Double? = if (speedMps > 2.0 && heading >= 0) heading else null
 
         Live.lat = lat
-        Live.fixAtMs = System.currentTimeMillis()
         Live.lon = lon
         Live.heading = if (speedMps > 1.0) heading else -1.0
         Live.speedKmh = speedKmh
