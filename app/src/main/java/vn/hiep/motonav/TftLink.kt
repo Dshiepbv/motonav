@@ -769,6 +769,42 @@ object TftLink {
             // mẫu trên tuyến tô thêm ô xung quanh (lưới vuông, không phải hình tròn chính xác — đủ
             // dùng cho mục đích hiển thị). Thử giảm từ 1km xuống 500m mỗi bên theo yêu cầu, phòng khi
             // bề rộng 1km làm máy phải xử lý/vẽ nặng quá.
+            // build-239: nền ảnh mảng màu kiểu Waze tối (nước/công viên/khu dân cư) thay nền đen — chỉ
+            // đổi màu vẽ, mọi phép chiếu/zoom/xoay giữ nguyên như các nét đường.
+            run {
+                c.drawColor(Color.rgb(22, 26, 38))
+                val areas = Live.areas
+                if (areas != null) {
+                    val lim = drawAhead * 1.1
+                    val fillW = Paint().apply { color = Color.rgb(24, 58, 112); style = Paint.Style.FILL; isAntiAlias = true }
+                    val fillG = Paint().apply { color = Color.rgb(26, 84, 56); style = Paint.Style.FILL; isAntiAlias = true }
+                    val fillU = Paint().apply { color = Color.rgb(32, 38, 54); style = Paint.Style.FILL; isAntiAlias = true }
+                    val riverP = Paint().apply { color = Color.rgb(24, 58, 112); style = Paint.Style.STROKE; strokeWidth = 9f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+                    // Thứ tự: khu dân cư → xanh → nước → sông (nước đè lên cuối)
+                    for (kind in intArrayOf(Areas.URBAN, Areas.GREEN, Areas.WATER, Areas.RIVER)) {
+                        for (ar in areas) {
+                            if (ar.kind != kind) continue
+                            val pth = android.graphics.Path()
+                            var started = false
+                            var near = false
+                            val step = (ar.lats.size / 70).coerceAtLeast(1)
+                            var j = 0
+                            while (j < ar.lats.size) {
+                                val dx = proj.x(ar.lons[j]); val dy = proj.y(ar.lats[j])
+                                var rx = dx * cosH - dy * sinH; var ry = dx * sinH + dy * cosH
+                                if (Math.abs(rx) <= lim && ry >= behindLimit && ry <= drawAhead) near = true
+                                rx = rx.coerceIn(-lim, lim); ry = ry.coerceIn(behindLimit, drawAhead)
+                                val (sx, sy) = toScreen(rx, ry)
+                                if (!started) { pth.moveTo(sx, sy); started = true } else pth.lineTo(sx, sy)
+                                j += step
+                            }
+                            if (!near) continue
+                            if (!ar.line) pth.close()
+                            c.drawPath(pth, when (kind) { Areas.URBAN -> fillU; Areas.GREEN -> fillG; Areas.WATER -> fillW; else -> riverP })
+                        }
+                    }
+                }
+            }
             val ways = skWays
             if (ways != null) {
                 // Theo yêu cầu "cái nào nhìn giống Google Map hơn": Google Maps không ẩn hẳn đường
@@ -808,10 +844,10 @@ object TftLink {
                 // Theo yêu cầu: TẤT CẢ nhánh đường đều màu trắng (màu xám trước đây khó thấy giữa
                 // ban ngày, trời nắng) — chỉ còn phân biệt bằng ĐỘ DÀY tương ứng với bề rộng thực tế
                 // ngoài đời (quốc lộ/trục chính rộng nhất -> hẻm/đường nội bộ hẹp nhất).
-                val branchPaintMajor = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintMid = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintMinor = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.7f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintTiny = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.1f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMajor = Paint().apply { color = Color.rgb(236, 240, 248); style = Paint.Style.STROKE; strokeWidth = 3.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMid = Paint().apply { color = Color.rgb(176, 184, 202); style = Paint.Style.STROKE; strokeWidth = 2.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMinor = Paint().apply { color = Color.rgb(132, 140, 160); style = Paint.Style.STROKE; strokeWidth = 1.7f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintTiny = Paint().apply { color = Color.rgb(104, 112, 132); style = Paint.Style.STROKE; strokeWidth = 1.1f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 fun branchPaintFor(highway: String): Paint = when (highway) {
                     "motorway", "trunk", "primary", "motorway_link", "trunk_link", "primary_link" -> branchPaintMajor
                     "secondary", "tertiary", "secondary_link", "tertiary_link" -> branchPaintMid

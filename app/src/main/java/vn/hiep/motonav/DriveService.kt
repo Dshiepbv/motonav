@@ -1091,8 +1091,34 @@ class DriveService : Service(), LocationListener {
         }
     }
 
+    @Volatile private var areasFetching = false
+    private var areasLat = 0.0
+    private var areasLon = 0.0
+    private var areasFailAt = 0L
+
+    private fun ensureAreas(lat: Double, lon: Double) {
+        if (areasFetching) return
+        if (Live.areas != null && Geo.distance(areasLat, areasLon, lat, lon) < 600.0) return
+        if (SystemClock.elapsedRealtime() - areasFailAt < 60_000L) return
+        areasFetching = true
+        goongExec.execute {
+            try {
+                val a = Areas.fetch(lat, lon, 1800)
+                Live.areas = a
+                areasLat = lat; areasLon = lon
+                TripLog.ev("areas", "n" to a.size)
+            } catch (e: Exception) {
+                areasFailAt = SystemClock.elapsedRealtime()
+                TripLog.ev("areas", "err" to e.message)
+            } finally {
+                areasFetching = false
+            }
+        }
+    }
+
     private fun ensureData(lat: Double, lon: Double) {
         ensureGoongWays(lat, lon)
+        ensureAreas(lat, lon)
         val snap = snapshot
         val need = snap == null || Geo.distance(snap.centerLat, snap.centerLon, lat, lon) > REFETCH_AT
         if (!need || fetching) return
