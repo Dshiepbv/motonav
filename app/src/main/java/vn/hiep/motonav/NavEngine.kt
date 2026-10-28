@@ -173,6 +173,7 @@ class NavEngine(
                 val startLat = on?.lat ?: lat
                 val startLon = on?.lon ?: lon
                 fun fromOrigin(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> {
+                    countGoongCall()
                     val raw = if (goongKey.isNotBlank()) GoongMap.routes(goongKey, origin.first, origin.second, dLat, dLon, prefs.goongVehicle, alt, via)
                     else VietMap.routes(vmKey, origin.first, origin.second, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway)
                     return if (on != null) raw.map { RoutePick.prepend(it, startLat, startLon) } else raw
@@ -200,9 +201,23 @@ class NavEngine(
                             fails == 1 -> listOf(250.0, 600.0, 1000.0)
                             else -> listOf(150.0, 400.0, 800.0)
                         }
-                        for (dAhead in dists) {
+                        val overQuota = goongCallsToday() >= 800
+                        for (dAhead in if (overQuota) dists.take(1) else dists) {
                             try {
                                 val ap = if (on != null) RoutePick.walk(on, 40.0 + dAhead) else RoutePick.aheadPoint(Live.osm, lat, lon, heading!!, dAhead)
+                                // build-237: xuất phát hẳn từ điểm phía trước (không chỉ "đi qua") — Goong hay gắn
+                                // điểm xuất phát vào làn đối diện của đường có dải phân cách rồi bắt quay đầu.
+                                // Đặt điểm đầu đủ xa phía trước thì không còn bị gắn nhầm; nối xe → điểm đó bằng
+                                // đoạn đi tiếp trên đường đang chạy.
+                                val shifted = try {
+                                    countGoongCall()
+                                    val raw = if (goongKey.isNotBlank()) GoongMap.routes(goongKey, ap.first, ap.second, dLat, dLon, prefs.goongVehicle, false)
+                                    else VietMap.routes(vmKey, ap.first, ap.second, heading, dLat, dLon, prefs.traffic, false, emptyList(), prefs.avoidHighway)
+                                    raw.firstOrNull()?.let { RoutePick.prepend(RoutePick.prepend(it, ap.first, ap.second), startLat, startLon) }
+                                } catch (_: Exception) { null }
+                                val sWhy = shifted?.let { RoutePick.rejectReason(it, heading, trailNow) }
+                                if (shifted != null) TripLog.ev("routeShift", "ahead" to dAhead, "why" to (sWhy ?: "ok"))
+                                if (shifted != null && sWhy == null) { found = shifted; break }
                                 val vr = fromOrigin(false, listOf(ap)).first()
                                 val why = RoutePick.rejectReason(vr, heading, trailNow)
                                 TripLog.ev("routeVia", "ahead" to dAhead, "why" to (why ?: "ok"))
@@ -262,6 +277,16 @@ class NavEngine(
                 Live.changed()
             }
         }
+    }
+
+    /** Đếm lượt gọi Goong theo ngày (hạn mức 1000/ngày, 30.000/tháng) để giới hạn thử lại. */
+    private fun dayKey() = "goongCalls_" + java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
+    private fun goongCallsToday(): Int = ctx.applicationContext.getSharedPreferences("motonav", android.content.Context.MODE_PRIVATE).getInt(dayKey(), 0)
+    private fun countGoongCall() {
+        val sp = ctx.applicationContext.getSharedPreferences("motonav", android.content.Context.MODE_PRIVATE)
+        val n = sp.getInt(dayKey(), 0) + 1
+        sp.edit().putInt(dayKey(), n).apply()
+        if (n % 50 == 0) TripLog.ev("goongCalls", "today" to n)
     }
 
     fun onLocation(lat: Double, lon: Double, heading: Double?, speedMps: Double) {

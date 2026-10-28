@@ -43,7 +43,7 @@ object RoutePick {
     private fun zigzagPenalty(r: Route): Double {
         val km = (r.total / 1000.0).coerceAtLeast(0.3)
         val density = turnCount(r) / km
-        return (density / 6.0).coerceIn(0.0, 2.5) * 0.05
+        return (density / 6.0).coerceIn(0.0, 2.5) * 0.08 + (if (uturnAt(r, 3000.0) >= 0) 0.08 else 0.0)
     }
 
     /** Thời gian dự kiến (giây) có tính kẹt xe. */

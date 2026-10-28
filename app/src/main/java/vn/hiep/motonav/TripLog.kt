@@ -94,7 +94,7 @@ object TripLog {
             if (i > 0) sb.append(';')
             sb.append(String.format(Locale.US, "%.6f,%.6f", r.lats[i], r.lons[i]))
         }
-        ev("route", "why" to reason, "dist" to r.distance, "timeMs" to r.timeMs, "pts" to sb.toString(),
+        ev("route", "why" to reason, "turns" to r.steps.count { it.sign != 0 }, "uturnAt" to RoutePick.uturnAt(r, 3000.0).toInt(), "dist" to r.distance, "timeMs" to r.timeMs, "pts" to sb.toString(),
             "steps" to r.steps.joinToString("|") { "${it.sign}:${it.from}:${it.street}" })
     }
 

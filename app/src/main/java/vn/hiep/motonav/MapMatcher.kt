@@ -89,7 +89,10 @@ class MapMatcher {
                 var best = Double.NEGATIVE_INFINITY
                 for (p in prev) {
                     val rd = routeDist(p, c)
-                    val tr = if (rd < 0) -12.0 else -abs(rd - gps) / beta
+                    // build-237: khác tầng (cầu/hầm/layer) mà không có nút nối thật → gần như cấm nhảy
+                    // (xe không "bay" xuống/lên cầu qua lan can); cùng đường thì ưu tiên giữ nguyên.
+                    val tr = if (rd < 0) (if (level(p.way) != level(c.way)) -40.0 else -12.0)
+                    else -abs(rd - gps) / beta + (if (p.way.id == c.way.id) 0.4 else 0.0)
                     val v = p.logp + tr
                     if (v > best) best = v
                 }
@@ -104,6 +107,15 @@ class MapMatcher {
         prevLon = lon
         val b = cands.maxByOrNull { it.logp }!!
         return Result(b.way, b.forward, b.bearing, b.dist, b.lat, b.lon)
+    }
+
+    /** Tầng của đường: cầu/vượt = +layer (≥1), hầm = âm, mặt đất 0. */
+    private fun level(w: Way): Int {
+        val l = w.tags["layer"]?.trim()?.toIntOrNull()
+        if (l != null && l != 0) return l
+        if (w.tags["bridge"].let { it != null && it != "no" }) return 1
+        if (w.tags["tunnel"].let { it != null && it != "no" }) return -1
+        return 0
     }
 
     private fun candidates(snap: OsmSnapshot, lat: Double, lon: Double, hdg: Double?, radius: Double): List<Cand> {
