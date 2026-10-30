@@ -69,7 +69,7 @@ object RoutePick {
         val traffic = list.any { hasTraffic(it) }
         // Theo yêu cầu "ưu tiên đường thẳng, đường lớn, hạn chế zigzag": cộng thêm phạt nhẹ theo
         // mật độ rẽ vào chi phí trước khi so sánh, bên cạnh thời gian/quãng đường như cũ.
-        fun cost(r: Route): Double = (if (traffic) trafficTime(r) else r.total) * (1.0 + zigzagPenalty(r))
+        fun cost(r: Route): Double = (if (traffic) trafficTime(r) else r.total) * (1.0 + zigzagPenalty(r) + (if (carOnlyM(r, 3000.0) >= 40.0) 1.0 else 0.0))
         val sorted = list.sortedBy { cost(it) }.toMutableList()
         // Thời gian gần bằng nhau (chênh < 5%) → chọn tuyến ngắn hơn
         if (traffic && sorted.size > 1) {
@@ -236,12 +236,51 @@ object RoutePick {
      */
     fun rejectReason(r: Route, heading: Double?, trail: List<DoubleArray>): String? {
         if (isBackward(r, heading)) return "startBackward"
+        if (carOnlyM(r, 1500.0) >= 40.0) return "carOnly"
         if (backtrackM(r, trail) >= 40.0) return "backtrack"
         // Quay đầu trong 1 km đầu rồi chạy ngược lại sát vết vừa đi (làn bên kia dải phân cách, ≤60 m)
         // = kéo về tuyến cũ → loại. Quay đầu xong đi hướng khác → giữ.
         val u = uturnAt(r, 1000.0)
         if (u >= 0 && backtrackM(r, trail, 60.0) >= 40.0) return "uturnBack@" + u.toInt()
         return null
+    }
+
+    /** Đường cấm xe máy (làn riêng ô tô, cao tốc, cấm xe cơ giới) theo thẻ OSM. */
+    fun carOnly(w: Way): Boolean {
+        val t = w.tags
+        fun no(v: String?) = v == "no" || v == "private"
+        val mc = t["motorcycle"]
+        if (mc == "yes" || mc == "designated" || mc == "permissive") return false
+        if (no(mc)) return true
+        if (no(t["motor_vehicle"])) return true
+        if (t["access"] == "no" || t["access"] == "private") return true
+        return w.highway == "motorway" || w.highway == "motorway_link"
+    }
+
+    /** Quãng tuyến (m, trong [withinM] đầu) chạy sát (≤ 8 m) đường cấm xe máy. 0 nếu không có dữ liệu. */
+    fun carOnlyM(r: Route, withinM: Double = 3000.0): Double {
+        val snap = Live.osm ?: return 0.0
+        val bad = snap.ways.filter { carOnly(it) }
+        if (bad.isEmpty()) return 0.0
+        var m = 0.0
+        var c = 0.0
+        val end = kotlin.math.min(withinM, r.total)
+        while (c <= end) {
+            val p = pointAt(r, c)
+            val proj = LocalProjection(p.first, p.second)
+            loop@ for (w in bad) {
+                if (p.first < w.minLat - 0.0001 || p.first > w.maxLat + 0.0001 || p.second < w.minLon - 0.0001 || p.second > w.maxLon + 0.0001) continue
+                for (i in 0 until w.lats.size - 1) {
+                    val ax = proj.x(w.lons[i]); val ay = proj.y(w.lats[i])
+                    val dx = proj.x(w.lons[i + 1]) - ax; val dy = proj.y(w.lats[i + 1]) - ay
+                    val len2 = dx * dx + dy * dy
+                    val t = if (len2 < 0.01) 0.0 else (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
+                    if (Math.hypot(ax + t * dx, ay + t * dy) <= 8.0) { m += 10.0; break@loop }
+                }
+            }
+            c += 10.0
+        }
+        return m
     }
 
     /** Ghép thêm điểm xe hiện tại vào đầu tuyến (khi tuyến được tìm từ một điểm phía trước xe). */

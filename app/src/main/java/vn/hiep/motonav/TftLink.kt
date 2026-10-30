@@ -1038,9 +1038,12 @@ object TftLink {
                     // build-231: CHỈ tam giác xe (vẽ) dời ngang về tim nét đỏ khi lệch < 12 m — phép
                     // chiếu/xoay/3D giữ nguyên vị trí GPS thật (khác bản 220 đã bị gỡ).
                     if (bestD < 12.0) carX = psx.coerceIn(anchorX - h * 0.12f, anchorX + h * 0.12f)
-                    path.moveTo(carX, toScreen(0.0, 0.0)[1])
-                    routePx.add(floatArrayOf(carX, toScreen(0.0, 0.0)[1]))
-                    path.lineTo(psx, psy)
+                    // Xe lệch ≥ 8 m (làn song song): KHÔNG kéo nét đỏ cong vào xe, bắt đầu ở điểm chiếu.
+                    if (bestD < 8.0) {
+                        path.moveTo(carX, toScreen(0.0, 0.0)[1])
+                        routePx.add(floatArrayOf(carX, toScreen(0.0, 0.0)[1]))
+                        path.lineTo(psx, psy)
+                    } else path.moveTo(psx, psy)
                     routePx.add(floatArrayOf(psx, psy))
                     started = true
                     i = bestNext

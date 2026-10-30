@@ -185,6 +185,15 @@ class NavEngine(
                 val clean = list.filter { !BlockedRoads.blocksPath(ctx, it.lats, it.lons) }
                 if (clean.isNotEmpty() && clean.size < list.size) list = clean
                 list = RoutePick.rank(list, heading, forwardFirst = heading != null)
+                // Loại tuyến chạy vào làn/đường cấm xe máy (thẻ OSM) ngay từ lần tìm đầu, nếu còn tuyến khác.
+                run {
+                    val cm = list.map { RoutePick.carOnlyM(it, 3000.0) }
+                    if (cm.any { it >= 40.0 }) {
+                        TripLog.ev("carOnly", "m" to cm.joinToString(",") { it.toInt().toString() })
+                        val ok = list.filterIndexed { i, _ -> cm[i] < 40.0 }
+                        if (ok.isNotEmpty()) list = ok
+                    }
+                }
                 var holdForward = false
                 if (moving) {
                     val ok = list.filter { RoutePick.rejectReason(it, heading, trailNow) == null }
