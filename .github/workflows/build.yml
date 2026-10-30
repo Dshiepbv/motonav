@@ -51,7 +51,9 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk MotoNav-$VER.apk
 
       - uses: actions/upload-artifact@v4
+        continue-on-error: true # hết hạn mức lưu trữ artifact thì vẫn phát hành bản APK
         with:
+          retention-days: 1
           name: MotoNav-apk
           path: MotoNav-${{ env.VER }}.apk
 
