@@ -30,11 +30,37 @@ object MapSnap {
     private var okCount = 0
     private var failCount = 0
     private var totalMs = 0L
+    @Volatile private var disabledUntil = 0L
+    private var crashHooked = false
+
+    /** Tắt chế độ ảnh bản đồ một lúc (lỗi nặng) — TftLink dùng lại vector. */
+    fun disable(reason: String, forMs: Long = 600_000L) {
+        disabledUntil = SystemClock.elapsedRealtime() + forMs
+        try { TripLog.ev("mapSnap", "disabled" to reason) } catch (_: Throwable) {}
+    }
 
     fun render(ctx: Context, styleUrl: String, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,
                w: Int, h: Int, timeoutMs: Long = 1500): MapSnapshot? {
+        return try { renderInner(ctx, styleUrl, lat, lon, bearing, zoom, tilt, w, h, timeoutMs) } catch (t: Throwable) {
+            disable(t.javaClass.simpleName + ": " + (t.message ?: ""))
+            null
+        }
+    }
+
+    private fun renderInner(ctx: Context, styleUrl: String, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,
+                            w: Int, h: Int, timeoutMs: Long): MapSnapshot? {
         val now = SystemClock.elapsedRealtime()
-        if (now < pauseUntil || inFlight) return null
+        if (now < disabledUntil || now < pauseUntil || inFlight) return null
+        if (!crashHooked) {
+            crashHooked = true
+            // Ghi lại lỗi làm sập app vào nhật ký (flush ngay) để biết nguyên nhân nếu có
+            val prev = Thread.getDefaultUncaughtExceptionHandler()
+            Thread.setDefaultUncaughtExceptionHandler { th, ex ->
+                try { TripLog.ev("note", "crash" to (th.name + ": " + android.util.Log.getStackTraceString(ex).take(1500))) } catch (_: Throwable) {}
+                prev?.uncaughtException(th, ex)
+            }
+            TripLog.ev("mapSnap", "start" to 1)
+        }
         inFlight = true
         val t0 = now
         val latch = CountDownLatch(1)

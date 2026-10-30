@@ -1323,8 +1323,15 @@ object TftLink {
                         if (wait > 0) sleepQuiet(wait)
                     }
                     try {
-                        sendFrame(buildSketchFrame())
-                    } catch (_: Exception) {
+                        // Lỗi trong nhánh ảnh bản đồ (kể cả lỗi nặng kiểu NoClassDefFoundError/UnsatisfiedLinkError)
+                        // không được làm sập app: tắt nhánh đó rồi vẽ lại bằng vector.
+                        val frame = try { buildSketchFrame() } catch (t: Throwable) {
+                            if (mapSnapStyle == null) throw t
+                            MapSnap.disable("build: " + t.javaClass.simpleName + " " + (t.message ?: ""))
+                            buildSketchFrame()
+                        }
+                        sendFrame(frame)
+                    } catch (_: Throwable) {
                     }
                 }
                 // Tóm tắt lịch sử (v6.58→v6.69): gốc vấn đề không phải gửi dồn mà là KHOẢNG LẶNG —
