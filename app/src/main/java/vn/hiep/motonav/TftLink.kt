@@ -177,6 +177,9 @@ object TftLink {
 
     /** Độ phân giải màn hình thật của xe, dò được ở bước bắt tay 2/3 (cmd 0x53). Mặc định
      * 480x234 (model không phải "006-B4160") cho tới khi dò ra chính xác. */
+    /** Địa chỉ style bản đồ Goong (null = tắt chế độ ảnh bản đồ, dùng vector). Đặt bởi DriveService. */
+    @Volatile var mapSnapStyle: String? = null
+    @Volatile private var appCtx: Context? = null
     @Volatile var screenW: Int = 480
         private set
     @Volatile var screenH: Int = 234
@@ -680,6 +683,18 @@ object TftLink {
             // px trên "mét đã nén" — chỉnh theo [maxAhead] (mức zoom, không phải khoảng vẽ thật) để
             // chỗ rẽ gần vẫn to rõ kể cả khi [drawAhead] đã kéo xa hơn nhiều.
             val scale = (h * 0.68f) / maxAhead.toFloat()
+            // build-250: nền = ẢNH bản đồ Goong vẽ ngoài nền (MapSnapshotter) như bản đồ trên điện thoại; mọi nét
+            // chồng lên (tuyến đỏ, nhãn, tam giác xe) quy đổi qua đúng ảnh đó. Lỗi/quá hạn → null → vector cũ.
+            val snapShot: org.maplibre.android.snapshotter.MapSnapshot? = run {
+                val st = mapSnapStyle; val cx = appCtx
+                if (st == null || cx == null) return@run null
+                val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(14.5, 17.8)
+                val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
+                val aheadM = 0.22 * h * mPerPx * 1.15
+                val tLat = skLat + cosH * aheadM / 110540.0
+                val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
+                MapSnap.render(cx, st, tLat, tLon, headingNow, zoomLvl, 45.0, w, h)
+            }
             // rx/ry (mét thật, đã xoay theo hướng xe) -> toạ độ pixel, nén bán kính theo căn bậc hai
             // (mũ 0.55) quanh vị trí xe: gần xe gần như không nén (dễ thấy rẽ), xa xe nén mạnh hơn.
             fun flatToScreen(rx: Double, ry: Double): FloatArray {
@@ -741,6 +756,16 @@ object TftLink {
             val tiltRampM = 300.0
             fun smooth01(x: Double): Double { val cl = x.coerceIn(0.0, 1.0); return cl * cl * (3.0 - 2.0 * cl) }
             fun toScreen(rx: Double, ry: Double): FloatArray {
+                if (snapShot != null) {
+                    val dxm = rx * cosH + ry * sinH
+                    val dym = -rx * sinH + ry * cosH
+                    val la = skLat + dym / 110540.0
+                    val lo = skLon + dxm / (111320.0 * Math.cos(Math.toRadians(skLat)))
+                    val pt = snapShot.pixelForLatLng(org.maplibre.android.geometry.LatLng(la, lo))
+                    val px = if (pt.x.isFinite()) pt.x.coerceIn(-3000f, 4000f) else 0f
+                    val py = if (pt.y.isFinite()) pt.y.coerceIn(-3000f, 4000f) else 0f
+                    return floatArrayOf(px, py)
+                }
                 val effT = tiltT * smooth01(ry / tiltRampM)
                 if (effT <= 0.001) return flatToScreen(rx, ry)
                 val f = flatToScreen(rx, ry)
@@ -772,6 +797,7 @@ object TftLink {
             // build-239: nền ảnh mảng màu kiểu Waze tối (nước/công viên/khu dân cư) thay nền đen — chỉ
             // đổi màu vẽ, mọi phép chiếu/zoom/xoay giữ nguyên như các nét đường.
             run {
+                if (snapShot != null) { c.drawBitmap(snapShot.bitmap, 0f, 0f, null); return@run }
                 c.drawColor(Color.rgb(247, 247, 249))
                 val areas = Live.areas
                 if (areas != null) {
@@ -835,7 +861,7 @@ object TftLink {
                 }
             }
             val ways = skWays
-            if (ways != null) {
+            if (ways != null && snapShot == null) {
                 // Theo yêu cầu "cái nào nhìn giống Google Map hơn": Google Maps không ẩn hẳn đường
                 // cấp 3 (tertiary/residential) mà chỉ GIẢM PHẠM VI hiển thị quanh tuyến + phân cấp độ
                 // dày/độ nổi bật — đã làm ở branchPaintFor bên dưới. Nên chọn giảm hành lang xuống
@@ -1669,6 +1695,7 @@ object TftLink {
 
     fun start(ctx: Context, deviceAddr: String?) {
         if (!running.compareAndSet(false, true)) return
+        appCtx = ctx.applicationContext
         if (logoBmp == null) {
             logoBmp = try { android.graphics.BitmapFactory.decodeResource(ctx.resources, R.drawable.tft_logo) } catch (_: Throwable) { null }
         }

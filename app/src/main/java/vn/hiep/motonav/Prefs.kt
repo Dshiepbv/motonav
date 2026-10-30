@@ -81,6 +81,11 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("predict", true)
         set(v) = sp.edit().putBoolean("predict", v).apply()
 
+    /** Màn TFT dùng ảnh bản đồ Goong vẽ ngoài nền (như bản đồ điện thoại) thay cho nét vector; lỗi thì tự về vector. */
+    var tftMapSnap: Boolean
+        get() = sp.getBoolean("tftMapSnap", true)
+        set(v) = sp.edit().putBoolean("tftMapSnap", v).apply()
+
     var rotateMap: Boolean
         get() = sp.getBoolean("rotateMap", true)
         set(v) = sp.edit().putBoolean("rotateMap", v).apply()

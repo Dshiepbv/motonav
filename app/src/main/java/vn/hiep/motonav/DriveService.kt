@@ -285,6 +285,8 @@ class DriveService : Service(), LocationListener {
                 if (on) TftLink.start(this@DriveService, prefs.tftDevice) else TftLink.stop()
             }
             if (on) {
+                // build-250: ảnh bản đồ Goong cho TFT (cần Map Tiles Key; bật/tắt trong Cài đặt)
+                TftLink.mapSnapStyle = if (prefs.tftMapSnap && prefs.goongTileKey.isNotBlank()) GoongMap.tileStyleUrl(prefs.goongTileKey, false) else null
                 val navOn = Live.ownNav && Live.navActive && !Live.offRoute
                 TftLink.update(
                     active = navOn,
