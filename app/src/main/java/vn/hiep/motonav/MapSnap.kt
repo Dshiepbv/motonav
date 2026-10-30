@@ -32,6 +32,7 @@ object MapSnap {
     private var totalMs = 0L
     @Volatile private var disabledUntil = 0L
     private var crashHooked = false
+    private var flagSet = false
 
     /** Tắt chế độ ảnh bản đồ một lúc (lỗi nặng) — TftLink dùng lại vector. */
     fun disable(reason: String, forMs: Long = 600_000L) {
@@ -60,6 +61,13 @@ object MapSnap {
                 prev?.uncaughtException(th, ex)
             }
             TripLog.ev("mapSnap", "start" to 1)
+        }
+        // Cầu chì: đặt cờ "đang thử" (ghi đồng bộ) trước khi chạm vào MapLibre ngoài nền; xoá khi có ảnh đầu tiên.
+        // Nếu app chết ngay (lỗi hệ thống không bắt được), lần khởi động sau DriveService thấy cờ còn đó → tự tắt chế độ này.
+        if (okCount == 0 && !flagSet) {
+            flagSet = true
+            try { ctx.applicationContext.getSharedPreferences("motonav", Context.MODE_PRIVATE).edit().putBoolean("tftMapSnapTrying", true).commit() } catch (_: Throwable) {}
+            TripLog.ev("note", "mapSnapStep" to "first-render")
         }
         inFlight = true
         val t0 = now
@@ -100,6 +108,7 @@ object MapSnap {
         val ms = SystemClock.elapsedRealtime() - t0
         if (res != null) {
             failStreak = 0; okCount++; totalMs += ms
+            if (okCount == 1) try { ctx.applicationContext.getSharedPreferences("motonav", Context.MODE_PRIVATE).edit().putBoolean("tftMapSnapTrying", false).apply() } catch (_: Throwable) {}
             if (okCount % 40 == 1) TripLog.ev("mapSnap", "ok" to okCount, "fail" to failCount, "avgMs" to (totalMs / okCount), "lastMs" to ms)
         } else {
             failCount++; failStreak++

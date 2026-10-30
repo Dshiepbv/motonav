@@ -277,8 +277,18 @@ class DriveService : Service(), LocationListener {
 
     /** Đẩy dẫn đường (kênh chữ nhẹ) lên màn TFT của xe qua Bluetooth, nếu đã bật trong Cài đặt. */
     private var tftLinkWasOn = false
+    private var mapSnapChecked = false
     private val tftWatch = object : Runnable {
         override fun run() {
+            if (!mapSnapChecked) {
+                mapSnapChecked = true
+                // Lần chạy trước bật ảnh bản đồ Goong mà app chết trước khi có ảnh đầu tiên → tự tắt, về vector.
+                val sp = getSharedPreferences("motonav", MODE_PRIVATE)
+                if (sp.getBoolean("tftMapSnapTrying", false)) {
+                    sp.edit().putBoolean("tftMapSnapTrying", false).putBoolean("tftMapSnap", false).commit()
+                    TripLog.ev("note", "mapSnapCrashed" to 1)
+                }
+            }
             val on = prefs.tftLink
             if (on != tftLinkWasOn) {
                 tftLinkWasOn = on
