@@ -772,14 +772,14 @@ object TftLink {
             // build-239: nền ảnh mảng màu kiểu Waze tối (nước/công viên/khu dân cư) thay nền đen — chỉ
             // đổi màu vẽ, mọi phép chiếu/zoom/xoay giữ nguyên như các nét đường.
             run {
-                c.drawColor(Color.rgb(244, 245, 247))
+                c.drawColor(Color.rgb(247, 247, 249))
                 val areas = Live.areas
                 if (areas != null) {
                     val lim = drawAhead * 1.1
-                    val fillW = Paint().apply { color = Color.rgb(160, 216, 244); style = Paint.Style.FILL; isAntiAlias = true }
-                    val fillG = Paint().apply { color = Color.rgb(190, 238, 200); style = Paint.Style.FILL; isAntiAlias = true }
+                    val fillW = Paint().apply { color = Color.rgb(120, 190, 240); style = Paint.Style.FILL; isAntiAlias = true }
+                    val fillG = Paint().apply { color = Color.rgb(140, 210, 150); style = Paint.Style.FILL; isAntiAlias = true }
                     val fillU = Paint().apply { color = Color.rgb(236, 237, 240); style = Paint.Style.FILL; isAntiAlias = true }
-                    val riverP = Paint().apply { color = Color.rgb(160, 216, 244); style = Paint.Style.STROKE; strokeWidth = 9f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+                    val riverP = Paint().apply { color = Color.rgb(120, 190, 240); style = Paint.Style.STROKE; strokeWidth = 9f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
                     // Thứ tự: khu dân cư → xanh → nước → sông (nước đè lên cuối)
                     for (kind in intArrayOf(Areas.URBAN, Areas.GREEN, Areas.WATER, Areas.RIVER)) {
                         for (ar in areas) {
@@ -997,9 +997,9 @@ object TftLink {
                 val mdx = proj.x(route.lons[aIdx]); val mdy = proj.y(route.lats[aIdx])
                 val mrx = mdx * cosH - mdy * sinH; val mry = mdx * sinH + mdy * cosH
                 val (mx, my) = toScreen(mrx, mry)
-                val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val labelPaint = Paint().apply { color = Color.rgb(230, 100, 0); textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
-                val leaderPaint = Paint().apply { color = Color.rgb(60, 64, 72); style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
+                val leaderPaint = Paint().apply { color = Color.rgb(230, 100, 0); style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
                 val tw = labelPaint.measureText(nextSt)
                 val padX = h * 0.022f; val padY = h * 0.02f
                 // Ảnh thực tế (27/10): nền đen của nhãn nằm ĐÈ lên đúng đoạn tuyến đỏ quanh khúc rẽ
@@ -1046,7 +1046,6 @@ object TftLink {
                 val bx = bestBox!!
                 c.drawLine(mx, my, bx[0], bx[1], leaderPaint)
                 val cxText = (bx[2] + bx[3]) / 2f
-                c.drawRect(bx[2], bx[4], bx[3], bx[5], bgPaint)
                 c.drawText(nextSt, cxText, bx[1], labelPaint)
             }
             // Tuyến chính đỏ tươi — vẽ SAU CÙNG trong phần bản đồ (sau nhánh đường + nhãn) để không gì

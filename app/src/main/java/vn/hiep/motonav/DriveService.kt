@@ -1098,8 +1098,8 @@ class DriveService : Service(), LocationListener {
 
     private fun ensureAreas(lat: Double, lon: Double) {
         if (areasFetching) return
-        if (Live.areas != null && Geo.distance(areasLat, areasLon, lat, lon) < 450.0) return
-        if (SystemClock.elapsedRealtime() - areasFailAt < 120_000L) return
+        if (Live.areas != null && Geo.distance(areasLat, areasLon, lat, lon) < 550.0) return
+        if (SystemClock.elapsedRealtime() - areasFailAt < 45_000L) return
         areasFetching = true
         goongExec.execute {
             try {
