@@ -997,9 +997,9 @@ object TftLink {
                 val mdx = proj.x(route.lons[aIdx]); val mdy = proj.y(route.lats[aIdx])
                 val mrx = mdx * cosH - mdy * sinH; val mry = mdx * sinH + mdy * cosH
                 val (mx, my) = toScreen(mrx, mry)
-                val labelPaint = Paint().apply { color = Color.rgb(230, 100, 0); textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
-                val leaderPaint = Paint().apply { color = Color.rgb(230, 100, 0); style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
+                val leaderPaint = Paint().apply { color = Color.rgb(60, 64, 72); style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
                 val tw = labelPaint.measureText(nextSt)
                 val padX = h * 0.022f; val padY = h * 0.02f
                 // Ảnh thực tế (27/10): nền đen của nhãn nằm ĐÈ lên đúng đoạn tuyến đỏ quanh khúc rẽ
@@ -1046,6 +1046,9 @@ object TftLink {
                 val bx = bestBox!!
                 c.drawLine(mx, my, bx[0], bx[1], leaderPaint)
                 val cxText = (bx[2] + bx[3]) / 2f
+                // Chữ trắng viền đen (không nền): vẽ nét viền đen dày trước rồi chữ trắng đè lên.
+                val outlinePaint = Paint(labelPaint).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
+                c.drawText(nextSt, cxText, bx[1], outlinePaint)
                 c.drawText(nextSt, cxText, bx[1], labelPaint)
             }
             // Tuyến chính đỏ tươi — vẽ SAU CÙNG trong phần bản đồ (sau nhánh đường + nhãn) để không gì
