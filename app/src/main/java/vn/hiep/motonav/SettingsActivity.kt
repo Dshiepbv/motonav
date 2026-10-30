@@ -762,12 +762,13 @@ class SettingsActivity : Activity() {
             if (prefs.tftDevice.isNotBlank()) "Đang chọn: ${prefs.tftDeviceName.ifBlank { prefs.tftDevice }}" else "Ghép đôi (pair) với màn xe trong Cài đặt Bluetooth của máy trước, rồi chọn ở đây",
             note = "Danh sách lấy từ các thiết bị Bluetooth đã ghép đôi (pair) với điện thoại.",
         ) { pickTftDevice() }
-        toggle(
-            "Bản đồ Goong như điện thoại",
+        choice(
+            "Kiểu bản đồ trên màn xe",
             null,
-            prefs.tftMapSnap,
-            note = "Màn xe hiện ảnh bản đồ Goong vẽ ngoài nền (đường, nhà, công viên, tên đường), tắt màn điện thoại vẫn chạy. Cần Map Tiles Key Goong. Lỗi thì tự về nét vector.",
-        ) { prefs.tftMapSnap = it }
+            listOf("Vector 3D (như hiện tại)", "Bản đồ Goong (ảnh)"),
+            if (prefs.tftMapSnap) 1 else 0,
+            note = "Vector 3D: nét đường tự vẽ, nghiêng 3D như Waze. Bản đồ Goong: ảnh bản đồ vẽ ngoài nền giống bản đồ điện thoại (đường, nhà, công viên, tên đường), tắt màn điện thoại vẫn chạy; cần Map Tiles Key Goong, lỗi thì tự về vector.",
+        ) { prefs.tftMapSnap = (it == 1) }
         if (!prefs.tftLink) return
         val tftStatus = when {
             TftLink.authed -> {
