@@ -202,7 +202,9 @@ class NavEngine(
                             else -> listOf(150.0, 400.0, 800.0)
                         }
                         val overQuota = goongCallsToday() >= 800
-                        for (dAhead in if (overQuota) dists.take(1) else dists) {
+                        // build-242: mỗi lần chỉ thử 1 điểm phía trước (trước 3, log 29/10 tốn ~9 lượt trong 15 s mà
+                        // vẫn ra tuyến quay đầu); lần 3 liên tiếp (fails>=2) nhận luôn tuyến nhanh nhất.
+                        for (dAhead in if (fails >= 2 || overQuota) dists.take(if (fails >= 2) 0 else 1) else dists.take(1)) {
                             try {
                                 val ap = if (on != null) RoutePick.walk(on, 40.0 + dAhead) else RoutePick.aheadPoint(Live.osm, lat, lon, heading!!, dAhead)
                                 // build-237: xuất phát hẳn từ điểm phía trước (không chỉ "đi qua") — Goong hay gắn
