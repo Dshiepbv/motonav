@@ -920,26 +920,56 @@ object TftLink {
                 candidates.sortBy { it.second }
                 var drawnWays = 0
                 val wayCap = 220 // hành lang bắt nhiều way hơn kiểu nối-chuỗi cũ, nới trần lên tương ứng
-                for ((wy, _) in candidates) {
+                // build-249: vẽ đường thành DẢI xám có bề rộng thật (như bản đồ nền) thay vì nét mảnh — hai
+                // chiều của đại lộ liền thành một dải, hẻm nhỏ xa tuyến bỏ bớt cho đỡ chằng chịt.
+                val roadGray = Paint().apply { color = Color.rgb(172, 177, 188); style = Paint.Style.FILL; isAntiAlias = true }
+                val limR = drawAhead * 1.1
+                for ((wy, nearD) in candidates) {
                     if (drawnWays >= wayCap) break
-                    val bp = android.graphics.Path()
-                    var bStarted = false
-                    var any = false
+                    val widthM: Double = when (wy.highway) {
+                        "motorway", "trunk", "primary", "motorway_link", "trunk_link", "primary_link" ->
+                            (wy.lanes?.let { it * 3.3 } ?: 12.0).coerceIn(8.0, 22.0)
+                        "secondary", "tertiary", "secondary_link", "tertiary_link" -> if (wy.highway.startsWith("secondary")) 9.5 else 7.5
+                        "residential", "unclassified", "living_street" -> if (nearD <= 250.0) 5.0 else continue
+                        else -> if (nearD <= 40.0) 3.5 else continue
+                    }
+                    val hw = widthM / 2.0
                     val step = (wy.lats.size / 55).coerceAtLeast(1)
+                    val rx0 = ArrayList<Double>(); val ry0 = ArrayList<Double>()
+                    var any = false
                     var j = 0
+                    var runX = ArrayList<Double>(); var runY = ArrayList<Double>()
+                    fun flush() {
+                        val n = runX.size
+                        if (n >= 2) {
+                            val lxs = DoubleArray(n); val lys = DoubleArray(n); val rxs = DoubleArray(n); val rys = DoubleArray(n)
+                            for (k in 0 until n) {
+                                val k0 = (k - 1).coerceAtLeast(0); val k1 = (k + 1).coerceAtMost(n - 1)
+                                var tx = runX[k1] - runX[k0]; var ty = runY[k1] - runY[k0]
+                                val tl = Math.hypot(tx, ty).coerceAtLeast(1e-6)
+                                tx /= tl; ty /= tl
+                                lxs[k] = runX[k] - ty * hw; lys[k] = runY[k] + tx * hw
+                                rxs[k] = runX[k] + ty * hw; rys[k] = runY[k] - tx * hw
+                            }
+                            val bp = android.graphics.Path()
+                            for (k in 0 until n) { val (sx, sy) = toScreen(lxs[k], lys[k]); if (k == 0) bp.moveTo(sx, sy) else bp.lineTo(sx, sy) }
+                            for (k in n - 1 downTo 0) { val (sx, sy) = toScreen(rxs[k], rys[k]); bp.lineTo(sx, sy) }
+                            bp.close()
+                            c.drawPath(bp, roadGray)
+                            any = true
+                        }
+                        runX = ArrayList(); runY = ArrayList()
+                    }
                     while (j < wy.lats.size) {
                         val dx = proj.x(wy.lons[j]); val dy = proj.y(wy.lats[j])
                         val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
-                        if (Math.abs(rx) <= drawAhead * 1.1 && ry >= behindLimit && ry <= drawAhead) {
-                            val (sx, sy) = toScreen(rx, ry)
-                            if (!bStarted) { bp.moveTo(sx, sy); bStarted = true } else bp.lineTo(sx, sy)
-                            any = true
-                        } else {
-                            bStarted = false
-                        }
+                        if (Math.abs(rx) <= limR && ry >= behindLimit && ry <= drawAhead) {
+                            runX.add(rx); runY.add(ry)
+                        } else flush()
                         j += step
                     }
-                    if (any) { c.drawPath(bp, branchPaintFor(wy.highway)); drawnWays++ }
+                    flush()
+                    if (any) drawnWays++
                 }
             }
 
