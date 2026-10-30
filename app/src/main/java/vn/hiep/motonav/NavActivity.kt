@@ -581,14 +581,19 @@ class NavActivity : Activity() {
             })
             // Chỉ nhắc đoạn khác biệt so với các tuyến còn lại; ưu tiên mốc nổi tiếng gần đó
             // (dễ hình dung hơn tên đường thuần tuý), rồi mới tới tên đường, rồi mới liệt kê.
+            // Ghi rõ 3 điểm khác nhau: mốc/đường chỉ riêng tuyến này có (không trùng tuyến khác) trước,
+            // thiếu thì bù bằng các đường còn lại của tuyến, để nhìn là phân biệt được.
             val h = highlights[i]
-            val sub = h?.let { landmarkOn(r, it.fromIdx, it.toIdx) }
-                ?: h?.name
-                ?: segsOf[i].take(3).joinToString(" → ") { it.name }.ifBlank { null }
+            val others = segsOf.filterIndexed { j, _ -> j != i }.flatMap { o -> o.map { it.name } }.toSet()
+            val pts = ArrayList<String>()
+            h?.let { landmarkOn(r, it.fromIdx, it.toIdx) }?.let { pts.add(it) }
+            for (sg in segsOf[i]) if (pts.size < 3 && sg.name.isNotBlank() && sg.name !in others && sg.name !in pts) pts.add(sg.name)
+            for (sg in segsOf[i]) if (pts.size < 3 && sg.name.isNotBlank() && sg.name !in pts) pts.add(sg.name)
+            val sub = pts.take(3).joinToString(" → ").ifBlank { null }
             if (sub != null) {
                 col.addView(tv(11f, if (sel) Brand.redSoftText else muted).apply {
                     text = "Qua: $sub"
-                    maxLines = 1
+                    maxLines = 2
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 })
             }
@@ -1934,8 +1939,8 @@ class NavActivity : Activity() {
                 try {
                     val bb = LatLngBounds.Builder()
                     bb.include(LatLng(lat, lon))
-                    for (i in r.lats.indices) bb.include(LatLng(r.lats[i], r.lons[i]))
-                    Live.routeChoices.forEach { rc -> for (i in rc.lats.indices) bb.include(LatLng(rc.lats[i], rc.lons[i])) }
+                    // Chỉ lấy ~4 km đầu của mỗi tuyến (không ôm cả chuyến) để bản đồ không bị thu quá bé.
+                    Live.routeChoices.forEach { rc -> for (i in rc.lats.indices) if (rc.cum[i] <= 4000.0) bb.include(LatLng(rc.lats[i], rc.lons[i])) }
                     val padSide = dp(48f).toInt()
                     val padBottom = padSide + (if (landscape) 0 else bottomBar.height)
                     val padTop = padSide + (if (landscape) 0 else turnCard.height)
