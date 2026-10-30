@@ -1103,7 +1103,10 @@ class DriveService : Service(), LocationListener {
         areasFetching = true
         goongExec.execute {
             try {
-                val a = Areas.fetch(lat, lon, 1100)
+                // Có gói ngoại tuyến (bản mới có mảng màu) → đọc từ gói, không cần Overpass (hay 504).
+                val packA = try { if (OfflinePack.open(this) && OfflinePack.covers(lat, lon)) OfflinePack.areas(lat, lon, 1100.0) else null } catch (_: Exception) { null }
+                val a = packA ?: Areas.fetch(lat, lon, 1100)
+                if (packA != null) TripLog.ev("areas", "src" to "pack")
                 Live.areas = a
                 areasLat = lat; areasLon = lon
                 TripLog.ev("areas", "n" to a.size)

@@ -34,6 +34,9 @@ jobs:
             n/highway=speed_camera,traffic_signals,crossing,stop,give_way,speed_bump,speed_hump \
             n/traffic_sign n/enforcement n/traffic_calming n/hazard \
             n/railway=level_crossing,crossing n/man_made=surveillance \
+            w/natural=water,wetland,wood,scrub,grassland w/waterway=riverbank,river,canal \
+            w/landuse=basin,reservoir,grass,forest,meadow,recreation_ground,cemetery,village_green \
+            w/leisure=park,garden,pitch,playground,golf_course,recreation_ground \
             -o filtered.osm.pbf --overwrite
 
       - name: Build pack

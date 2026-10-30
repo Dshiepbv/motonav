@@ -75,6 +75,33 @@ object OfflinePack {
         return out
     }
 
+    /** Mảng màu nền TFT (nước/xanh/sông) từ gói; null nếu gói cũ chưa có thư mục "a/". */
+    fun areas(lat: Double, lon: Double, radius: Double): List<Area>? {
+        val z = zip ?: return null
+        val dLat = radius / 110540.0
+        val dLon = radius / (111320.0 * cos(Math.toRadians(lat)))
+        val x0 = floor((lat - dLat) / tile).toInt(); val x1 = floor((lat + dLat) / tile).toInt()
+        val y0 = floor((lon - dLon) / tile).toInt(); val y1 = floor((lon + dLon) / tile).toInt()
+        var any = false
+        val seen = HashSet<Long>()
+        val out = ArrayList<Area>()
+        for (x in x0..x1) for (y in y0..y1) {
+            val els = read("a/${x}_$y.json") ?: continue
+            any = true
+            for (i in 0 until els.length()) {
+                val e = els.getJSONObject(i)
+                if (!seen.add(e.optLong("i"))) continue
+                val g = e.optJSONArray("g") ?: continue
+                val n = g.length() / 2
+                if (n < 2) continue
+                val kind = e.optInt("k")
+                out.add(Area(kind, DoubleArray(n) { g.optDouble(it * 2) }, DoubleArray(n) { g.optDouble(it * 2 + 1) }, kind == Areas.RIVER))
+            }
+        }
+        if (!any && z.getEntry("a/") == null && z.stream().noneMatch { it.name.startsWith("a/") }) return null
+        return out
+    }
+
     /** Dựng snapshot giống Overpass từ gói. Phường/xã hỏi Overpass riêng (truy vấn rất nhẹ, có bộ nhớ đệm). */
     fun snapshot(lat: Double, lon: Double, wayRadius: Int, camRadius: Int): OsmSnapshot {
         val arrays = tiles("w", lat, lon, wayRadius.toDouble()) + tiles("n", lat, lon, camRadius.toDouble())
