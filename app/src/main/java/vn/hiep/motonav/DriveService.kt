@@ -296,7 +296,12 @@ class DriveService : Service(), LocationListener {
             }
             if (on) {
                 // build-250: ảnh bản đồ Goong cho TFT (cần Map Tiles Key; bật/tắt trong Cài đặt)
-                TftLink.mapSnapStyle = if (prefs.tftMapSnap && prefs.goongTileKey.isNotBlank()) GoongMap.tileStyleUrl(prefs.goongTileKey, false) else null
+                TftLink.mapSnapStyle = when {
+                    !prefs.tftMapSnap -> null
+                    prefs.tftMapOsm -> "https://tiles.openfreemap.org/styles/positron"
+                    prefs.goongTileKey.isNotBlank() -> GoongMap.tileStyleUrl(prefs.goongTileKey, false)
+                    else -> null
+                }
                 val navOn = Live.ownNav && Live.navActive && !Live.offRoute
                 TftLink.update(
                     active = navOn,

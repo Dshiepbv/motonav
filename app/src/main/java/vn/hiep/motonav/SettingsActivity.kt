@@ -765,10 +765,10 @@ class SettingsActivity : Activity() {
         choice(
             "Kiểu bản đồ trên màn xe",
             null,
-            listOf("Vector 3D (như hiện tại)", "Bản đồ Goong (ảnh)"),
-            if (prefs.tftMapSnap) 1 else 0,
-            note = "Vector 3D: nét đường tự vẽ, nghiêng 3D như Waze. Bản đồ Goong: ảnh bản đồ vẽ ngoài nền giống bản đồ điện thoại (đường, nhà, công viên, tên đường), tắt màn điện thoại vẫn chạy; cần Map Tiles Key Goong, lỗi thì tự về vector.",
-        ) { prefs.tftMapSnap = (it == 1) }
+            listOf("Vector 3D (như hiện tại)", "Bản đồ OSM (ảnh, miễn phí)", "Bản đồ Goong (ảnh, tính tiền)"),
+            if (!prefs.tftMapSnap) 0 else if (prefs.tftMapOsm) 1 else 2,
+            note = "Vector 3D: nét đường tự vẽ, nghiêng 3D như Waze. Bản đồ OSM/Goong: ảnh bản đồ vẽ ngoài nền giống bản đồ điện thoại (đường, nhà, công viên, tên đường), tắt màn điện thoại vẫn chạy; OSM dùng OpenFreeMap, không cần mã, không tốn tiền; Goong cần Map Tiles Key; lỗi thì tự về vector.",
+        ) { prefs.tftMapSnap = (it != 0); prefs.tftMapOsm = (it == 1) }
         if (!prefs.tftLink) return
         val tftStatus = when {
             TftLink.authed -> {

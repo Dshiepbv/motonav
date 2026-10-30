@@ -82,6 +82,10 @@ class Prefs(ctx: Context) {
         set(v) = sp.edit().putBoolean("predict", v).apply()
 
     /** Màn TFT dùng ảnh bản đồ Goong vẽ ngoài nền (như bản đồ điện thoại) thay cho nét vector; lỗi thì tự về vector. */
+    /** Nguồn ảnh bản đồ trên màn xe khi tftMapSnap bật: false = Goong (tính tiền), true = OpenFreeMap (miễn phí, từ OSM). */
+    var tftMapOsm: Boolean
+        get() = sp.getBoolean("tftMapOsm", true)
+        set(v) = sp.edit().putBoolean("tftMapOsm", v).apply()
     var tftMapSnap: Boolean
         get() = sp.getBoolean("tftMapSnap", false)
         set(v) = sp.edit().putBoolean("tftMapSnap", v).apply()
