@@ -4,7 +4,7 @@ name: OSM data pack
 # Chạy mỗi thứ Hai lúc 3h sáng giờ VN, hoặc bấm tay trong tab Actions.
 on:
   schedule:
-    - cron: "0 20 * * 0"
+    - cron: "0 20 * * *"
   workflow_dispatch:
 
 permissions:

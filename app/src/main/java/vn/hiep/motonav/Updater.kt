@@ -127,6 +127,7 @@ object Updater {
                 OfflinePack.close()
                 if (!tmp.renameTo(dst)) { dst.delete(); tmp.renameTo(dst) }
                 val ok = OfflinePack.open(ctx)
+                if (ok) ctx.getSharedPreferences("motonav", Context.MODE_PRIVATE).edit().putString("packUpdated", updated).apply()
                 main.post {
                     progress.dismiss()
                     Toast.makeText(ctx, if (ok) "Đã có dữ liệu ngoại tuyến (cập nhật ${updated.take(10)})" else "File tải về bị lỗi", Toast.LENGTH_LONG).show()
@@ -139,6 +140,47 @@ object Updater {
                 }
             }
         }.start()
+    }
+
+    /**
+     * Tự cập nhật gói OSM ngầm: mỗi ngày kiểm tra một lần, chỉ khi đang dùng Wi-Fi; có bản mới (hoặc chưa có gói)
+     * thì tải về thay thế. Gọi từ luồng nền; không hiện hộp thoại.
+     */
+    fun autoPack(ctx: Context, prefs: Prefs) {
+        try {
+            val sp = ctx.getSharedPreferences("motonav", Context.MODE_PRIVATE)
+            val now = System.currentTimeMillis()
+            if (now - sp.getLong("packCheckAt", 0L) < 20L * 3600_000) return
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return
+            if (!caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) return
+            val token = prefs.githubToken
+            val (id, size, updated) = http.newCall(req("https://api.github.com/repos/$REPO/releases/tags/osm-data", token, "application/vnd.github+json")).execute().use { r ->
+                if (!r.isSuccessful) return
+                val assets = JSONObject(r.body!!.string()).getJSONArray("assets")
+                var res: Triple<Long, Long, String>? = null
+                for (i in 0 until assets.length()) {
+                    val x = assets.getJSONObject(i)
+                    if (x.getString("name") == "osm-hcm.zip") res = Triple(x.getLong("id"), x.optLong("size"), x.optString("updated_at"))
+                }
+                res ?: return
+            }
+            sp.edit().putLong("packCheckAt", now).apply()
+            val dst = OfflinePack.file(ctx)
+            if (dst.exists() && sp.getString("packUpdated", "") == updated) return
+            val tmp = java.io.File(dst.parentFile, "pack.tmp")
+            http.newCall(req("https://api.github.com/repos/$REPO/releases/assets/$id", token, "application/octet-stream")).execute().use { r ->
+                if (!r.isSuccessful) return
+                tmp.outputStream().use { out -> r.body!!.byteStream().use { it.copyTo(out) } }
+            }
+            if (size > 0 && tmp.length() < size / 2) { tmp.delete(); return }
+            OfflinePack.close()
+            if (!tmp.renameTo(dst)) { dst.delete(); tmp.renameTo(dst) }
+            val ok = OfflinePack.open(ctx)
+            if (ok) sp.edit().putString("packUpdated", updated).apply()
+            TripLog.ev("packAuto", "ok" to ok, "updated" to updated.take(10), "bytes" to dst.length())
+        } catch (_: Throwable) {
+        }
     }
 
     /** Nút "Cập nhật phần mềm" trong Cài đặt. */

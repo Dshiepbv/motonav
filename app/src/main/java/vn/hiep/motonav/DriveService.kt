@@ -112,6 +112,8 @@ class DriveService : Service(), LocationListener {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private var packTimer: Runnable? = null
+
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
@@ -125,6 +127,14 @@ class DriveService : Service(), LocationListener {
         lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         thread = HandlerThread("drive").also { it.start() }
         handler = Handler(thread.looper)
+        // Mỗi 3 giờ xem có gói OSM mới không (mỗi ngày tải tối đa 1 lần, chỉ khi có Wi-Fi).
+        packTimer = object : Runnable {
+            override fun run() {
+                Thread { Updater.autoPack(applicationContext, prefs) }.start()
+                handler.postDelayed(this, 3 * 3600_000L)
+            }
+        }
+        handler.postDelayed(packTimer!!, 20_000L)
 
         val nm = getSystemService(NotificationManager::class.java)
         // Theo dõi tốc độ là mặc định, không cần báo trên thanh trạng thái: Android bắt buộc dịch vụ
@@ -223,6 +233,7 @@ class DriveService : Service(), LocationListener {
     }
 
     override fun onDestroy() {
+        try { packTimer?.let { handler.removeCallbacks(it) } } catch (_: Exception) {}
         try {
             lm.removeUpdates(this)
         } catch (_: Exception) {
