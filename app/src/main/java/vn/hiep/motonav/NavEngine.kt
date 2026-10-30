@@ -29,6 +29,22 @@ class NavEngine(
     // Mốc thời gian bắt đầu "gần như đứng yên, gần đích" — dự phòng tự kết thúc chuyến khi đường
     // không vào sát được tới điểm đến thật (cổng/bãi xe riêng...). 0 = chưa ở trạng thái đó.
     private var nearDestSince = 0L
+
+    // Hiệu chỉnh giờ đến: Goong báo lâu hơn thực tế xe máy → học hệ số k = giờ thật / giờ Goong qua các chuyến.
+    private var tripStartAt = 0L
+    private var tripPredMs = 0L
+    private fun etaK(): Double = prefs.etaK
+    private fun learnEta() {
+        if (tripStartAt <= 0L || tripPredMs < 5 * 60_000L) { tripStartAt = 0L; return }
+        val actual = SystemClock.elapsedRealtime() - tripStartAt
+        val ratio = (actual.toDouble() / tripPredMs).coerceIn(0.4, 1.3)
+        val old = prefs.etaK
+        val n = prefs.etaN
+        val k = if (n == 0) ratio else old * 0.65 + ratio * 0.35
+        prefs.etaK = k; prefs.etaN = n + 1
+        TripLog.ev("etaLearn", "predMin" to tripPredMs / 60000, "actualMin" to actual / 60000, "ratio" to ratio, "k" to k, "n" to n + 1)
+        tripStartAt = 0L
+    }
     // Vết xe vừa đi (≈2 phút gần nhất): [lat, lon, hướng (-1 = không rõ), thời điểm] — để loại tuyến
     // kéo ngược về đoạn đường vừa đi qua.
     private val trail = ArrayDeque<DoubleArray>()
@@ -40,6 +56,7 @@ class NavEngine(
 
     fun start(lat: Double, lon: Double, name: String?) {
         prefs.saveTrip(lat, lon, name)
+        tripStartAt = 0L
         Live.ownNav = true
         Live.destLat = lat
         Live.destLon = lon
@@ -83,6 +100,7 @@ class NavEngine(
     }
 
     fun stop() {
+        tripStartAt = 0L
         Live.ownNav = false
         Live.route = null
         Live.routeStatus = null
@@ -273,6 +291,7 @@ class NavEngine(
                         Live.routeChoices = emptyList()
                     }
                     Live.choicesVersion++
+                    if (!reroute && tripStartAt == 0L) { tripStartAt = SystemClock.elapsedRealtime(); tripPredMs = r.timeMs }
                     Live.route = r
                     Live.routeVersion++
                     TripLog.route(r, if (reroute) "reroute" else if (offerChoice) "start" else "retry")
@@ -358,7 +377,7 @@ class NavEngine(
         Live.routeProgress = progress
         val remaining = max(0.0, r.total - progress)
         Live.remainingM = remaining
-        Live.etaMs = if (r.total > 0) (r.timeMs * (remaining / r.total)).toLong() else 0L
+        Live.etaMs = if (r.total > 0) (r.timeMs * etaK() * (remaining / r.total)).toLong() else 0L
         // Lệch tuyến: cách tuyến > 12 m mà hướng đi lệch hướng tuyến > 35°, hoặc cách > 22 m.
         // ĐÃ THỬ hạ xuống 10/18m (bản 7.21) để định tuyến lại nhanh hơn, nhưng log thực tế cho thấy
         // ngưỡng đó quá sát nhiễu GPS thường (dao động 10-18m dù đang đi đúng tuyến) — gây "on/off"
@@ -398,6 +417,7 @@ class NavEngine(
             // tuyến tự biến mất giữa chừng (ví dụ GPS nhảy lố tới gần đích) không có cách nào phân
             // biệt được với các nguyên nhân khác (bấm nút Kết thúc, bấm nút Dừng trên màn xe...).
             TripLog.ev("arrived", "remaining" to remaining, "straight" to straightDist)
+            learnEta()
             alert("Đã đến nơi${Live.destName?.let { ": $it" } ?: ""}", "Đã đến nơi", false)
             finish()
             return
@@ -413,6 +433,7 @@ class NavEngine(
             if (nearDestSince == 0L) nearDestSince = now2
             if (now2 - nearDestSince > 20_000) {
                 TripLog.ev("arrived", "remaining" to remaining, "straight" to straightDist, "why" to "stationaryNearDest")
+                learnEta()
                 alert("Đã đến nơi${Live.destName?.let { ": $it" } ?: ""}", "Đã đến nơi", false)
                 finish()
                 return

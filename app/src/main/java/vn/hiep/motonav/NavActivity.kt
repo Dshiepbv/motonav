@@ -568,7 +568,7 @@ class NavActivity : Activity() {
         val highlights = highlightRoad(segsOf)
         list.forEachIndexed { i, r ->
             val sel = i == Live.choiceSelected
-            val mins = (r.timeMs / 60000).coerceAtLeast(1)
+            val mins = (r.timeMs * prefs.etaK / 60000).toLong().coerceAtLeast(1)
             val extra = if (r.timeMs == fastest) " · nhanh nhất" else " · +${((r.timeMs - fastest) / 60000).coerceAtLeast(1)} phút"
             val col = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL

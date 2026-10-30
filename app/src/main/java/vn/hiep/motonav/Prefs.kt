@@ -86,6 +86,13 @@ class Prefs(ctx: Context) {
     var tftMapOsm: Boolean
         get() = sp.getBoolean("tftMapOsm", true)
         set(v) = sp.edit().putBoolean("tftMapOsm", v).apply()
+    /** Hệ số hiệu chỉnh giờ đến (giờ thật / giờ Goong), học qua các chuyến; chưa có chuyến nào thì 0.75. */
+    var etaK: Double
+        get() = sp.getFloat("etaK", 0.75f).toDouble()
+        set(v) = sp.edit().putFloat("etaK", v.toFloat()).apply()
+    var etaN: Int
+        get() = sp.getInt("etaN", 0)
+        set(v) = sp.edit().putInt("etaN", v).apply()
     var tftMapSnap: Boolean
         get() = sp.getBoolean("tftMapSnap", false)
         set(v) = sp.edit().putBoolean("tftMapSnap", v).apply()
