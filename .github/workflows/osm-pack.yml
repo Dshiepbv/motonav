@@ -37,6 +37,8 @@ jobs:
             w/natural=water,wetland,wood,scrub,grassland w/waterway=riverbank,river,canal \
             w/landuse=basin,reservoir,grass,forest,meadow,recreation_ground,cemetery,village_green \
             w/leisure=park,garden,pitch,playground,golf_course,recreation_ground \
+            w/landuse=residential,commercial,retail,industrial,construction \
+            w/amenity=school,university,college,hospital,marketplace \
             -o filtered.osm.pbf --overwrite
 
       - name: Build pack

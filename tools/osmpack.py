@@ -30,16 +30,19 @@ WATER_LU = {"basin", "reservoir"}
 GREEN_LEI = {"park", "garden", "pitch", "playground", "golf_course", "recreation_ground"}
 GREEN_LU = {"grass", "forest", "meadow", "recreation_ground", "cemetery", "village_green"}
 GREEN_NAT = {"wood", "scrub", "grassland"}
+URBAN_LU = {"residential", "commercial", "retail", "industrial", "construction", "railway"}
+URBAN_AM = {"school", "university", "college", "hospital", "marketplace"}
 MAX_PTS = 90
 
 
 def area_kind(t, closed):
-    """0 = nước, 1 = xanh, 3 = sông/kênh (đường); None = không dùng. Trùng Areas.kt trong app."""
+    """0 = nước, 1 = xanh, 2 = khu dân cư/công nghiệp/trường/bệnh viện (xám nhạt), 3 = sông/kênh (đường); None = không dùng. Trùng Areas.kt trong app."""
     ww = t.get("waterway")
     if ww in ("river", "canal"): return 3
     if not closed: return None
     if t.get("natural") in WATER_NAT or ww == "riverbank" or t.get("landuse") in WATER_LU: return 0
     if t.get("leisure") in GREEN_LEI or t.get("landuse") in GREEN_LU or t.get("natural") in GREEN_NAT: return 1
+    if t.get("landuse") in URBAN_LU or t.get("amenity") in URBAN_AM: return 2
     return None
 
 

@@ -778,7 +778,7 @@ object TftLink {
                     val lim = drawAhead * 1.1
                     val fillW = Paint().apply { color = Color.rgb(120, 190, 240); style = Paint.Style.FILL; isAntiAlias = true }
                     val fillG = Paint().apply { color = Color.rgb(140, 210, 150); style = Paint.Style.FILL; isAntiAlias = true }
-                    val fillU = Paint().apply { color = Color.rgb(236, 237, 240); style = Paint.Style.FILL; isAntiAlias = true }
+                    val fillU = Paint().apply { color = Color.rgb(228, 230, 236); style = Paint.Style.FILL; isAntiAlias = true }
                     val riverP = Paint().apply { color = Color.rgb(120, 190, 240); style = Paint.Style.STROKE; strokeWidth = 9f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
                     // Thứ tự: khu dân cư → xanh → nước → sông (nước đè lên cuối)
                     for (kind in intArrayOf(Areas.URBAN, Areas.GREEN, Areas.WATER, Areas.RIVER)) {
