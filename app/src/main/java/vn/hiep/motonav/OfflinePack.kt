@@ -95,7 +95,7 @@ object OfflinePack {
                 val n = g.length() / 2
                 if (n < 2) continue
                 val kind = e.optInt("k")
-                out.add(Area(kind, DoubleArray(n) { g.optDouble(it * 2) }, DoubleArray(n) { g.optDouble(it * 2 + 1) }, kind == Areas.RIVER))
+                out.add(Area(kind, DoubleArray(n) { g.optDouble(it * 2) }, DoubleArray(n) { g.optDouble(it * 2 + 1) }, kind == Areas.RIVER, e.optDouble("w", 0.0)))
             }
         }
         if (!any && z.getEntry("a/") == null && z.stream().noneMatch { it.name.startsWith("a/") }) return null

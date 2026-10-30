@@ -780,27 +780,56 @@ object TftLink {
                     val fillG = Paint().apply { color = Color.rgb(140, 210, 150); style = Paint.Style.FILL; isAntiAlias = true }
                     val fillU = Paint().apply { color = Color.rgb(228, 230, 236); style = Paint.Style.FILL; isAntiAlias = true }
                     val riverP = Paint().apply { color = Color.rgb(120, 190, 240); style = Paint.Style.STROKE; strokeWidth = 9f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-                    // Thứ tự: khu dân cư → xanh → nước → sông (nước đè lên cuối)
-                    for (kind in intArrayOf(Areas.URBAN, Areas.GREEN, Areas.WATER, Areas.RIVER)) {
+                    val fillB = Paint().apply { color = Color.rgb(214, 217, 225); style = Paint.Style.FILL; isAntiAlias = true }
+                    var bCount = 0
+                    // Thứ tự: khu dân cư → nhà → xanh → nước → sông (nước đè lên cuối)
+                    for (kind in intArrayOf(Areas.URBAN, Areas.BUILDING, Areas.GREEN, Areas.WATER, Areas.RIVER)) {
                         for (ar in areas) {
                             if (ar.kind != kind) continue
+                            if (kind == Areas.BUILDING && bCount >= 250) break
+                            val step = (ar.lats.size / 70).coerceAtLeast(1)
+                            // Toạ độ mét quanh xe (chưa xoay)
+                            val wx = ArrayList<Double>(); val wy = ArrayList<Double>()
+                            var j = 0
+                            while (j < ar.lats.size) {
+                                wx.add(proj.x(ar.lons[j])); wy.add(proj.y(ar.lats[j]))
+                                j += step
+                            }
+                            if (wx.size < 2) continue
+                            // Sông/kênh: dải nước theo bề rộng thật (dời hai bên đường tim widthM/2 mét),
+                            // đi qua cùng phép chiếu nên co giãn đúng như mọi thứ khác trên bản đồ.
+                            val px = ArrayList<Double>(); val py = ArrayList<Double>()
+                            if (kind == Areas.RIVER) {
+                                val hw = (ar.widthM.coerceAtLeast(4.0)) / 2.0
+                                val n = wx.size
+                                val lx = DoubleArray(n); val ly = DoubleArray(n); val rx2 = DoubleArray(n); val ry2 = DoubleArray(n)
+                                for (k in 0 until n) {
+                                    val k0 = (k - 1).coerceAtLeast(0); val k1 = (k + 1).coerceAtMost(n - 1)
+                                    var tx = wx[k1] - wx[k0]; var ty = wy[k1] - wy[k0]
+                                    val tl = Math.hypot(tx, ty).coerceAtLeast(1e-6)
+                                    tx /= tl; ty /= tl
+                                    lx[k] = wx[k] - ty * hw; ly[k] = wy[k] + tx * hw
+                                    rx2[k] = wx[k] + ty * hw; ry2[k] = wy[k] - tx * hw
+                                }
+                                for (k in 0 until n) { px.add(lx[k]); py.add(ly[k]) }
+                                for (k in n - 1 downTo 0) { px.add(rx2[k]); py.add(ry2[k]) }
+                            } else {
+                                px.addAll(wx); py.addAll(wy)
+                            }
                             val pth = android.graphics.Path()
                             var started = false
                             var near = false
-                            val step = (ar.lats.size / 70).coerceAtLeast(1)
-                            var j = 0
-                            while (j < ar.lats.size) {
-                                val dx = proj.x(ar.lons[j]); val dy = proj.y(ar.lats[j])
-                                var rx = dx * cosH - dy * sinH; var ry = dx * sinH + dy * cosH
+                            for (k in px.indices) {
+                                var rx = px[k] * cosH - py[k] * sinH; var ry = px[k] * sinH + py[k] * cosH
                                 if (Math.abs(rx) <= lim && ry >= behindLimit && ry <= drawAhead) near = true
                                 rx = rx.coerceIn(-lim, lim); ry = ry.coerceIn(behindLimit, drawAhead)
                                 val (sx, sy) = toScreen(rx, ry)
                                 if (!started) { pth.moveTo(sx, sy); started = true } else pth.lineTo(sx, sy)
-                                j += step
                             }
                             if (!near) continue
-                            if (!ar.line) pth.close()
-                            c.drawPath(pth, when (kind) { Areas.URBAN -> fillU; Areas.GREEN -> fillG; Areas.WATER -> fillW; else -> riverP })
+                            pth.close()
+                            if (kind == Areas.BUILDING) bCount++
+                            c.drawPath(pth, when (kind) { Areas.URBAN -> fillU; Areas.BUILDING -> fillB; Areas.GREEN -> fillG; else -> fillW })
                         }
                     }
                 }

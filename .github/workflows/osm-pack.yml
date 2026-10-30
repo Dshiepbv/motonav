@@ -39,6 +39,7 @@ jobs:
             w/leisure=park,garden,pitch,playground,golf_course,recreation_ground \
             w/landuse=residential,commercial,retail,industrial,construction \
             w/amenity=school,university,college,hospital,marketplace \
+            w/building \
             -o filtered.osm.pbf --overwrite
 
       - name: Build pack

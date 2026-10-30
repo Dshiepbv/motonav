@@ -31,8 +31,10 @@ GREEN_LEI = {"park", "garden", "pitch", "playground", "golf_course", "recreation
 GREEN_LU = {"grass", "forest", "meadow", "recreation_ground", "cemetery", "village_green"}
 GREEN_NAT = {"wood", "scrub", "grassland"}
 URBAN_LU = {"residential", "commercial", "retail", "industrial", "construction", "railway"}
+MIN_BUILDING_M2 = 600
 URBAN_AM = {"school", "university", "college", "hospital", "marketplace"}
 MAX_PTS = 90
+B_MAX_PTS = 12
 
 
 def area_kind(t, closed):
@@ -43,6 +45,7 @@ def area_kind(t, closed):
     if t.get("natural") in WATER_NAT or ww == "riverbank" or t.get("landuse") in WATER_LU: return 0
     if t.get("leisure") in GREEN_LEI or t.get("landuse") in GREEN_LU or t.get("natural") in GREEN_NAT: return 1
     if t.get("landuse") in URBAN_LU or t.get("amenity") in URBAN_AM: return 2
+    if "building" in t and t.get("building") != "no": return 4
     return None
 
 
@@ -92,15 +95,31 @@ class H(osmium.SimpleHandler):
         except osmium.InvalidLocationError:
             return
         if len(pts) < (2 if kind == 3 else 4): return
+        if kind == 4:
+            # chỉ giữ toà nhà lớn (≥ MIN_BUILDING_M2) để gói không phình quá
+            lat0 = pts[0][0]
+            kx = 111320.0 * math.cos(math.radians(lat0)); ky = 110540.0
+            ar = 0.0
+            for i in range(len(pts) - 1):
+                ar += (pts[i][1] * kx) * (pts[i + 1][0] * ky) - (pts[i + 1][1] * kx) * (pts[i][0] * ky)
+            if abs(ar) / 2.0 < MIN_BUILDING_M2: return
         la = [p[0] for p in pts]; lo = [p[1] for p in pts]
         if kind != 3 and (max(la) - min(la)) < 0.00015 and (max(lo) - min(lo)) < 0.00015: return  # < ~15 m
-        if len(pts) > MAX_PTS:
-            step = len(pts) / float(MAX_PTS)
-            idx = sorted(set(int(i * step) for i in range(MAX_PTS)) | {len(pts) - 1})
+        mp = B_MAX_PTS if kind == 4 else MAX_PTS
+        if len(pts) > mp:
+            step = len(pts) / float(mp)
+            idx = sorted(set(int(i * step) for i in range(mp)) | {len(pts) - 1})
             pts = [pts[i] for i in idx]
         g = []
         for a, b in pts: g += [round(a, 5), round(b, 5)]
         el = {"i": w.id, "k": kind, "g": g}
+        if kind == 3:
+            try:
+                wd = float(str(t.get("width", "")).lower().replace("m", "").replace(",", ".").strip())
+            except ValueError:
+                wd = 0.0
+            if wd <= 0: wd = 120.0 if t.get("waterway") == "river" else 18.0
+            el["w"] = round(min(wd, 600.0))
         tiles = set()
         if kind == 3:
             for i in range(0, len(g) - 2, 2):
