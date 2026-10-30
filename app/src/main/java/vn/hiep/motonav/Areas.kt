@@ -23,7 +23,6 @@ object Areas {
             "way(around:$radius,$p)[\"leisure\"~\"^(park|garden|pitch|playground|golf_course|recreation_ground)\$\"];\n" +
             "way(around:$radius,$p)[\"landuse\"~\"^(grass|forest|meadow|recreation_ground|cemetery|village_green)\$\"];\n" +
             "way(around:$radius,$p)[\"natural\"~\"^(wood|scrub|grassland)\$\"];\n" +
-            "way(around:$radius,$p)[\"landuse\"~\"^(residential|commercial|retail|industrial)\$\"];\n" +
             "way(around:$radius,$p)[\"waterway\"~\"^(river|canal|stream)\$\"];\n" +
             ");\nout tags geom;\n"
         val root: JSONObject = Overpass.raw(q)
@@ -47,7 +46,7 @@ object Areas {
                 nat == "water" || nat == "wetland" || ww == "riverbank" || lu == "basin" || lu == "reservoir" -> out.add(Area(WATER, la, lo, false))
                 le.isNotEmpty() || lu in setOf("grass", "forest", "meadow", "recreation_ground", "cemetery", "village_green") ||
                     nat in setOf("wood", "scrub", "grassland") -> out.add(Area(GREEN, la, lo, false))
-                else -> out.add(Area(URBAN, la, lo, false))
+                else -> continue
             }
         }
         return out

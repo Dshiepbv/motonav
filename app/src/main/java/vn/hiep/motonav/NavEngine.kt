@@ -290,7 +290,7 @@ class NavEngine(
         if (n % 50 == 0) TripLog.ev("goongCalls", "today" to n)
     }
 
-    fun onLocation(lat: Double, lon: Double, heading: Double?, speedMps: Double) {
+    fun onLocation(lat: Double, lon: Double, heading: Double?, speedMps: Double, acc: Double = 10.0) {
         if (!Live.ownNav) return
         synchronized(trail) {
             val nowT = SystemClock.elapsedRealtime().toDouble()
@@ -355,7 +355,11 @@ class NavEngine(
         // trở thành nguồn "reload liên tục" mới. Trả về 12/22m gốc, vẫn ổn định mà không chậm.
         val segBrg = Geo.bearing(r.lats[bestI], r.lons[bestI], r.lats[bestI + 1], r.lons[bestI + 1])
         val turnedAway = heading != null && speedMps > 1.5 && Geo.angleDiff(heading, segBrg) > 35
-        val off = (bestD > 12 && turnedAway) || bestD > 22
+        // build-240: GPS yếu (khu nhà cao tầng, sai số 20–40 m) làm khoảng cách tới tuyến nhảy 30–50 m dù xe
+        // đi đúng → reroute liên tục lúc mới xuất phát (log 28/10). Ngưỡng lệch nới theo sai số GPS.
+        val offTol = max(22.0, acc * 1.6)
+        val offTurn = max(12.0, acc * 0.9)
+        val off = (bestD > offTurn && turnedAway) || bestD > offTol
         if (off != Live.offRoute) TripLog.ev("off", "on" to off, "d" to bestD, "hdg" to heading, "seg" to segBrg)
         Live.offRoute = off
         TripLog.ev("nav", "d" to bestD, "p" to progress, "i" to bestI)
@@ -427,7 +431,7 @@ class NavEngine(
         // lệch tuyến (off) — trước đây cứ vào bán kính 150m quanh đích là tự coi là urgent dù đang
         // đi ĐÚNG tuyến (d chỉ 1-5m), gây định tuyến lại vô ích liên tục ngay trước khi tới nơi.
         rerouteTimes.removeAll { now - it > 120_000 }
-        val urgent = bestD > 45 || (nearDest && off)
+        val urgent = bestD > max(45.0, acc * 2.2) || (nearDest && off)
         // build-214: sau ≥3 lần tìm lại trong 2 phút, hoặc lần trước không ra tuyến "không quay đầu",
         // giãn theo QUÃNG ĐƯỜNG đã đi (≥150 m) thay vì chờ cứng 50 s — log 27/10: chờ 50 s giữ tuyến
         // quay đầu sai suốt ~350 m. Vẫn tối thiểu 6 s giữa 2 lần để không dồn lượt Goong.
@@ -446,7 +450,7 @@ class NavEngine(
             noUturnFails = 0
             if (!routing) Live.routeStatus = null
         }
-        if (moving && (offCount >= 2 || bestD > 35 || urgent) && !routing && gapOk) {
+        if (moving && (offCount >= 2 || bestD > max(35.0, acc * 2.0) || urgent) && !routing && gapOk) {
             rerouteTimes.add(now)
             TripLog.ev("reroute", "d" to bestD, "n" to offCount, "spd" to speedMps, "hdg" to heading)
             rrLat = lat; rrLon = lon

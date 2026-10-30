@@ -482,7 +482,7 @@ class DriveService : Service(), LocationListener {
         }
 
         checkOverspeed(speedKmh)
-        nav.onLocation(lat, lon, movingHeading, speedMps)
+        nav.onLocation(lat, lon, movingHeading, speedMps, accM)
         updateJunctions(lat, lon)
         updateLimitAhead()
         updateAlertIcons(lat, lon)
@@ -1098,12 +1098,12 @@ class DriveService : Service(), LocationListener {
 
     private fun ensureAreas(lat: Double, lon: Double) {
         if (areasFetching) return
-        if (Live.areas != null && Geo.distance(areasLat, areasLon, lat, lon) < 600.0) return
-        if (SystemClock.elapsedRealtime() - areasFailAt < 60_000L) return
+        if (Live.areas != null && Geo.distance(areasLat, areasLon, lat, lon) < 450.0) return
+        if (SystemClock.elapsedRealtime() - areasFailAt < 120_000L) return
         areasFetching = true
         goongExec.execute {
             try {
-                val a = Areas.fetch(lat, lon, 1800)
+                val a = Areas.fetch(lat, lon, 1100)
                 Live.areas = a
                 areasLat = lat; areasLon = lon
                 TripLog.ev("areas", "n" to a.size)

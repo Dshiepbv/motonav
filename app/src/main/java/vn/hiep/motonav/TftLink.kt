@@ -772,14 +772,14 @@ object TftLink {
             // build-239: nền ảnh mảng màu kiểu Waze tối (nước/công viên/khu dân cư) thay nền đen — chỉ
             // đổi màu vẽ, mọi phép chiếu/zoom/xoay giữ nguyên như các nét đường.
             run {
-                c.drawColor(Color.rgb(22, 26, 38))
+                c.drawColor(Color.rgb(244, 245, 247))
                 val areas = Live.areas
                 if (areas != null) {
                     val lim = drawAhead * 1.1
-                    val fillW = Paint().apply { color = Color.rgb(24, 58, 112); style = Paint.Style.FILL; isAntiAlias = true }
-                    val fillG = Paint().apply { color = Color.rgb(26, 84, 56); style = Paint.Style.FILL; isAntiAlias = true }
-                    val fillU = Paint().apply { color = Color.rgb(32, 38, 54); style = Paint.Style.FILL; isAntiAlias = true }
-                    val riverP = Paint().apply { color = Color.rgb(24, 58, 112); style = Paint.Style.STROKE; strokeWidth = 9f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+                    val fillW = Paint().apply { color = Color.rgb(160, 216, 244); style = Paint.Style.FILL; isAntiAlias = true }
+                    val fillG = Paint().apply { color = Color.rgb(190, 238, 200); style = Paint.Style.FILL; isAntiAlias = true }
+                    val fillU = Paint().apply { color = Color.rgb(236, 237, 240); style = Paint.Style.FILL; isAntiAlias = true }
+                    val riverP = Paint().apply { color = Color.rgb(160, 216, 244); style = Paint.Style.STROKE; strokeWidth = 9f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
                     // Thứ tự: khu dân cư → xanh → nước → sông (nước đè lên cuối)
                     for (kind in intArrayOf(Areas.URBAN, Areas.GREEN, Areas.WATER, Areas.RIVER)) {
                         for (ar in areas) {
@@ -844,10 +844,10 @@ object TftLink {
                 // Theo yêu cầu: TẤT CẢ nhánh đường đều màu trắng (màu xám trước đây khó thấy giữa
                 // ban ngày, trời nắng) — chỉ còn phân biệt bằng ĐỘ DÀY tương ứng với bề rộng thực tế
                 // ngoài đời (quốc lộ/trục chính rộng nhất -> hẻm/đường nội bộ hẹp nhất).
-                val branchPaintMajor = Paint().apply { color = Color.rgb(236, 240, 248); style = Paint.Style.STROKE; strokeWidth = 3.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintMid = Paint().apply { color = Color.rgb(176, 184, 202); style = Paint.Style.STROKE; strokeWidth = 2.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintMinor = Paint().apply { color = Color.rgb(132, 140, 160); style = Paint.Style.STROKE; strokeWidth = 1.7f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintTiny = Paint().apply { color = Color.rgb(104, 112, 132); style = Paint.Style.STROKE; strokeWidth = 1.1f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMajor = Paint().apply { color = Color.rgb(150, 156, 168); style = Paint.Style.STROKE; strokeWidth = 5.0f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMid = Paint().apply { color = Color.rgb(166, 172, 184); style = Paint.Style.STROKE; strokeWidth = 3.6f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMinor = Paint().apply { color = Color.rgb(184, 189, 199); style = Paint.Style.STROKE; strokeWidth = 2.6f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintTiny = Paint().apply { color = Color.rgb(200, 204, 212); style = Paint.Style.STROKE; strokeWidth = 1.6f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 fun branchPaintFor(highway: String): Paint = when (highway) {
                     "motorway", "trunk", "primary", "motorway_link", "trunk_link", "primary_link" -> branchPaintMajor
                     "secondary", "tertiary", "secondary_link", "tertiary_link" -> branchPaintMid
@@ -999,7 +999,7 @@ object TftLink {
                 val (mx, my) = toScreen(mrx, mry)
                 val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
-                val leaderPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
+                val leaderPaint = Paint().apply { color = Color.rgb(60, 64, 72); style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
                 val tw = labelPaint.measureText(nextSt)
                 val padX = h * 0.022f; val padY = h * 0.02f
                 // Ảnh thực tế (27/10): nền đen của nhãn nằm ĐÈ lên đúng đoạn tuyến đỏ quanh khúc rẽ
@@ -1086,6 +1086,7 @@ object TftLink {
             lineTo(carX + carR * 0.7f, anchorY + carR * 0.6f)
             close()
         }
+        c.drawPath(carPath, Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 4f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
         c.drawPath(carPath, carPaint)
         // Biển tốc độ tối đa, góc trên bên phải — theo yêu cầu. Vẽ kiểu biển báo VN (viền đỏ, nền
         // trắng, số đen) để nhận ra ngay là giới hạn tốc độ chứ không phải số liệu khác.
@@ -1159,7 +1160,7 @@ object TftLink {
             val arrowR = arm * 0.62f
             c.save()
             c.rotate(apexDeg, iconCx, iconCy)
-            val arrowPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+            val arrowPaint = Paint().apply { color = Color.BLACK; style = Paint.Style.FILL; isAntiAlias = true }
             val arrowPath = android.graphics.Path().apply {
                 moveTo(iconCx, iconCy - arrowR)
                 lineTo(iconCx - arrowR * 0.8f, iconCy + arrowR * 0.7f)
@@ -1174,7 +1175,7 @@ object TftLink {
             // dưới, đã phóng to).
             val textX = iconCx + arm * 0.95f
             // Khoảng cách trên bảng dẫn giữ màu trắng theo yêu cầu (không đổi đỏ như ETA/tuyến chính).
-            val infoPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val infoPaint = Paint().apply { color = Color.BLACK; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val dM = skDistanceM
             if (dM >= 0) {
                 val distTxt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m"
