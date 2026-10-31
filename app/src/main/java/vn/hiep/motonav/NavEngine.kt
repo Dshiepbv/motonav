@@ -607,7 +607,7 @@ class NavEngine(
         // Đưa vào các trường dùng chung (ô nổi, thẻ rẽ, tiếng bíp khi sắp rẽ)
         Live.navActive = true
         Live.navArrow = ArrowIcon.get(next.sign, 192)
-        Live.navMeters = toTurn.roundToInt()
+        Live.navMeters = (toTurn / 10).roundToInt() * 10 // đếm ngược chẵn mỗi 10 m
         Live.navDistance = fmtDist(toTurn)
         Live.navInstruction = phrase
         Live.navExtra = null
@@ -634,7 +634,7 @@ class NavEngine(
         fun fmtDist(m: Double): String = when {
             m >= 1000 -> String.format(java.util.Locale.US, "%.1f km", m / 1000).replace('.', ',')
             m >= 100 -> "${(m / 10).roundToInt() * 10} m"
-            else -> "${max(0, (m / 5).roundToInt() * 5)} m"
+            else -> "${max(0, (m / 10).roundToInt() * 10)} m"
         }
     }
 }

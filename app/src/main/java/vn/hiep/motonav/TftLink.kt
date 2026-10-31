@@ -2288,7 +2288,7 @@ object TftLink {
         }
         val icon = IconMap.from(sign, roundabout)
         // Làm tròn khoảng cách theo bậc 5 m để không gửi lại chỉ vì GPS nhích vài centimet.
-        val key = "$icon|${distanceM / 5}|$road|$etaMinutes"
+        val key = "$icon|${distanceM / 10}|$road|$etaMinutes"
         if (key == lastSentKey) return
         if (lastSentKey == "off" || lastSentKey.isEmpty()) send(navActivePacket(true))
         if (send(turnPacket(icon, distanceM.toFloat(), road))) {
