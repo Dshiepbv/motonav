@@ -240,6 +240,7 @@ class NavEngine(
                         // Mọi tuyến đều chạy vào đường cấm xe máy (vd. trục chính Xa lộ Hà Nội, xe máy phải đi đường song hành):
                         // gọi Goong một lần với 3 điểm "đi qua" nằm trên chính con đường xe đang chạy (250/700/1300 m phía trước)
                         // để ép tuyến ở lại đường song hành thay vì nhảy lên trục chính.
+                        var carViaTried = false
                         if (on != null && !overQuota && list.any { RoutePick.carOnlyM(it, 3000.0) >= 40.0 }) {
                             try {
                                 val vp = listOf(250.0, 700.0, 1300.0).map { RoutePick.walk(on, 40.0 + it) }
@@ -247,6 +248,7 @@ class NavEngine(
                                 if (vr != null) {
                                     val why = RoutePick.rejectReason(vr, heading, trailNow)
                                     TripLog.ev("routeCarVia", "why" to (why ?: "ok"), "carOnlyM" to RoutePick.carOnlyM(vr, 3000.0).toInt())
+                                    carViaTried = true
                                     if (why == null) found = vr else rejected.add(vr)
                                 }
                             } catch (_: Exception) {
@@ -254,7 +256,8 @@ class NavEngine(
                         }
                         // build-242: mỗi lần chỉ thử 1 điểm phía trước (trước 3, log 29/10 tốn ~9 lượt trong 15 s mà
                         // vẫn ra tuyến quay đầu); lần 3 liên tiếp (fails>=2) nhận luôn tuyến nhanh nhất.
-                        for (dAhead in if (found != null) emptyList() else if (fails >= 2) emptyList() else dists.take(1)) {
+                        // build-282: đã thử tuyến ép qua điểm trên đường đang đi (carVia) mà vẫn bị loại → bỏ 2 lượt Goong còn lại (shift/via cùng bị loại như log 31/10).
+                        for (dAhead in if (found != null || carViaTried) emptyList() else if (fails >= 2) emptyList() else dists.take(1)) {
                             try {
                                 val ap = if (on != null) RoutePick.walk(on, 40.0 + dAhead) else RoutePick.aheadPoint(Live.osm, lat, lon, heading!!, dAhead)
                                 // build-237: xuất phát hẳn từ điểm phía trước (không chỉ "đi qua") — Goong hay gắn
