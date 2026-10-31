@@ -693,7 +693,7 @@ object TftLink {
                 if (st == null || cx == null) return@run null
                 val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(14.5, 17.8)
                 val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
-                val aheadM = 0.22 * h * mPerPx * 1.15
+                val aheadM = (0.22 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.15
                 val tLat = skLat + cosH * aheadM / 110540.0
                 val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
                 MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 45.0, w, h)
@@ -765,8 +765,9 @@ object TftLink {
                     val la = skLat + dym / 110540.0
                     val lo = skLon + dxm / (111320.0 * Math.cos(Math.toRadians(skLat)))
                     val pt = snapShot.pixelForLatLng(org.maplibre.android.geometry.LatLng(la, lo))
-                    val px = if (pt.x.isFinite()) pt.x.coerceIn(-3000f, 4000f) else 0f
-                    val py = if (pt.y.isFinite()) pt.y.coerceIn(-3000f, 4000f) else 0f
+                    // Không kẹp từng trục (làm lệch hướng nét → đường đỏ chéo màn hình); điểm không hợp lệ trả NaN để nơi vẽ bỏ qua.
+                    val px = if (pt.x.isFinite() && Math.abs(pt.x) < 20000f) pt.x else Float.NaN
+                    val py = if (pt.y.isFinite() && Math.abs(pt.y) < 20000f) pt.y else Float.NaN
                     return floatArrayOf(px, py)
                 }
                 val effT = tiltT * smooth01(ry / tiltRampM)
@@ -1065,6 +1066,7 @@ object TftLink {
                 val rx = dx * cosH - dy * sinH
                 val ry = dx * sinH + dy * cosH
                 val (sx, sy) = toScreen(rx, ry)
+                if (sx.isNaN() || sy.isNaN()) { if (started) break else { i += pathStep; continue } }
                 if (!started) { path.moveTo(sx, sy); started = true } else path.lineTo(sx, sy)
                 routePx.add(floatArrayOf(sx, sy))
                 i += pathStep
@@ -1075,8 +1077,10 @@ object TftLink {
                 val dx = proj.x(route.lons[li]); val dy = proj.y(route.lats[li])
                 val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
                 val (lx, ly) = toScreen(rx, ry)
-                path.lineTo(lx, ly)
-                routePx.add(floatArrayOf(lx, ly))
+                if (!lx.isNaN() && !ly.isNaN()) {
+                    path.lineTo(lx, ly)
+                    routePx.add(floatArrayOf(lx, ly))
+                }
             }
             // Nhãn tên-đường-sắp-rẽ gắn trên bản đồ (đường kẻ nối + nền đen) — giữ lại kiểu chỉ này
             // theo yêu cầu, nhưng bỏ chấm tròn ở đầu đường kẻ, và neo KHÔNG còn đúng tại điểm rẽ

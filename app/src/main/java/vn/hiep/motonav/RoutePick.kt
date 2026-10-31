@@ -285,6 +285,49 @@ object RoutePick {
         return m
     }
 
+    /** Các đỉnh dọc con đường [o] từ xe tới [dist] mét phía trước (điểm đầu là vị trí xe, điểm cuối là điểm đích đoạn). */
+    fun walkPoints(o: OnWay, dist: Double): List<Pair<Double, Double>> {
+        val w = o.way
+        val out = ArrayList<Pair<Double, Double>>()
+        var la = o.lat; var lo = o.lon
+        out.add(la to lo)
+        var left = dist
+        var k = if (o.fwd) o.idx + 1 else o.idx
+        while (left > 0 && k in w.lats.indices) {
+            val d = Geo.distance(la, lo, w.lats[k], w.lons[k])
+            if (d >= left) {
+                val f = left / d
+                la += (w.lats[k] - la) * f; lo += (w.lons[k] - lo) * f
+                out.add(la to lo)
+                left = 0.0
+            } else {
+                la = w.lats[k]; lo = w.lons[k]; left -= d
+                out.add(la to lo)
+                k += if (o.fwd) 1 else -1
+            }
+        }
+        return out
+    }
+
+    /** Ghép đoạn đường đi [pts] (xe → điểm đầu tuyến) vào đầu tuyến, bám đúng đường cong thay vì nối thẳng chéo. */
+    fun prependPath(r: Route, pts: List<Pair<Double, Double>>): Route {
+        if (pts.size < 2) return r
+        val use = if (Geo.distance(pts.last().first, pts.last().second, r.lats[0], r.lons[0]) < 2.0) pts.dropLast(1) else pts
+        val k = use.size
+        val la = DoubleArray(r.lats.size + k)
+        val lo = DoubleArray(r.lons.size + k)
+        for (i in 0 until k) { la[i] = use[i].first; lo[i] = use[i].second }
+        System.arraycopy(r.lats, 0, la, k, r.lats.size)
+        System.arraycopy(r.lons, 0, lo, k, r.lons.size)
+        var d0 = 0.0
+        for (i in 1 until k) d0 += Geo.distance(use[i - 1].first, use[i - 1].second, use[i].first, use[i].second)
+        d0 += Geo.distance(use[k - 1].first, use[k - 1].second, r.lats[0], r.lons[0])
+        val steps = r.steps.mapIndexed { i, st ->
+            Step(st.sign, st.text, st.street, st.distance, if (i == 0) 0 else st.from + k, st.to + k, st.exitNumber)
+        }
+        return Route(la, lo, steps, r.distance + d0, r.timeMs, r.congestion)
+    }
+
     /** Ghép thêm điểm xe hiện tại vào đầu tuyến (khi tuyến được tìm từ một điểm phía trước xe). */
     fun prepend(r: Route, lat: Double, lon: Double): Route {
         if (Geo.distance(lat, lon, r.lats[0], r.lons[0]) < 2.0) return r

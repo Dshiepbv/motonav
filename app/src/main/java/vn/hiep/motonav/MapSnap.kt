@@ -40,9 +40,12 @@ object MapSnap {
         try { TripLog.ev("mapSnap", "disabled" to reason) } catch (_: Throwable) {}
     }
 
+    /** Chiều cao thừa phía dưới ảnh: dòng ghi nguồn bản đồ của MapLibre nằm ở đây, rơi ngoài khung màn xe. */
+    const val EXTRA_H = 36
+
     fun render(ctx: Context, styleUrl: String, dark: Boolean, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,
                w: Int, h: Int, timeoutMs: Long = 1500): MapSnapshot? {
-        return try { renderInner(ctx, styleUrl, dark, lat, lon, bearing, zoom, tilt, w, h, timeoutMs) } catch (t: Throwable) {
+        return try { renderInner(ctx, styleUrl, dark, lat, lon, bearing, zoom, tilt, w, h + EXTRA_H, timeoutMs) } catch (t: Throwable) {
             disable(t.javaClass.simpleName + ": " + (t.message ?: ""))
             null
         }

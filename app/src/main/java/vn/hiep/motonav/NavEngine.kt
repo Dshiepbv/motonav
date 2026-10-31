@@ -257,7 +257,7 @@ class NavEngine(
                                     countGoongCall()
                                     val raw = if (goongKey.isNotBlank()) GoongMap.routes(goongKey, ap.first, ap.second, dLat, dLon, prefs.goongVehicle, false)
                                     else VietMap.routes(vmKey, ap.first, ap.second, heading, dLat, dLon, prefs.traffic, false, emptyList(), prefs.avoidHighway)
-                                    raw.firstOrNull()?.let { RoutePick.prepend(RoutePick.prepend(it, ap.first, ap.second), startLat, startLon) }
+                                    raw.firstOrNull()?.let { if (on != null) RoutePick.prependPath(it, RoutePick.walkPoints(on, 40.0 + dAhead)) else RoutePick.prepend(RoutePick.prepend(it, ap.first, ap.second), startLat, startLon) }
                                 } catch (_: Exception) { null }
                                 val sWhy = shifted?.let { RoutePick.rejectReason(it, heading, trailNow) }
                                 if (shifted != null) TripLog.ev("routeShift", "ahead" to dAhead, "why" to (sWhy ?: "ok"))
