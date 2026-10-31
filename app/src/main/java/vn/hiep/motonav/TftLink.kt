@@ -284,6 +284,35 @@ object TftLink {
         }
     }
 
+    /** Môi trường điện thoại mỗi phút để dò nguyên nhân TFT đứng hình: mạng, tiết kiệm pin, nhiệt pin, số thiết bị BT đã ghép/đang nối. */
+    private fun envInfo(): String = try {
+        val c = appCtx ?: return "?"
+        val sb = StringBuilder()
+        try {
+            val cm = c.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+            sb.append(when {
+                caps == null -> "none"
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "cell"
+                else -> "other"
+            })
+        } catch (_: Throwable) { sb.append("net?") }
+        try { sb.append(if ((c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isPowerSaveMode) " saver" else " nosaver") } catch (_: Throwable) {}
+        try {
+            val i = c.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+            sb.append(" T=").append((i?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1) / 10.0)
+        } catch (_: Throwable) {}
+        try {
+            val a = (c.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+            sb.append(" bonded=").append(a.bondedDevices.size)
+            val a2 = a.getProfileConnectionState(android.bluetooth.BluetoothProfile.A2DP)
+            val hs = a.getProfileConnectionState(android.bluetooth.BluetoothProfile.HEADSET)
+            sb.append(" a2dp=").append(a2).append(" hfp=").append(hs)
+        } catch (_: Throwable) { sb.append(" bt?") }
+        sb.toString()
+    } catch (_: Throwable) { "?" }
+
     private fun battPct(): Int = try {
         val bm = appCtx?.getSystemService(Context.BATTERY_SERVICE) as? android.os.BatteryManager
         bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
@@ -320,7 +349,7 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "batt" to battPct(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "batt" to battPct(), "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
