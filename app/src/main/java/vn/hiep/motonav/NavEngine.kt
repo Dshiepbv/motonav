@@ -187,6 +187,7 @@ class NavEngine(
                 //  3) Không còn tuyến nào hợp lệ → thử ép đi qua điểm phía trước xa dần (150/400/800 m).
                 //  4) Vẫn không có → KHÔNG nhận tuyến quay đầu: giữ "đi tiếp", đi thêm 150 m rồi tìm lại.
                 val on = if (moving) RoutePick.locate(Live.osm, lat, lon, heading!!) else null
+                RoutePick.skipLeading.set(on != null)
                 val origin = if (on != null) RoutePick.walk(on, 40.0) else (lat to lon)
                 val startLat = on?.lat ?: lat
                 val startLon = on?.lon ?: lon

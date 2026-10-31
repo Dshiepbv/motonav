@@ -267,9 +267,14 @@ object RoutePick {
         var m = 0.0
         var c = 0.0
         val end = kotlin.math.min(withinM, r.total)
+        // build-279: khi xe ĐANG chạy trên đoạn bị coi là cấm xe máy (log 31/10, trục Xa lộ Hà Nội: carOnly 640→130 m
+        // giảm dần đúng bằng quãng xe đã đi) thì phần liền mạch từ vị trí xe không tránh được → không tính, tránh
+        // từ chối mọi tuyến và reroute dồn 4–8 lần.
+        var leading = skipLeading.get() == true
         while (c <= end) {
             val p = pointAt(r, c)
             val proj = LocalProjection(p.first, p.second)
+            var hit = false
             loop@ for (w in bad) {
                 if (p.first < w.minLat - 0.0001 || p.first > w.maxLat + 0.0001 || p.second < w.minLon - 0.0001 || p.second > w.maxLon + 0.0001) continue
                 for (i in 0 until w.lats.size - 1) {
@@ -277,13 +282,17 @@ object RoutePick {
                     val dx = proj.x(w.lons[i + 1]) - ax; val dy = proj.y(w.lats[i + 1]) - ay
                     val len2 = dx * dx + dy * dy
                     val t = if (len2 < 0.01) 0.0 else (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
-                    if (Math.hypot(ax + t * dx, ay + t * dy) <= 8.0) { m += 10.0; break@loop }
+                    if (Math.hypot(ax + t * dx, ay + t * dy) <= 8.0) { hit = true; break@loop }
                 }
             }
+            if (hit) { if (!leading) m += 10.0 } else leading = false
             c += 10.0
         }
         return m
     }
+
+    /** NavEngine đặt true trong luồng định tuyến lại khi xe đang chạy (xem carOnlyM). */
+    val skipLeading = ThreadLocal<Boolean>()
 
     /** Các đỉnh dọc con đường [o] từ xe tới [dist] mét phía trước (điểm đầu là vị trí xe, điểm cuối là điểm đích đoạn). */
     fun walkPoints(o: OnWay, dist: Double): List<Pair<Double, Double>> {
