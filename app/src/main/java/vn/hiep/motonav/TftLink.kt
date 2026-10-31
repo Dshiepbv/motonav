@@ -231,6 +231,7 @@ object TftLink {
     // con số người lái thấy, khác với tỉ lệ khung quá 1s trước đây — 1 lần đứng từng bị đếm 4 khung).
     private var statFrom = 0L
     private var statFrames = 0
+    private var statBytes = 0L
     private var statSlow = 0
     private var statLost = 0
     private var statStallMs = 0L
@@ -314,13 +315,13 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
                     "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]))
             } catch (_: Exception) {}
-            statFrom = now; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
+            statFrom = now; statBytes = 0L; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
             statResend = 0; statResendHit = 0
             statWindows++
             // Thử nghiệm 221–224 xong (log 27/10, 27 phút): A tốt nhất (gap ≈15%) — B ≈21–25%, C ≈25–30%.
@@ -439,6 +440,7 @@ object TftLink {
             lastFrameError = null
             frameTxCount++
         }
+        statBytes += jpeg.size
         recordFrameStat(waited, timedOut)
         // Ghi vào nhật ký chuyến đi (dung lượng khung thật gửi đi + thời gian ACK) — để sau này xem
         // lại có thể đối chiếu xem ACK bắt đầu chậm hẳn từ cỡ khung bao nhiêu byte, tìm ra một mức

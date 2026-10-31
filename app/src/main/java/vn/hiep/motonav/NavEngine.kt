@@ -409,7 +409,10 @@ class NavEngine(
         // đi đúng → reroute liên tục lúc mới xuất phát (log 28/10). Ngưỡng lệch nới theo sai số GPS.
         val offTol = max(22.0, acc * 1.6)
         val offTurn = max(12.0, acc * 0.9)
-        val off = (bestD > offTurn && turnedAway) || bestD > offTol
+        // build-276: làn song hành/làn bên cạnh — hướng xe trùng hướng tuyến (<20°), lệch ngang < 55 m thì
+        // không coi là lệch tuyến (log 31/10: 8 lần reroute vô ích trên QL1K, hdg 132° = hướng đường).
+        val parallelLane = heading != null && speedMps > 1.5 && Geo.angleDiff(heading, segBrg) < 20 && bestD < 55
+        val off = !parallelLane && ((bestD > offTurn && turnedAway) || bestD > offTol)
         if (off != Live.offRoute) TripLog.ev("off", "on" to off, "d" to bestD, "hdg" to heading, "seg" to segBrg)
         Live.offRoute = off
         TripLog.ev("nav", "d" to bestD, "p" to progress, "i" to bestI)
@@ -502,7 +505,7 @@ class NavEngine(
             noUturnFails = 0
             if (!routing) Live.routeStatus = null
         }
-        if (moving && (offCount >= 2 || bestD > max(35.0, acc * 2.0) || urgent) && !routing && gapOk) {
+        if (moving && (offCount >= 2 || (bestD > max(35.0, acc * 2.0) && !parallelLane) || urgent) && !routing && gapOk) {
             rerouteTimes.add(now)
             TripLog.ev("reroute", "d" to bestD, "n" to offCount, "spd" to speedMps, "hdg" to heading)
             rrLat = lat; rrLon = lon
