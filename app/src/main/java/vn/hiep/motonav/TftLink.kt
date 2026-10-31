@@ -284,6 +284,11 @@ object TftLink {
         }
     }
 
+    private fun battPct(): Int = try {
+        val bm = appCtx?.getSystemService(Context.BATTERY_SERVICE) as? android.os.BatteryManager
+        bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+    } catch (_: Throwable) { -1 }
+
     private fun recordFrameStat(ackMs: Long, lost: Boolean) {
         val now = System.currentTimeMillis()
         if (statFrom == 0L) statFrom = now
@@ -315,7 +320,7 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "batt" to battPct(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,

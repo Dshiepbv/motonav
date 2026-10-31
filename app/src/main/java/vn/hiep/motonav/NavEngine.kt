@@ -250,7 +250,7 @@ class NavEngine(
                         }
                         // build-242: mỗi lần chỉ thử 1 điểm phía trước (trước 3, log 29/10 tốn ~9 lượt trong 15 s mà
                         // vẫn ra tuyến quay đầu); lần 3 liên tiếp (fails>=2) nhận luôn tuyến nhanh nhất.
-                        for (dAhead in if (found != null) emptyList() else if (fails >= 3) emptyList() else dists.take(1)) {
+                        for (dAhead in if (found != null) emptyList() else if (fails >= 2) emptyList() else dists.take(1)) {
                             try {
                                 val ap = if (on != null) RoutePick.walk(on, 40.0 + dAhead) else RoutePick.aheadPoint(Live.osm, lat, lon, heading!!, dAhead)
                                 // build-237: xuất phát hẳn từ điểm phía trước (không chỉ "đi qua") — Goong hay gắn
@@ -277,7 +277,7 @@ class NavEngine(
                         }
                         if (found != null) {
                             list = listOf(found)
-                        } else if (fails >= 3 && rejected.isNotEmpty()) {
+                        } else if (fails >= 2 && rejected.isNotEmpty()) {
                             // build-229 — quay đầu chỉ bị phạt, không cấm tuyệt đối (như Google/Waze):
                             // đã thử ≥3 lần (~10 s) mà phía trước không có tuyến nào hợp lệ (đường bị
                             // chặn, dải phân cách…) → nhận tuyến NHANH NHẤT trong số đã thử, kể cả quay

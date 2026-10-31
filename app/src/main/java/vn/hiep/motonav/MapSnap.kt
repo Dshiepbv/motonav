@@ -147,6 +147,10 @@ object MapSnap {
                         if (r.isSuccessful) r.body?.string() else null
                     }
                     if (body != null) {
+                        // build-278: dựng sẵn CẢ HAI nền sáng/tối từ một lần tải — trước đây bật sang nền kia phải chờ ≥60 s,
+                        // trong lúc đó dùng style gốc (đường trắng trên nền sáng → không thấy đường).
+                        for (dkv in booleanArrayOf(dark, !dark)) {
+                        val dark = dkv
                         val j = org.json.JSONObject(body)
                         val allLayers = j.getJSONArray("layers")
                         // Bỏ toàn bộ lớp chữ/biểu tượng của nền: tên đường do app tự vẽ lên khung đặc (dễ đọc hơn trên TFT).
@@ -190,6 +194,7 @@ object MapSnap {
                             TripLog.ev("mapSnap", "lineLayers" to ids.toString().take(900))
                         } catch (_: Throwable) {}
                         tweakedMap[dark] = j.toString()
+                        }
                     }
                 } catch (_: Throwable) {
                 } finally { tweaking = false }
