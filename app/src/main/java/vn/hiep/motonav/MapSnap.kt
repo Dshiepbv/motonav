@@ -79,15 +79,17 @@ object MapSnap {
                 MapLibre.getInstance(ctx.applicationContext)
                 val cam = CameraPosition.Builder().target(LatLng(lat, lon)).zoom(zoom).bearing(bearing).tilt(tilt).build()
                 var s = snapshotter
-                if (s == null || curStyle != styleUrl || curW != w || curH != h) {
+                val styleKey = styleUrl + (if (tweaked != null) "#t" else "")
+                if (s == null || curStyle != styleKey || curW != w || curH != h) {
                     try { s?.cancel() } catch (_: Throwable) {}
+                    val sj = tweakedStyle(styleUrl)
                     val opts = MapSnapshotter.Options(w, h)
-                        .withStyleBuilder(Style.Builder().fromUri(styleUrl))
+                        .withStyleBuilder(if (sj != null) Style.Builder().fromJson(sj) else Style.Builder().fromUri(styleUrl))
                         .withCameraPosition(cam)
                         .withPixelRatio(1.0f)
                         .withLogo(false)
                     s = MapSnapshotter(ctx.applicationContext, opts)
-                    snapshotter = s; curStyle = styleUrl; curW = w; curH = h
+                    snapshotter = s; curStyle = styleKey; curW = w; curH = h
                 } else {
                     s.setCameraPosition(cam)
                 }
@@ -117,6 +119,66 @@ object MapSnap {
             if (failStreak >= 4) { pauseUntil = SystemClock.elapsedRealtime() + 45_000L; failStreak = 0 }
         }
         return res
+    }
+
+
+    // ---- Chỉnh màu style OpenFreeMap cho màn TFT: đường xám, mảng xanh lá/xanh dương rõ, chữ đen viền trắng ----
+    @Volatile private var tweaked: String? = null
+    @Volatile private var tweakTryAt = 0L
+    @Volatile private var tweaking = false
+    private val styleHttp = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(6, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
+
+    private fun tweakedStyle(url: String): String? {
+        if (!url.contains("openfreemap")) return null
+        tweaked?.let { return it }
+        val nowT = SystemClock.elapsedRealtime()
+        if (!tweaking && nowT - tweakTryAt > 60_000L) {
+            tweaking = true; tweakTryAt = nowT
+            Thread({
+                try {
+                    val body = styleHttp.newCall(okhttp3.Request.Builder().url(url).header("User-Agent", "MotoNav").build()).execute().use { r ->
+                        if (r.isSuccessful) r.body?.string() else null
+                    }
+                    if (body != null) {
+                        val j = org.json.JSONObject(body)
+                        val layers = j.getJSONArray("layers")
+                        var changed = 0
+                        for (i in 0 until layers.length()) {
+                            val l = layers.getJSONObject(i)
+                            val id = l.optString("id").lowercase()
+                            val type = l.optString("type")
+                            val paint = l.optJSONObject("paint") ?: org.json.JSONObject().also { l.put("paint", it) }
+                            when (type) {
+                                "background" -> { paint.put("background-color", "#F3F3F1"); changed++ }
+                                "fill" -> when {
+                                    id.contains("water") -> { paint.put("fill-color", "#5BAEF0"); paint.put("fill-opacity", 1); changed++ }
+                                    id.contains("park") || id.contains("grass") || id.contains("wood") || id.contains("forest") ||
+                                        id.contains("green") || id.contains("garden") || id.contains("pitch") || id.contains("cemetery") ||
+                                        id.contains("landcover") || id.contains("meadow") -> { paint.put("fill-color", "#8FD19B"); paint.put("fill-opacity", 1); changed++ }
+                                    id.contains("building") -> { paint.put("fill-color", "#CFCBC4"); paint.put("fill-opacity", 1); changed++ }
+                                }
+                                "line" -> when {
+                                    id.contains("waterway") || id.contains("river") || id.contains("canal") -> { paint.put("line-color", "#5BAEF0"); changed++ }
+                                    id.contains("rail") || id.contains("boundary") || id.contains("aeroway") -> {}
+                                    id.contains("casing") -> { paint.put("line-color", "#6E747C"); changed++ }
+                                    id.contains("highway") || id.contains("road") || id.contains("bridge") || id.contains("tunnel") ||
+                                        id.contains("path") || id.contains("street") -> { paint.put("line-color", "#A3A9B1"); changed++ }
+                                }
+                                "symbol" -> {
+                                    paint.put("text-color", "#000000"); paint.put("text-halo-color", "#FFFFFF"); paint.put("text-halo-width", 2); paint.put("text-halo-blur", 0)
+                                    changed++
+                                }
+                            }
+                        }
+                        TripLog.ev("mapSnap", "styleTweaked" to changed, "layers" to layers.length())
+                        tweaked = j.toString()
+                    }
+                } catch (_: Throwable) {
+                } finally { tweaking = false }
+            }, "mapsnap-style").apply { isDaemon = true; start() }
+        }
+        return null
     }
 
     fun release() {

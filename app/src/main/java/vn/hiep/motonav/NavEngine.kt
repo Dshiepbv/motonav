@@ -229,9 +229,24 @@ class NavEngine(
                             else -> listOf(150.0, 400.0, 800.0)
                         }
                         val overQuota = goongCallsToday() >= 800
+                        // Mọi tuyến đều chạy vào đường cấm xe máy (vd. trục chính Xa lộ Hà Nội, xe máy phải đi đường song hành):
+                        // gọi Goong một lần với 3 điểm "đi qua" nằm trên chính con đường xe đang chạy (250/700/1300 m phía trước)
+                        // để ép tuyến ở lại đường song hành thay vì nhảy lên trục chính.
+                        if (on != null && !overQuota && list.any { RoutePick.carOnlyM(it, 3000.0) >= 40.0 }) {
+                            try {
+                                val vp = listOf(250.0, 700.0, 1300.0).map { RoutePick.walk(on, 40.0 + it) }
+                                val vr = fromOrigin(false, vp).firstOrNull()
+                                if (vr != null) {
+                                    val why = RoutePick.rejectReason(vr, heading, trailNow)
+                                    TripLog.ev("routeCarVia", "why" to (why ?: "ok"), "carOnlyM" to RoutePick.carOnlyM(vr, 3000.0).toInt())
+                                    if (why == null) found = vr else rejected.add(vr)
+                                }
+                            } catch (_: Exception) {
+                            }
+                        }
                         // build-242: mỗi lần chỉ thử 1 điểm phía trước (trước 3, log 29/10 tốn ~9 lượt trong 15 s mà
                         // vẫn ra tuyến quay đầu); lần 3 liên tiếp (fails>=2) nhận luôn tuyến nhanh nhất.
-                        for (dAhead in if (fails >= 2 || overQuota) dists.take(if (fails >= 2) 0 else 1) else dists.take(1)) {
+                        for (dAhead in if (found != null) emptyList() else if (fails >= 2 || overQuota) dists.take(if (fails >= 2) 0 else 1) else dists.take(1)) {
                             try {
                                 val ap = if (on != null) RoutePick.walk(on, 40.0 + dAhead) else RoutePick.aheadPoint(Live.osm, lat, lon, heading!!, dAhead)
                                 // build-237: xuất phát hẳn từ điểm phía trước (không chỉ "đi qua") — Goong hay gắn
@@ -263,7 +278,7 @@ class NavEngine(
                             // đã thử ≥3 lần (~10 s) mà phía trước không có tuyến nào hợp lệ (đường bị
                             // chặn, dải phân cách…) → nhận tuyến NHANH NHẤT trong số đã thử, kể cả quay
                             // đầu, thay vì để nét đỏ đứng nguyên tuyến cũ cả phút.
-                            val best = rejected.minByOrNull { it.timeMs }!!
+                            val best = rejected.minWithOrNull(compareBy<Route>({ (RoutePick.carOnlyM(it, 3000.0) / 100.0).toInt() }, { it.timeMs }))!!
                             TripLog.ev("routeForced", "fails" to fails, "timeMs" to best.timeMs, "tried" to rejected.size,
                                 "why" to (RoutePick.rejectReason(best, heading, trailNow) ?: "ok"))
                             list = listOf(best)

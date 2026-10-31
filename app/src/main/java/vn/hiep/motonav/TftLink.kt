@@ -799,7 +799,14 @@ object TftLink {
             // build-239: nền ảnh mảng màu kiểu Waze tối (nước/công viên/khu dân cư) thay nền đen — chỉ
             // đổi màu vẽ, mọi phép chiếu/zoom/xoay giữ nguyên như các nét đường.
             run {
-                if (snapShot != null) { c.drawBitmap(snapShot.bitmap, 0f, 0f, null); return@run }
+                if (snapShot != null) {
+                    // Tăng tương phản + bão hoà toàn khung (không tăng dung lượng JPEG đáng kể).
+                    val cm = android.graphics.ColorMatrix().apply { setSaturation(1.25f) }
+                    val ct = 1.35f; val tr = (-0.5f * ct + 0.5f) * 255f
+                    cm.postConcat(android.graphics.ColorMatrix(floatArrayOf(ct, 0f, 0f, 0f, tr, 0f, ct, 0f, 0f, tr, 0f, 0f, ct, 0f, tr, 0f, 0f, 0f, 1f, 0f)))
+                    c.drawBitmap(snapShot.bitmap, 0f, 0f, Paint().apply { colorFilter = android.graphics.ColorMatrixColorFilter(cm) })
+                    return@run
+                }
                 c.drawColor(Color.rgb(247, 247, 249))
                 val areas = Live.areas
                 if (areas != null) {
@@ -1284,7 +1291,7 @@ object TftLink {
         // nhưng KHÔNG kỳ vọng hết hẳn "reload" — nếu vẫn còn, nhiều khả năng là giới hạn phần cứng/
         // khoảng cách Bluetooth phía xe chứ không phải thứ sửa thêm bằng code được nữa.
         // Nền ảnh bản đồ (OSM/Goong) cần chất lượng cao hơn nét vector, nếu không bị mờ/vỡ khối.
-        bmp.compress(Bitmap.CompressFormat.JPEG, if (mapSnapStyle != null) 26 else 14, out)
+        bmp.compress(Bitmap.CompressFormat.JPEG, 14, out)
         if (sizeMode == 1 && out.size() > SMALL_TARGET_BYTES) {
             // Ảnh nhỏ: hạ quality từng bước tới khi ≤ SMALL_TARGET_BYTES (hoặc quality 4).
             var q = 11
