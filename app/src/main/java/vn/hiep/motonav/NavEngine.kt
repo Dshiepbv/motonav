@@ -20,6 +20,9 @@ class NavEngine(
 ) {
     private var seg = 0
     private var offCount = 0
+    private var loopRoute: Route? = null
+    private var loopUAt = -1.0
+    private var loopSince = 0L
     private var rrLat = 0.0
     private var rrLon = 0.0
     private val rerouteTimes = ArrayList<Long>()
@@ -413,7 +416,20 @@ class NavEngine(
         // build-276: làn song hành/làn bên cạnh — hướng xe trùng hướng tuyến (<20°), lệch ngang < 55 m thì
         // không coi là lệch tuyến (log 31/10: 8 lần reroute vô ích trên QL1K, hdg 132° = hướng đường).
         val parallelLane = heading != null && speedMps > 1.5 && Geo.angleDiff(heading, segBrg) < 20 && bestD < 55
-        val off = !parallelLane && ((bestD > offTurn && turnedAway) || bestD > offTol)
+        val off0 = !parallelLane && ((bestD > offTurn && turnedAway) || bestD > offTol)
+        // build-279: xe đang đi theo vòng quay đầu mà tuyến có sẵn chỗ quay đầu quanh đó (hình học Goong không vẽ hết
+        // vòng) → không coi là lệch, không reroute (log 31/10: nút giao 10,952N/106,807E, 5–6 reroute mỗi lần qua).
+        // Chỉ miễn tối đa 90 s mỗi lần, và khi xe cách tuyến < 300 m.
+        if (loopRoute !== r) { loopRoute = r; loopUAt = RoutePick.uturnAt(r, 6000.0); loopSince = 0L }
+        val nowL = SystemClock.elapsedRealtime()
+        val inLoopZone = loopUAt >= 0 && progress > loopUAt - 400 && progress < loopUAt + 600 && bestD < 300 && speedMps > 1.0
+        var loopHold = false
+        if (off0 && inLoopZone) {
+            if (loopSince == 0L) loopSince = nowL
+            loopHold = nowL - loopSince < 90_000
+        } else if (!off0) loopSince = 0L
+        if (loopHold) TripLog.ev("loopHold", "d" to bestD, "p" to progress, "uAt" to loopUAt)
+        val off = off0 && !loopHold
         if (off != Live.offRoute) TripLog.ev("off", "on" to off, "d" to bestD, "hdg" to heading, "seg" to segBrg)
         Live.offRoute = off
         TripLog.ev("nav", "d" to bestD, "p" to progress, "i" to bestI)
@@ -506,7 +522,7 @@ class NavEngine(
             noUturnFails = 0
             if (!routing) Live.routeStatus = null
         }
-        if (moving && (offCount >= 2 || (bestD > max(35.0, acc * 2.0) && !parallelLane) || urgent) && !routing && gapOk) {
+        if (moving && !loopHold && (offCount >= 2 || (bestD > max(35.0, acc * 2.0) && !parallelLane) || urgent) && !routing && gapOk) {
             rerouteTimes.add(now)
             TripLog.ev("reroute", "d" to bestD, "n" to offCount, "spd" to speedMps, "hdg" to heading)
             rrLat = lat; rrLon = lon
