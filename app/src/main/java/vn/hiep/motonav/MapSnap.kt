@@ -43,6 +43,9 @@ object MapSnap {
     /** Chiều cao thừa phía dưới ảnh: dòng ghi nguồn bản đồ của MapLibre nằm ở đây, rơi ngoài khung màn xe. */
     const val EXTRA_H = 36
 
+    /** Hệ số phóng bề rộng đường so với mét thật (xe máy cần thấy rõ cả hẻm nhỏ trên màn bé). */
+    const val WIDTH_SCALE = 3.0
+
     fun render(ctx: Context, styleUrl: String, dark: Boolean, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,
                w: Int, h: Int, timeoutMs: Long = 1500): MapSnapshot? {
         return try { renderInner(ctx, styleUrl, dark, lat, lon, bearing, zoom, tilt, w, h + EXTRA_H, timeoutMs) } catch (t: Throwable) {
@@ -214,7 +217,7 @@ object MapSnap {
             else -> 6.0
         }
         val k = 156543.03 * Math.cos(Math.toRadians(10.9))
-        fun px(z: Int) = Math.max(if (casing) 2.5 else 1.5, meters * Math.pow(2.0, z.toDouble()) / k + (if (casing) 2.0 else 0.0))
+        fun px(z: Int) = Math.max(if (casing) 5.0 else 3.0, WIDTH_SCALE * meters * Math.pow(2.0, z.toDouble()) / k + (if (casing) 2.0 else 0.0))
         // ["zoom"] chỉ được dùng ở biểu thức "interpolate" cấp cao nhất (không bọc trong "max") → đặt mức tối thiểu ngay trong từng mốc.
         val interp = org.json.JSONArray().put("interpolate").put(org.json.JSONArray().put("linear")).put(org.json.JSONArray().put("zoom"))
         for (z in 12..20) interp.put(z).put(px(z))
