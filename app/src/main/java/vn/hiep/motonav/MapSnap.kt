@@ -214,10 +214,11 @@ object MapSnap {
             else -> 6.0
         }
         val k = 156543.03 * Math.cos(Math.toRadians(10.9))
-        fun px(z: Int) = meters * Math.pow(2.0, z.toDouble()) / k + (if (casing) 2.0 else 0.0)
-        val interp = org.json.JSONArray().put("interpolate").put(org.json.JSONArray().put("exponential").put(2)).put(org.json.JSONArray().put("zoom"))
-            .put(12).put(px(12)).put(20).put(px(20))
-        return org.json.JSONArray().put("max").put(if (casing) 2.5 else 1.5).put(interp)
+        fun px(z: Int) = Math.max(if (casing) 2.5 else 1.5, meters * Math.pow(2.0, z.toDouble()) / k + (if (casing) 2.0 else 0.0))
+        // ["zoom"] chỉ được dùng ở biểu thức "interpolate" cấp cao nhất (không bọc trong "max") → đặt mức tối thiểu ngay trong từng mốc.
+        val interp = org.json.JSONArray().put("interpolate").put(org.json.JSONArray().put("linear")).put(org.json.JSONArray().put("zoom"))
+        for (z in 12..20) interp.put(z).put(px(z))
+        return interp
     }
 
     fun release() {
