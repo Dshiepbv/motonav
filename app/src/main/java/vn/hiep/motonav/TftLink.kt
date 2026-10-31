@@ -580,7 +580,9 @@ object TftLink {
                 val sc = Math.max(w.toFloat() / logo.width, h.toFloat() / logo.height)
                 val lw = logo.width * sc
                 val lh = logo.height * sc
-                val dst = android.graphics.RectF((w - lw) / 2f, (h - lh) / 2f, (w + lw) / 2f, (h + lh) / 2f)
+                // Nâng ảnh lên ~22px: thanh chữ firmware của xe đè lên đáy khung, che đuôi con mèo.
+                val up = 22f
+                val dst = android.graphics.RectF((w - lw) / 2f, (h - lh) / 2f - up, (w + lw) / 2f, (h + lh) / 2f - up)
                 c.drawBitmap(logo, null, dst, Paint().apply { isFilterBitmap = true; isAntiAlias = true })
             } else {
                 val p2 = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
