@@ -169,9 +169,9 @@ object MapSnap {
                                 "line" -> when {
                                     id.contains("waterway") || id.contains("river") || id.contains("canal") -> { paint.put("line-color", "#5BAEF0"); changed++ }
                                     id.contains("rail") || id.contains("boundary") || id.contains("aeroway") -> {}
-                                    id.contains("casing") -> { paint.put("line-color", if (dark) "#3A3F49" else "#6E747C"); changed++ }
+                                    id.contains("casing") -> { paint.put("line-color", if (dark) "#3A3F49" else "#6E747C"); paint.put("line-width", roadWidthExpr(id, true)); changed++ }
                                     id.contains("highway") || id.contains("road") || id.contains("bridge") || id.contains("tunnel") ||
-                                        id.contains("path") || id.contains("street") -> { paint.put("line-color", if (dark) "#A4ABB6" else "#A3A9B1"); changed++ }
+                                        id.contains("path") || id.contains("street") -> { paint.put("line-color", if (dark) "#A4ABB6" else "#A3A9B1"); paint.put("line-width", roadWidthExpr(id, false)); changed++ }
                                 }
                                 "symbol" -> {
                                     paint.put("text-color", if (dark) "#000000" else "#FFFFFF"); paint.put("text-halo-color", if (dark) "#FFFFFF" else "#000000"); paint.put("text-halo-width", 2.2); paint.put("text-halo-blur", 0)
@@ -181,6 +181,11 @@ object MapSnap {
                             }
                         }
                         TripLog.ev("mapSnap", "styleTweaked" to changed, "layers" to layers.length())
+                        try {
+                            val ids = StringBuilder()
+                            for (li in 0 until layers.length()) { val ly = layers.getJSONObject(li); if (ly.optString("type") == "line") ids.append(ly.optString("id")).append(',') }
+                            TripLog.ev("mapSnap", "lineLayers" to ids.toString().take(900))
+                        } catch (_: Throwable) {}
                         tweakedMap[dark] = j.toString()
                     }
                 } catch (_: Throwable) {
@@ -188,6 +193,31 @@ object MapSnap {
             }, "mapsnap-style").apply { isDaemon = true; start() }
         }
         return null
+    }
+
+
+    /**
+     * Độ rộng đường = rộng THẬT (mét) theo cấp đường, đổi sang pixel theo mức zoom bằng nội suy mũ cơ số 2
+     * (pixel = mét × 2^zoom / (156543 × cos vĩ độ)) — đại lộ vẽ đúng bề rộng, không còn nét mảnh. Vĩ độ TP.HCM ≈ 10.9°.
+     */
+    private fun roadWidthExpr(id: String, casing: Boolean): org.json.JSONArray {
+        val meters = when {
+            id.contains("motorway") -> 12.0
+            id.contains("trunk") -> 11.0
+            id.contains("primary") -> 10.0
+            id.contains("secondary") -> 8.0
+            id.contains("major") -> 9.0
+            id.contains("tertiary") -> 6.5
+            id.contains("minor") -> 5.5
+            id.contains("service") || id.contains("track") -> 3.5
+            id.contains("path") || id.contains("pedestrian") || id.contains("footway") -> 2.0
+            else -> 6.0
+        }
+        val k = 156543.03 * Math.cos(Math.toRadians(10.9))
+        fun px(z: Int) = meters * Math.pow(2.0, z.toDouble()) / k + (if (casing) 2.0 else 0.0)
+        val interp = org.json.JSONArray().put("interpolate").put(org.json.JSONArray().put("exponential").put(2)).put(org.json.JSONArray().put("zoom"))
+            .put(12).put(px(12)).put(20).put(px(20))
+        return org.json.JSONArray().put("max").put(if (casing) 2.5 else 1.5).put(interp)
     }
 
     fun release() {
