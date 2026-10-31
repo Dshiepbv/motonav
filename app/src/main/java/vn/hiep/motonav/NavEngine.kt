@@ -223,10 +223,14 @@ class NavEngine(
                     } else {
                         var found: Route? = null
                         val rejected = ArrayList<Route>(list)
+                        // Log 31/10 (D1): mỗi lần mất tuyến, Goong đề xuất quay đầu ngay (uturnAt 30) vì đường xe đang chạy khác tuyến
+                        // đã tính; thử 150 m / 250 m phía trước đều bị loại → lần 3 nhận tuyến quay đầu → xe đi thẳng → lệch lại, lặp
+                        // 5–6 vòng. Nay mỗi lần thử một điểm "đi qua" XA dần (150/500/1100 m) trên đúng con đường xe đang chạy, rồi mới
+                        // ép nhận ở lần thứ 4.
                         val dists = when {
-                            fails >= 2 -> listOf(400.0, 800.0, 1500.0)
-                            fails == 1 -> listOf(250.0, 600.0, 1000.0)
-                            else -> listOf(150.0, 400.0, 800.0)
+                            fails >= 2 -> listOf(1100.0)
+                            fails == 1 -> listOf(500.0)
+                            else -> listOf(150.0)
                         }
                         val overQuota = goongCallsToday() >= 800
                         // Mọi tuyến đều chạy vào đường cấm xe máy (vd. trục chính Xa lộ Hà Nội, xe máy phải đi đường song hành):
@@ -246,7 +250,7 @@ class NavEngine(
                         }
                         // build-242: mỗi lần chỉ thử 1 điểm phía trước (trước 3, log 29/10 tốn ~9 lượt trong 15 s mà
                         // vẫn ra tuyến quay đầu); lần 3 liên tiếp (fails>=2) nhận luôn tuyến nhanh nhất.
-                        for (dAhead in if (found != null) emptyList() else if (fails >= 2 || overQuota) dists.take(if (fails >= 2) 0 else 1) else dists.take(1)) {
+                        for (dAhead in if (found != null) emptyList() else if (fails >= 3) emptyList() else dists.take(1)) {
                             try {
                                 val ap = if (on != null) RoutePick.walk(on, 40.0 + dAhead) else RoutePick.aheadPoint(Live.osm, lat, lon, heading!!, dAhead)
                                 // build-237: xuất phát hẳn từ điểm phía trước (không chỉ "đi qua") — Goong hay gắn
@@ -273,7 +277,7 @@ class NavEngine(
                         }
                         if (found != null) {
                             list = listOf(found)
-                        } else if (fails >= 2 && rejected.isNotEmpty()) {
+                        } else if (fails >= 3 && rejected.isNotEmpty()) {
                             // build-229 — quay đầu chỉ bị phạt, không cấm tuyệt đối (như Google/Waze):
                             // đã thử ≥3 lần (~10 s) mà phía trước không có tuyến nào hợp lệ (đường bị
                             // chặn, dải phân cách…) → nhận tuyến NHANH NHẤT trong số đã thử, kể cả quay
@@ -317,6 +321,7 @@ class NavEngine(
                 }
             } catch (e: Exception) {
                 Live.routeError = e.message ?: "Lỗi tìm đường"
+                TripLog.ev("routeErr", "msg" to (e.message ?: e.javaClass.simpleName).take(120))
             } finally {
                 routing = false
                 Live.routeStatus = null
