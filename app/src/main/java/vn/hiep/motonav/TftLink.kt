@@ -911,7 +911,7 @@ object TftLink {
                 // ban ngày, trời nắng) — chỉ còn phân biệt bằng ĐỘ DÀY tương ứng với bề rộng thực tế
                 // ngoài đời (quốc lộ/trục chính rộng nhất -> hẻm/đường nội bộ hẹp nhất).
                 val branchPaintMajor = Paint().apply { color = if (dk) Color.rgb(150, 157, 170) else Color.rgb(168, 173, 184); style = Paint.Style.STROKE; strokeWidth = 6.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintMid = Paint().apply { color = if (dk) Color.rgb(94, 103, 122) else Color.rgb(172, 177, 188); style = Paint.Style.STROKE; strokeWidth = 4.8f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMid = Paint().apply { color = if (dk) Color.rgb(156, 163, 176) else Color.rgb(172, 177, 188); style = Paint.Style.STROKE; strokeWidth = 4.8f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 val branchPaintMinor = Paint().apply { color = if (dk) Color.rgb(160, 167, 180) else Color.rgb(178, 183, 194); style = Paint.Style.STROKE; strokeWidth = 3.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 val branchPaintTiny = Paint().apply { color = if (dk) Color.rgb(164, 171, 184) else Color.rgb(184, 189, 199); style = Paint.Style.STROKE; strokeWidth = 2.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 fun branchPaintFor(highway: String): Paint = when (highway) {
@@ -959,7 +959,7 @@ object TftLink {
                 val wayCap = 220 // hành lang bắt nhiều way hơn kiểu nối-chuỗi cũ, nới trần lên tương ứng
                 // build-249: vẽ đường thành DẢI xám có bề rộng thật (như bản đồ nền) thay vì nét mảnh — hai
                 // chiều của đại lộ liền thành một dải, hẻm nhỏ xa tuyến bỏ bớt cho đỡ chằng chịt.
-                val roadGray = Paint().apply { color = if (dk) Color.rgb(94, 103, 122) else Color.rgb(172, 177, 188); style = Paint.Style.FILL; isAntiAlias = true }
+                val roadGray = Paint().apply { color = if (dk) Color.rgb(156, 163, 176) else Color.rgb(172, 177, 188); style = Paint.Style.FILL; isAntiAlias = true }
                 val limR = drawAhead * 1.1
                 for ((wy, nearD) in candidates) {
                     if (drawnWays >= wayCap) break
