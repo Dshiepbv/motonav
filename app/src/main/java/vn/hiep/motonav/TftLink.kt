@@ -1150,8 +1150,120 @@ object TftLink {
                 val cxText = (bx[2] + bx[3]) / 2f
                 // Chữ trắng viền đen (không nền): vẽ nét viền đen dày trước rồi chữ trắng đè lên.
                 val outlinePaint = Paint(labelPaint).apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
-                c.drawText(nextSt, cxText, bx[1], outlinePaint)
-                c.drawText(nextSt, cxText, bx[1], labelPaint)
+                if (snapShot != null) {
+                    val pf = if (dk) Color.WHITE else Color.BLACK
+                    val pt2 = if (dk) Color.BLACK else Color.WHITE
+                    val fm3 = labelPaint.fontMetrics
+                    c.drawRoundRect(android.graphics.RectF(bx[2], bx[1] + fm3.ascent - padY * 0.6f, bx[3], bx[1] + fm3.descent + padY * 0.6f), h * 0.03f, h * 0.03f,
+                        Paint().apply { color = pf; style = Paint.Style.FILL; isAntiAlias = true })
+                    c.drawText(nextSt, cxText, bx[1], Paint(labelPaint).apply { color = pt2 })
+                } else {
+                    c.drawText(nextSt, cxText, bx[1], outlinePaint)
+                    c.drawText(nextSt, cxText, bx[1], labelPaint)
+                }
+            }
+            // ---- Tên đường kiểu "biển" trên nền ảnh bản đồ (phương án A): khung đặc + chữ đậm, không viền; chữ nằm dọc theo
+            // đường như nhãn bản đồ (luôn đọc xuôi, không lộn ngược). Tối đa 4 tên, né tuyến đỏ và các khung ETA/biển tốc độ.
+            if (snapShot != null) {
+                try {
+                    val ways = Live.osm?.ways
+                    if (ways != null) {
+                        val plateFill = if (dk) Color.WHITE else Color.BLACK
+                        val plateText = if (dk) Color.BLACK else Color.WHITE
+                        val tp = Paint().apply { color = plateText; textSize = h * 0.07f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                        val fm = tp.fontMetrics
+                        val textH = fm.descent - fm.ascent
+                        val padX = h * 0.025f; val padY = h * 0.012f
+                        val sl = w * 0.05f; val sr = w * 0.95f; val st = h * 0.2f; val sb = h * 0.84f
+                        fun inSafe(x: Float, y: Float) = x in sl..sr && y in st..sb &&
+                            !(x > w * 0.78f && y < h * 0.4f) && !(y > anchorY - h * 0.14f && y < anchorY + h * 0.1f && (x < w * 0.3f || x > w * 0.7f))
+                        class Cand(val name: String, val x: Float, val y: Float, val ang: Float, val score: Float)
+                        val cands = ArrayList<Cand>()
+                        val seen = HashSet<String>()
+                        for (wy in ways) {
+                            val nm = wy.name ?: continue
+                            if (nm.isBlank() || wy.highway in setOf("footway", "path", "steps", "cycleway", "pedestrian", "track", "service")) continue
+                            if (Math.abs(wy.minLat - skLat) > 0.01 || Math.abs(wy.minLon - skLon) > 0.01) continue
+                            val tw = tp.measureText(nm) + padX * 2
+                            // điểm màn hình của từng đỉnh
+                            val n = wy.lats.size
+                            val xs = FloatArray(n); val ys = FloatArray(n)
+                            for (i in 0 until n) {
+                                val ddx = proj.x(wy.lons[i]); val ddy = proj.y(wy.lats[i])
+                                val q = toScreen(ddx * cosH - ddy * sinH, ddx * sinH + ddy * cosH)
+                                xs[i] = q[0]; ys[i] = q[1]
+                            }
+                            // đoạn liên tiếp trong vùng an toàn dài nhất
+                            var bestLen = 0f; var bi = -1; var bj = -1
+                            var i = 0
+                            while (i < n) {
+                                if (xs[i].isNaN() || ys[i].isNaN() || !inSafe(xs[i], ys[i])) { i++; continue }
+                                var j = i; var len = 0f
+                                while (j + 1 < n && !xs[j + 1].isNaN() && !ys[j + 1].isNaN() && inSafe(xs[j + 1], ys[j + 1])) {
+                                    len += Math.hypot((xs[j + 1] - xs[j]).toDouble(), (ys[j + 1] - ys[j]).toDouble()).toFloat(); j++
+                                }
+                                if (len > bestLen) { bestLen = len; bi = i; bj = j }
+                                i = j + 1
+                            }
+                            if (bi < 0 || bestLen < tw * 0.85f) continue
+                            // điểm giữa đoạn + hướng cục bộ
+                            var half = bestLen / 2f; var cx0 = xs[bi]; var cy0 = ys[bi]; var ang = 0f
+                            for (k in bi until bj) {
+                                val d = Math.hypot((xs[k + 1] - xs[k]).toDouble(), (ys[k + 1] - ys[k]).toDouble()).toFloat()
+                                if (d >= half || k == bj - 1) {
+                                    val f = if (d > 0f) (half / d).coerceIn(0f, 1f) else 0f
+                                    cx0 = xs[k] + (xs[k + 1] - xs[k]) * f; cy0 = ys[k] + (ys[k + 1] - ys[k]) * f
+                                    ang = Math.toDegrees(Math.atan2((ys[k + 1] - ys[k]).toDouble(), (xs[k + 1] - xs[k]).toDouble())).toFloat()
+                                    break
+                                }
+                                half -= d
+                            }
+                            if (ang > 90f) ang -= 180f
+                            if (ang < -90f) ang += 180f
+                            val cls = when (wy.highway) { "motorway", "trunk", "primary", "motorway_link", "trunk_link", "primary_link" -> 0; "secondary", "secondary_link" -> 1; "tertiary", "tertiary_link" -> 2; else -> 3 }
+                            val onRoute = nextSt != null && nm == nextSt
+                            val dist = Math.hypot((cx0 - anchorX).toDouble(), (cy0 - anchorY).toDouble()).toFloat()
+                            val score = (if (onRoute) -10000f else 0f) + cls * 150f + dist
+                            if (seen.add(nm)) cands.add(Cand(nm, cx0, cy0, ang, score))
+                        }
+                        cands.sortBy { it.score }
+                        val placed = ArrayList<FloatArray>()
+                        for (cd in cands) {
+                            if (placed.size >= 4) break
+                            val tw = tp.measureText(cd.name)
+                            val bw = tw + padX * 2; val bh = textH + padY * 2
+                            val rad = Math.toRadians(cd.ang.toDouble())
+                            val hw = (Math.abs(Math.cos(rad)) * bw / 2 + Math.abs(Math.sin(rad)) * bh / 2).toFloat()
+                            val hh = (Math.abs(Math.sin(rad)) * bw / 2 + Math.abs(Math.cos(rad)) * bh / 2).toFloat()
+                            val l = cd.x - hw; val r = cd.x + hw; val t = cd.y - hh; val b = cd.y + hh
+                            if (l < 0f || r > w || t < 0f || b > h) continue
+                            var clash = false
+                            for (pb in placed) if (!(r < pb[0] || l > pb[1] || b < pb[2] || t > pb[3])) { clash = true; break }
+                            if (clash) continue
+                            // né tuyến đỏ
+                            for (q in 1 until routePx.size) {
+                                val p0 = routePx[q - 1]; val p1 = routePx[q]
+                                if (maxOf(p0[0], p1[0]) < l - 4f || minOf(p0[0], p1[0]) > r + 4f || maxOf(p0[1], p1[1]) < t - 4f || minOf(p0[1], p1[1]) > b + 4f) continue
+                                val steps = (Math.hypot((p1[0] - p0[0]).toDouble(), (p1[1] - p0[1]).toDouble()) / 4.0).toInt().coerceAtLeast(1)
+                                for (kk in 0..steps) {
+                                    val f = kk.toFloat() / steps
+                                    val px = p0[0] + (p1[0] - p0[0]) * f; val py = p0[1] + (p1[1] - p0[1]) * f
+                                    if (px in (l - 4f)..(r + 4f) && py in (t - 4f)..(b + 4f)) { clash = true; break }
+                                }
+                                if (clash) break
+                            }
+                            if (clash) continue
+                            placed.add(floatArrayOf(l, r, t, b))
+                            c.save()
+                            c.rotate(cd.ang, cd.x, cd.y)
+                            c.drawRoundRect(android.graphics.RectF(cd.x - bw / 2, cd.y - bh / 2, cd.x + bw / 2, cd.y + bh / 2), bh * 0.3f, bh * 0.3f,
+                                Paint().apply { color = plateFill; style = Paint.Style.FILL; isAntiAlias = true })
+                            c.drawText(cd.name, cd.x, cd.y - (fm.ascent + fm.descent) / 2f, tp)
+                            c.restore()
+                        }
+                    }
+                } catch (_: Throwable) {
+                }
             }
             // Tuyến chính đỏ tươi — vẽ SAU CÙNG trong phần bản đồ (sau nhánh đường + nhãn) để không gì
             // che được. Thêm viền đen dày bên dưới: JPEG chất lượng thấp (4:2:0) làm nhạt màu đỏ ở

@@ -145,6 +145,11 @@ object MapSnap {
                     }
                     if (body != null) {
                         val j = org.json.JSONObject(body)
+                        val allLayers = j.getJSONArray("layers")
+                        // Bỏ toàn bộ lớp chữ/biểu tượng của nền: tên đường do app tự vẽ lên khung đặc (dễ đọc hơn trên TFT).
+                        val kept = org.json.JSONArray()
+                        for (li in 0 until allLayers.length()) { val ly = allLayers.getJSONObject(li); if (ly.optString("type") != "symbol") kept.put(ly) }
+                        j.put("layers", kept)
                         val layers = j.getJSONArray("layers")
                         var changed = 0
                         for (i in 0 until layers.length()) {
