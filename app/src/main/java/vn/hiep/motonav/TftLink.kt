@@ -575,8 +575,10 @@ object TftLink {
             // ~5KB JPEG, nhẹ hơn khung dẫn đường). Chưa nạp được logo thì về dòng chữ cũ.
             val logo = logoBmp
             if (logo != null) {
-                val lh = h * 0.82f
-                val lw = lh * logo.width / logo.height
+                // Ảnh chờ phủ kín cả màn (cắt giữa cho vừa tỉ lệ), không để khung vuông.
+                val sc = Math.max(w.toFloat() / logo.width, h.toFloat() / logo.height)
+                val lw = logo.width * sc
+                val lh = logo.height * sc
                 val dst = android.graphics.RectF((w - lw) / 2f, (h - lh) / 2f, (w + lw) / 2f, (h + lh) / 2f)
                 c.drawBitmap(logo, null, dst, Paint().apply { isFilterBitmap = true; isAntiAlias = true })
             } else {
@@ -1281,7 +1283,8 @@ object TftLink {
         // không thuần "khung nặng". Hạ quality thêm vẫn nên làm (luôn giúp ít nhiều, không hại gì)
         // nhưng KHÔNG kỳ vọng hết hẳn "reload" — nếu vẫn còn, nhiều khả năng là giới hạn phần cứng/
         // khoảng cách Bluetooth phía xe chứ không phải thứ sửa thêm bằng code được nữa.
-        bmp.compress(Bitmap.CompressFormat.JPEG, 14, out)
+        // Nền ảnh bản đồ (OSM/Goong) cần chất lượng cao hơn nét vector, nếu không bị mờ/vỡ khối.
+        bmp.compress(Bitmap.CompressFormat.JPEG, if (mapSnapStyle != null) 26 else 14, out)
         if (sizeMode == 1 && out.size() > SMALL_TARGET_BYTES) {
             // Ảnh nhỏ: hạ quality từng bước tới khi ≤ SMALL_TARGET_BYTES (hoặc quality 4).
             var q = 11
