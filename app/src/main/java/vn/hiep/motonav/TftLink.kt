@@ -1060,9 +1060,25 @@ object TftLink {
                     i = bestNext
                 }
             }
+            val ways0 = Live.osm?.ways
+            // Điểm tuyến (mét quanh xe) sau khi dời sang phải theo hướng đi
+            fun shifted(idx: Int): DoubleArray {
+                var dx = proj.x(route.lons[idx]); var dy = proj.y(route.lats[idx])
+                val off = laneOffsetM(route, idx, ways0)
+                if (off > 0f) {
+                    val a = if (idx + 1 < route.lats.size) idx else idx - 1
+                    if (a >= 0) {
+                        val ex = proj.x(route.lons[a + 1]) - proj.x(route.lons[a]); val ey = proj.y(route.lats[a + 1]) - proj.y(route.lats[a])
+                        val ln = Math.hypot(ex, ey)
+                        if (ln > 0.5) { dx += off * (ey / ln); dy -= off * (ex / ln) }
+                    }
+                }
+                return doubleArrayOf(dx, dy)
+            }
             while (i < iEnd) {
-                val dx = proj.x(route.lons[i])
-                val dy = proj.y(route.lats[i])
+                val sh = shifted(i)
+                val dx = sh[0]
+                val dy = sh[1]
                 val rx = dx * cosH - dy * sinH
                 val ry = dx * sinH + dy * cosH
                 val (sx, sy) = toScreen(rx, ry)
@@ -1074,7 +1090,8 @@ object TftLink {
             // Đảm bảo luôn vẽ tới điểm cuối thực (iEnd-1) kể cả khi bước nhảy bỏ qua nó.
             if (started && (iEnd - 1) >= idx0 && (iEnd - 1 - idx0) % pathStep != 0) {
                 val li = (iEnd - 1).coerceAtMost(route.lats.size - 1)
-                val dx = proj.x(route.lons[li]); val dy = proj.y(route.lats[li])
+                val shl = shifted(li)
+                val dx = shl[0]; val dy = shl[1]
                 val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
                 val (lx, ly) = toScreen(rx, ry)
                 if (!lx.isNaN() && !ly.isNaN()) {
@@ -1831,6 +1848,37 @@ object TftLink {
     }
 
     @Volatile private var logoBmp: Bitmap? = null
+
+    // Dời nét đỏ sang làn phải trên đường hai chiều (tuyến Goong/OSM chỉ có đường tim, xe đi làn phải).
+    private var offRoute: Route? = null
+    private val offCache = HashMap<Int, Float>()
+    private fun laneOffsetM(route: Route, i: Int, ways: List<Way>?): Float {
+        if (ways == null) return 0f
+        if (offRoute !== route) { offRoute = route; offCache.clear() }
+        offCache[i]?.let { return it }
+        val lat = route.lats[i]; val lon = route.lons[i]
+        val proj = LocalProjection(lat, lon)
+        var bestD = 12.0; var best: Way? = null
+        for (w in ways) {
+            if (lat < w.minLat - 0.0002 || lat > w.maxLat + 0.0002 || lon < w.minLon - 0.0002 || lon > w.maxLon + 0.0002) continue
+            if (w.highway in setOf("footway", "path", "steps", "cycleway", "pedestrian", "track")) continue
+            for (k in 0 until w.lats.size - 1) {
+                val ax = proj.x(w.lons[k]); val ay = proj.y(w.lats[k])
+                val dx = proj.x(w.lons[k + 1]) - ax; val dy = proj.y(w.lats[k + 1]) - ay
+                val len2 = dx * dx + dy * dy
+                val t = if (len2 < 0.01) 0.0 else (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
+                val d = Math.hypot(ax + t * dx, ay + t * dy)
+                if (d < bestD) { bestD = d; best = w }
+            }
+        }
+        val w = best
+        val off = if (w == null || w.oneway != 0 || w.tags.containsKey("dual_carriageway") || w.tags["junction"] != null) 0f else {
+            val lanes = w.lanes ?: when (w.highway) { "motorway", "trunk", "primary" -> 4; "secondary" -> 4; "tertiary" -> 2; else -> 2 }
+            Math.min(5.0, lanes * 3.3 / 4.0).toFloat()
+        }
+        offCache[i] = off
+        return off
+    }
 
     /** 0 = sáng, 1 = tối, 2 = tự động (tối từ 18:00 tới 05:30). Đặt từ DriveService theo Cài đặt. */
     @Volatile var themeMode: Int = 2
