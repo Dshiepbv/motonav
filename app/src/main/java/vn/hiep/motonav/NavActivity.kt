@@ -592,7 +592,7 @@ class NavActivity : Activity() {
             val sub = pts.take(3).joinToString(" → ").ifBlank { null }
             if (sub != null) {
                 col.addView(tv(11f, if (sel) Brand.redSoftText else muted).apply {
-                    text = "Qua: $sub"
+                    text = (if (RoutePick.carOnlyM(r, 3000.0) >= 40.0) "⚠ có đoạn cấm xe máy · " else "") + "Qua: $sub"
                     maxLines = 2
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 })

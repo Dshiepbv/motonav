@@ -40,15 +40,15 @@ object MapSnap {
         try { TripLog.ev("mapSnap", "disabled" to reason) } catch (_: Throwable) {}
     }
 
-    fun render(ctx: Context, styleUrl: String, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,
+    fun render(ctx: Context, styleUrl: String, dark: Boolean, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,
                w: Int, h: Int, timeoutMs: Long = 1500): MapSnapshot? {
-        return try { renderInner(ctx, styleUrl, lat, lon, bearing, zoom, tilt, w, h, timeoutMs) } catch (t: Throwable) {
+        return try { renderInner(ctx, styleUrl, dark, lat, lon, bearing, zoom, tilt, w, h, timeoutMs) } catch (t: Throwable) {
             disable(t.javaClass.simpleName + ": " + (t.message ?: ""))
             null
         }
     }
 
-    private fun renderInner(ctx: Context, styleUrl: String, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,
+    private fun renderInner(ctx: Context, styleUrl: String, dark: Boolean, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,
                             w: Int, h: Int, timeoutMs: Long): MapSnapshot? {
         val now = SystemClock.elapsedRealtime()
         if (now < disabledUntil || now < pauseUntil || inFlight) return null
@@ -79,10 +79,10 @@ object MapSnap {
                 MapLibre.getInstance(ctx.applicationContext)
                 val cam = CameraPosition.Builder().target(LatLng(lat, lon)).zoom(zoom).bearing(bearing).tilt(tilt).build()
                 var s = snapshotter
-                val styleKey = styleUrl + (if (tweaked != null) "#t" else "")
+                val styleKey = styleUrl + (if (tweakedMap[dark] != null) "#t" else "") + (if (dark) "d" else "l")
                 if (s == null || curStyle != styleKey || curW != w || curH != h) {
                     try { s?.cancel() } catch (_: Throwable) {}
-                    val sj = tweakedStyle(styleUrl)
+                    val sj = tweakedStyle(styleUrl, dark)
                     val opts = MapSnapshotter.Options(w, h)
                         .withStyleBuilder(if (sj != null) Style.Builder().fromJson(sj) else Style.Builder().fromUri(styleUrl))
                         .withCameraPosition(cam)
@@ -123,15 +123,15 @@ object MapSnap {
 
 
     // ---- Chỉnh màu style OpenFreeMap cho màn TFT: đường xám, mảng xanh lá/xanh dương rõ, chữ đen viền trắng ----
-    @Volatile private var tweaked: String? = null
+    private val tweakedMap = java.util.concurrent.ConcurrentHashMap<Boolean, String>()
     @Volatile private var tweakTryAt = 0L
     @Volatile private var tweaking = false
     private val styleHttp = okhttp3.OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
 
-    private fun tweakedStyle(url: String): String? {
+    private fun tweakedStyle(url: String, dark: Boolean): String? {
         if (!url.contains("openfreemap")) return null
-        tweaked?.let { return it }
+        tweakedMap[dark]?.let { return it }
         val nowT = SystemClock.elapsedRealtime()
         if (!tweaking && nowT - tweakTryAt > 60_000L) {
             tweaking = true; tweakTryAt = nowT
@@ -150,29 +150,30 @@ object MapSnap {
                             val type = l.optString("type")
                             val paint = l.optJSONObject("paint") ?: org.json.JSONObject().also { l.put("paint", it) }
                             when (type) {
-                                "background" -> { paint.put("background-color", "#F3F3F1"); changed++ }
+                                "background" -> { paint.put("background-color", if (dark) "#171A21" else "#F3F3F1"); changed++ }
                                 "fill" -> when {
                                     id.contains("water") -> { paint.put("fill-color", "#5BAEF0"); paint.put("fill-opacity", 1); changed++ }
                                     id.contains("park") || id.contains("grass") || id.contains("wood") || id.contains("forest") ||
                                         id.contains("green") || id.contains("garden") || id.contains("pitch") || id.contains("cemetery") ||
                                         id.contains("landcover") || id.contains("meadow") -> { paint.put("fill-color", "#8FD19B"); paint.put("fill-opacity", 1); changed++ }
-                                    id.contains("building") -> { paint.put("fill-color", "#CFCBC4"); paint.put("fill-opacity", 1); changed++ }
+                                    id.contains("building") -> { paint.put("fill-color", if (dark) "#2C313B" else "#CFCBC4"); paint.put("fill-opacity", 1); changed++ }
                                 }
                                 "line" -> when {
                                     id.contains("waterway") || id.contains("river") || id.contains("canal") -> { paint.put("line-color", "#5BAEF0"); changed++ }
                                     id.contains("rail") || id.contains("boundary") || id.contains("aeroway") -> {}
-                                    id.contains("casing") -> { paint.put("line-color", "#6E747C"); changed++ }
+                                    id.contains("casing") -> { paint.put("line-color", if (dark) "#262A32" else "#6E747C"); changed++ }
                                     id.contains("highway") || id.contains("road") || id.contains("bridge") || id.contains("tunnel") ||
-                                        id.contains("path") || id.contains("street") -> { paint.put("line-color", "#A3A9B1"); changed++ }
+                                        id.contains("path") || id.contains("street") -> { paint.put("line-color", if (dark) "#6A717C" else "#A3A9B1"); changed++ }
                                 }
                                 "symbol" -> {
-                                    paint.put("text-color", "#000000"); paint.put("text-halo-color", "#FFFFFF"); paint.put("text-halo-width", 2); paint.put("text-halo-blur", 0)
+                                    paint.put("text-color", "#FFFFFF"); paint.put("text-halo-color", "#000000"); paint.put("text-halo-width", 2.2); paint.put("text-halo-blur", 0)
+                                    (l.optJSONObject("layout") ?: org.json.JSONObject().also { l.put("layout", it) }).put("text-size", 14)
                                     changed++
                                 }
                             }
                         }
                         TripLog.ev("mapSnap", "styleTweaked" to changed, "layers" to layers.length())
-                        tweaked = j.toString()
+                        tweakedMap[dark] = j.toString()
                     }
                 } catch (_: Throwable) {
                 } finally { tweaking = false }

@@ -93,6 +93,10 @@ class Prefs(ctx: Context) {
     var etaN: Int
         get() = sp.getInt("etaN", 0)
         set(v) = sp.edit().putInt("etaN", v).apply()
+    /** Nền màn xe: 0 sáng, 1 tối, 2 tự động theo giờ. */
+    var tftTheme: Int
+        get() = sp.getInt("tftTheme", 2)
+        set(v) = sp.edit().putInt("tftTheme", v).apply()
     var tftMapSnap: Boolean
         get() = sp.getBoolean("tftMapSnap", false)
         set(v) = sp.edit().putBoolean("tftMapSnap", v).apply()

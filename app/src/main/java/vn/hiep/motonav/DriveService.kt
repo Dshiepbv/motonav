@@ -307,6 +307,7 @@ class DriveService : Service(), LocationListener {
             }
             if (on) {
                 // build-250: ảnh bản đồ Goong cho TFT (cần Map Tiles Key; bật/tắt trong Cài đặt)
+                TftLink.themeMode = prefs.tftTheme
                 TftLink.mapSnapStyle = when {
                     !prefs.tftMapSnap -> null
                     prefs.tftMapOsm -> "https://tiles.openfreemap.org/styles/positron"

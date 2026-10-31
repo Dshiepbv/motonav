@@ -70,12 +70,14 @@ object RoutePick {
         // Theo yêu cầu "ưu tiên đường thẳng, đường lớn, hạn chế zigzag": cộng thêm phạt nhẹ theo
         // mật độ rẽ vào chi phí trước khi so sánh, bên cạnh thời gian/quãng đường như cũ.
         fun cost(r: Route): Double = (if (traffic) trafficTime(r) else r.total) * (1.0 + zigzagPenalty(r) + (if (carOnlyM(r, 3000.0) >= 40.0) 1.0 else 0.0))
-        val sorted = list.sortedBy { cost(it) }.toMutableList()
+        // Ưu tiên số 1: tuyến không có đoạn nào cấm xe máy (luật); sau đó mới so thời gian/quãng đường.
+        val sorted = list.sortedWith(compareBy<Route>({ if (carOnlyM(it, 3000.0) >= 40.0) 1 else 0 }, { cost(it) })).toMutableList()
         // Thời gian gần bằng nhau (chênh < 5%) → chọn tuyến ngắn hơn
         if (traffic && sorted.size > 1) {
             val a = sorted[0]
-            val b = sorted.drop(1).minByOrNull { it.total }!!
-            if (b.total < a.total * 0.9 && trafficTime(b) <= trafficTime(a) * 1.05) {
+            val a0 = carOnlyM(a, 3000.0) >= 40.0
+            val b = sorted.drop(1).filter { (carOnlyM(it, 3000.0) >= 40.0) == a0 }.minByOrNull { it.total }
+            if (b != null && b.total < a.total * 0.9 && trafficTime(b) <= trafficTime(a) * 1.05) {
                 sorted.remove(b); sorted.add(0, b)
             }
         }

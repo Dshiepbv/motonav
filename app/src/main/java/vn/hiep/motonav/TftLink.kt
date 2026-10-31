@@ -568,6 +568,7 @@ object TftLink {
         // "var" vì ở nhánh có tuyến, anchorY được tính lại theo toScreen(0,0) — vị trí xe trên màn
         // đổi theo mức nghiêng camera 3D (skTiltT), xem bên dưới.
         var anchorY = h * 0.72f
+        val dk = isDark()
         if (route == null || route.lats.size < 2) {
             // Khung "chờ" — gửi đều đặn khi chưa có tuyến (chưa dẫn đường/mất GPS/vừa tới nơi) để
             // xe không coi là mất kết nối vì im lặng quá lâu.
@@ -695,7 +696,7 @@ object TftLink {
                 val aheadM = 0.22 * h * mPerPx * 1.15
                 val tLat = skLat + cosH * aheadM / 110540.0
                 val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                MapSnap.render(cx, st, tLat, tLon, headingNow, zoomLvl, 45.0, w, h)
+                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 45.0, w, h)
             }
             // rx/ry (mét thật, đã xoay theo hướng xe) -> toạ độ pixel, nén bán kính theo căn bậc hai
             // (mũ 0.55) quanh vị trí xe: gần xe gần như không nén (dễ thấy rẽ), xa xe nén mạnh hơn.
@@ -807,15 +808,15 @@ object TftLink {
                     c.drawBitmap(snapShot.bitmap, 0f, 0f, Paint().apply { colorFilter = android.graphics.ColorMatrixColorFilter(cm) })
                     return@run
                 }
-                c.drawColor(Color.rgb(247, 247, 249))
+                c.drawColor(if (dk) Color.rgb(23, 26, 33) else Color.rgb(247, 247, 249))
                 val areas = Live.areas
                 if (areas != null) {
                     val lim = drawAhead * 1.1
                     val fillW = Paint().apply { color = Color.rgb(120, 190, 240); style = Paint.Style.FILL; isAntiAlias = true }
                     val fillG = Paint().apply { color = Color.rgb(140, 210, 150); style = Paint.Style.FILL; isAntiAlias = true }
-                    val fillU = Paint().apply { color = Color.rgb(228, 230, 236); style = Paint.Style.FILL; isAntiAlias = true }
+                    val fillU = Paint().apply { color = if (dk) Color.rgb(36, 40, 50) else Color.rgb(228, 230, 236); style = Paint.Style.FILL; isAntiAlias = true }
                     val riverP = Paint().apply { color = Color.rgb(120, 190, 240); style = Paint.Style.STROKE; strokeWidth = 9f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-                    val fillB = Paint().apply { color = Color.rgb(214, 217, 225); style = Paint.Style.FILL; isAntiAlias = true }
+                    val fillB = Paint().apply { color = if (dk) Color.rgb(46, 51, 62) else Color.rgb(214, 217, 225); style = Paint.Style.FILL; isAntiAlias = true }
                     var bCount = 0
                     // Thứ tự: khu dân cư → nhà → xanh → nước → sông (nước đè lên cuối)
                     for (kind in intArrayOf(Areas.URBAN, Areas.BUILDING, Areas.GREEN, Areas.WATER, Areas.RIVER)) {
@@ -908,10 +909,10 @@ object TftLink {
                 // Theo yêu cầu: TẤT CẢ nhánh đường đều màu trắng (màu xám trước đây khó thấy giữa
                 // ban ngày, trời nắng) — chỉ còn phân biệt bằng ĐỘ DÀY tương ứng với bề rộng thực tế
                 // ngoài đời (quốc lộ/trục chính rộng nhất -> hẻm/đường nội bộ hẹp nhất).
-                val branchPaintMajor = Paint().apply { color = Color.rgb(168, 173, 184); style = Paint.Style.STROKE; strokeWidth = 6.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintMid = Paint().apply { color = Color.rgb(172, 177, 188); style = Paint.Style.STROKE; strokeWidth = 4.8f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintMinor = Paint().apply { color = Color.rgb(178, 183, 194); style = Paint.Style.STROKE; strokeWidth = 3.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintTiny = Paint().apply { color = Color.rgb(184, 189, 199); style = Paint.Style.STROKE; strokeWidth = 2.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMajor = Paint().apply { color = if (dk) Color.rgb(90, 99, 118) else Color.rgb(168, 173, 184); style = Paint.Style.STROKE; strokeWidth = 6.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMid = Paint().apply { color = if (dk) Color.rgb(94, 103, 122) else Color.rgb(172, 177, 188); style = Paint.Style.STROKE; strokeWidth = 4.8f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMinor = Paint().apply { color = if (dk) Color.rgb(100, 109, 128) else Color.rgb(178, 183, 194); style = Paint.Style.STROKE; strokeWidth = 3.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintTiny = Paint().apply { color = if (dk) Color.rgb(106, 115, 133) else Color.rgb(184, 189, 199); style = Paint.Style.STROKE; strokeWidth = 2.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 fun branchPaintFor(highway: String): Paint = when (highway) {
                     "motorway", "trunk", "primary", "motorway_link", "trunk_link", "primary_link" -> branchPaintMajor
                     "secondary", "tertiary", "secondary_link", "tertiary_link" -> branchPaintMid
@@ -957,7 +958,7 @@ object TftLink {
                 val wayCap = 220 // hành lang bắt nhiều way hơn kiểu nối-chuỗi cũ, nới trần lên tương ứng
                 // build-249: vẽ đường thành DẢI xám có bề rộng thật (như bản đồ nền) thay vì nét mảnh — hai
                 // chiều của đại lộ liền thành một dải, hẻm nhỏ xa tuyến bỏ bớt cho đỡ chằng chịt.
-                val roadGray = Paint().apply { color = Color.rgb(172, 177, 188); style = Paint.Style.FILL; isAntiAlias = true }
+                val roadGray = Paint().apply { color = if (dk) Color.rgb(94, 103, 122) else Color.rgb(172, 177, 188); style = Paint.Style.FILL; isAntiAlias = true }
                 val limR = drawAhead * 1.1
                 for ((wy, nearD) in candidates) {
                     if (drawnWays >= wayCap) break
@@ -1214,14 +1215,14 @@ object TftLink {
             val etaTxt = String.format("%02d:%02d", arriveCal.get(java.util.Calendar.HOUR_OF_DAY), arriveCal.get(java.util.Calendar.MINUTE))
             val remainTxt = "$remMin ph · $remTxt"
             // Chữ to hơn chút theo yêu cầu (0.11->0.12) nhưng khung giữ kiểu/đệm như cũ.
-            val etaTextPaint = Paint().apply { color = Color.BLACK; textSize = h * 0.12f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val etaTextPaint = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.12f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val padX2 = h * 0.035f; val padY2 = h * 0.028f
             val fmE = etaTextPaint.fontMetrics
             val textH = fmE.descent - fmE.ascent
             val boxH = textH + padY2 * 2f
             val boxTop = anchorY - h * 0.03f - boxH / 2f
             val cornerR = h * 0.025f
-            val etaFillPaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+            val etaFillPaint = Paint().apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
             val etaBorderPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.STROKE; strokeWidth = h * 0.014f; isAntiAlias = true }
             // Khung ETA — bên trái
             val twEta = etaTextPaint.measureText(etaTxt)
@@ -1259,7 +1260,7 @@ object TftLink {
             val arrowR = arm * 0.62f
             c.save()
             c.rotate(apexDeg, iconCx, iconCy)
-            val arrowPaint = Paint().apply { color = Color.BLACK; style = Paint.Style.FILL; isAntiAlias = true }
+            val arrowPaint = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.FILL; isAntiAlias = true }
             val arrowPath = android.graphics.Path().apply {
                 moveTo(iconCx, iconCy - arrowR)
                 lineTo(iconCx - arrowR * 0.8f, iconCy + arrowR * 0.7f)
@@ -1274,11 +1275,13 @@ object TftLink {
             // dưới, đã phóng to).
             val textX = iconCx + arm * 0.95f
             // Khoảng cách trên bảng dẫn giữ màu trắng theo yêu cầu (không đổi đỏ như ETA/tuyến chính).
-            val infoPaint = Paint().apply { color = Color.BLACK; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val infoPaint = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val dM = skDistanceM
             if (dM >= 0) {
                 val distTxt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m"
                 val fm = infoPaint.fontMetrics
+                val haloP = Paint(infoPaint).apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.03f; strokeJoin = Paint.Join.ROUND }
+                c.drawText(distTxt, textX, iconCy - (fm.ascent + fm.descent) / 2f, haloP)
                 c.drawText(distTxt, textX, iconCy - (fm.ascent + fm.descent) / 2f, infoPaint)
             }
         }
@@ -1712,6 +1715,18 @@ object TftLink {
     }
 
     @Volatile private var logoBmp: Bitmap? = null
+
+    /** 0 = sáng, 1 = tối, 2 = tự động (tối từ 18:00 tới 05:30). Đặt từ DriveService theo Cài đặt. */
+    @Volatile var themeMode: Int = 2
+    private fun isDark(): Boolean = when (themeMode) {
+        0 -> false
+        1 -> true
+        else -> {
+            val cal = java.util.Calendar.getInstance()
+            val m = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+            m >= 18 * 60 || m < 5 * 60 + 30
+        }
+    }
 
     fun start(ctx: Context, deviceAddr: String?) {
         if (!running.compareAndSet(false, true)) return

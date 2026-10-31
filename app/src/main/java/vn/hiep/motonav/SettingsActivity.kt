@@ -769,6 +769,13 @@ class SettingsActivity : Activity() {
             if (!prefs.tftMapSnap) 0 else if (prefs.tftMapOsm) 1 else 2,
             note = "Vector 3D: nét đường tự vẽ, nghiêng 3D như Waze. Bản đồ OSM/Goong: ảnh bản đồ vẽ ngoài nền giống bản đồ điện thoại (đường, nhà, công viên, tên đường), tắt màn điện thoại vẫn chạy; OSM dùng OpenFreeMap, không cần mã, không tốn tiền; Goong cần Map Tiles Key; lỗi thì tự về vector.",
         ) { prefs.tftMapSnap = (it != 0); prefs.tftMapOsm = (it == 1) }
+        choice(
+            "Nền màn xe",
+            null,
+            listOf("Sáng", "Tối", "Tự động (tối từ 18:00 tới 05:30)"),
+            prefs.tftTheme,
+            note = "Tối: nền và đường đổi sang màu tối, khung trắng/đen đảo ngược; các mảng cây, sông giữ màu.",
+        ) { prefs.tftTheme = it }
         if (!prefs.tftLink) return
         val tftStatus = when {
             TftLink.authed -> {
