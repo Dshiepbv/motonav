@@ -164,12 +164,12 @@ object MapSnap {
                                 "line" -> when {
                                     id.contains("waterway") || id.contains("river") || id.contains("canal") -> { paint.put("line-color", "#5BAEF0"); changed++ }
                                     id.contains("rail") || id.contains("boundary") || id.contains("aeroway") -> {}
-                                    id.contains("casing") -> { paint.put("line-color", if (dark) "#262A32" else "#6E747C"); changed++ }
+                                    id.contains("casing") -> { paint.put("line-color", if (dark) "#3A3F49" else "#6E747C"); changed++ }
                                     id.contains("highway") || id.contains("road") || id.contains("bridge") || id.contains("tunnel") ||
-                                        id.contains("path") || id.contains("street") -> { paint.put("line-color", if (dark) "#6A717C" else "#A3A9B1"); changed++ }
+                                        id.contains("path") || id.contains("street") -> { paint.put("line-color", if (dark) "#A4ABB6" else "#A3A9B1"); changed++ }
                                 }
                                 "symbol" -> {
-                                    paint.put("text-color", "#FFFFFF"); paint.put("text-halo-color", "#000000"); paint.put("text-halo-width", 2.2); paint.put("text-halo-blur", 0)
+                                    paint.put("text-color", if (dark) "#000000" else "#FFFFFF"); paint.put("text-halo-color", if (dark) "#FFFFFF" else "#000000"); paint.put("text-halo-width", 2.2); paint.put("text-halo-blur", 0)
                                     (l.optJSONObject("layout") ?: org.json.JSONObject().also { l.put("layout", it) }).put("text-size", 14)
                                     changed++
                                 }

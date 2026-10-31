@@ -910,10 +910,10 @@ object TftLink {
                 // Theo yêu cầu: TẤT CẢ nhánh đường đều màu trắng (màu xám trước đây khó thấy giữa
                 // ban ngày, trời nắng) — chỉ còn phân biệt bằng ĐỘ DÀY tương ứng với bề rộng thực tế
                 // ngoài đời (quốc lộ/trục chính rộng nhất -> hẻm/đường nội bộ hẹp nhất).
-                val branchPaintMajor = Paint().apply { color = if (dk) Color.rgb(90, 99, 118) else Color.rgb(168, 173, 184); style = Paint.Style.STROKE; strokeWidth = 6.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMajor = Paint().apply { color = if (dk) Color.rgb(150, 157, 170) else Color.rgb(168, 173, 184); style = Paint.Style.STROKE; strokeWidth = 6.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 val branchPaintMid = Paint().apply { color = if (dk) Color.rgb(94, 103, 122) else Color.rgb(172, 177, 188); style = Paint.Style.STROKE; strokeWidth = 4.8f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintMinor = Paint().apply { color = if (dk) Color.rgb(100, 109, 128) else Color.rgb(178, 183, 194); style = Paint.Style.STROKE; strokeWidth = 3.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintTiny = Paint().apply { color = if (dk) Color.rgb(106, 115, 133) else Color.rgb(184, 189, 199); style = Paint.Style.STROKE; strokeWidth = 2.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMinor = Paint().apply { color = if (dk) Color.rgb(160, 167, 180) else Color.rgb(178, 183, 194); style = Paint.Style.STROKE; strokeWidth = 3.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintTiny = Paint().apply { color = if (dk) Color.rgb(164, 171, 184) else Color.rgb(184, 189, 199); style = Paint.Style.STROKE; strokeWidth = 2.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 fun branchPaintFor(highway: String): Paint = when (highway) {
                     "motorway", "trunk", "primary", "motorway_link", "trunk_link", "primary_link" -> branchPaintMajor
                     "secondary", "tertiary", "secondary_link", "tertiary_link" -> branchPaintMid
@@ -1099,7 +1099,7 @@ object TftLink {
                 val mdx = proj.x(route.lons[aIdx]); val mdy = proj.y(route.lats[aIdx])
                 val mrx = mdx * cosH - mdy * sinH; val mry = mdx * sinH + mdy * cosH
                 val (mx, my) = toScreen(mrx, mry)
-                val labelPaint = Paint().apply { color = Color.WHITE; textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val labelPaint = Paint().apply { color = if (dk) Color.BLACK else Color.WHITE; textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
                 val leaderPaint = Paint().apply { color = Color.rgb(60, 64, 72); style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
                 val tw = labelPaint.measureText(nextSt)
@@ -1149,7 +1149,7 @@ object TftLink {
                 c.drawLine(mx, my, bx[0], bx[1], leaderPaint)
                 val cxText = (bx[2] + bx[3]) / 2f
                 // Chữ trắng viền đen (không nền): vẽ nét viền đen dày trước rồi chữ trắng đè lên.
-                val outlinePaint = Paint(labelPaint).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
+                val outlinePaint = Paint(labelPaint).apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
                 c.drawText(nextSt, cxText, bx[1], outlinePaint)
                 c.drawText(nextSt, cxText, bx[1], labelPaint)
             }
