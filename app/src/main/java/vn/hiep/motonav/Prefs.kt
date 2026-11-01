@@ -97,6 +97,10 @@ class Prefs(ctx: Context) {
     var tftTheme: Int
         get() = sp.getInt("tftTheme", 2)
         set(v) = sp.edit().putInt("tftTheme", v).apply()
+    /** Thử nghiệm đứng hình: 0 tắt, 1 gửi ảnh tĩnh đơn giản thay bản đồ (so tỉ lệ đứng với ảnh bản đồ). */
+    var tftDiag: Int
+        get() = sp.getInt("tftDiag", 0)
+        set(v) = sp.edit().putInt("tftDiag", v).apply()
     var tftMapSnap: Boolean
         get() = sp.getBoolean("tftMapSnap", false)
         set(v) = sp.edit().putBoolean("tftMapSnap", v).apply()

@@ -776,6 +776,13 @@ class SettingsActivity : Activity() {
             prefs.tftTheme,
             note = "Tối: nền và đường đổi sang màu tối, khung trắng/đen đảo ngược; các mảng cây, sông giữ màu.",
         ) { prefs.tftTheme = it }
+        choice(
+            "Thử nghiệm đứng hình",
+            null,
+            listOf("Tắt (gửi bản đồ)", "Ảnh tĩnh đơn giản (không bản đồ)"),
+            prefs.tftDiag,
+            note = "Bật khi xe đứng yên cạnh điện thoại vài phút: màn xe chỉ hiện chữ đếm giây. Nếu vẫn đứng hình cỡ 5 giây một lần thì lỗi nằm ở đường truyền/màn xe, không do nội dung bản đồ. Xong nhớ chuyển về Tắt.",
+        ) { prefs.tftDiag = it }
         if (!prefs.tftLink) return
         val tftStatus = when {
             TftLink.authed -> {

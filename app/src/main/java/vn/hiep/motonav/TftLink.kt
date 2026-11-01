@@ -239,6 +239,7 @@ object TftLink {
     private var statBytes = 0L
     @Volatile private var statTextTx = 0
     @Volatile private var lastSentEta = -1
+    @Volatile var diagMode: Int = 0
     private var statSlow = 0
     private var statLost = 0
     private var statStallMs = 0L
@@ -432,7 +433,7 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
@@ -1636,7 +1637,7 @@ object TftLink {
                         // Lỗi trong nhánh ảnh bản đồ (kể cả lỗi nặng kiểu NoClassDefFoundError/UnsatisfiedLinkError)
                         // không được làm sập app: tắt nhánh đó rồi vẽ lại bằng vector.
                         val tb0 = System.currentTimeMillis()
-                        val frame = try { buildSketchFrame() } catch (t: Throwable) {
+                        val frame = if (diagMode == 1) buildTestFrame("DIAG " + ((System.currentTimeMillis() / 1000) % 1000)) else try { buildSketchFrame() } catch (t: Throwable) {
                             if (mapSnapStyle == null) throw t
                             MapSnap.disable("build: " + t.javaClass.simpleName + " " + (t.message ?: ""))
                             buildSketchFrame()
