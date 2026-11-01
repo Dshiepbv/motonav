@@ -402,6 +402,7 @@ object TftLink {
         bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
     } catch (_: Throwable) { -1 }
 
+    private const val AUTO_RESET = false // build-301: tắt để giữ đúng điều kiện build 298 (Sếp thấy ổn)
     @Volatile private var badMinutes = 0
     @Volatile private var lastResetAt = 0L
     @Volatile private var sessionStartAt = 0L
@@ -447,7 +448,7 @@ object TftLink {
             // cách lần trước ≥5 phút, không gần chỗ rẽ (<300 m) → đóng socket để app tự kết nối + bắt tay lại. Log tftReset.
             val fp = if (span > 0) statStallMs * 100.0 / span else 0.0
             badMinutes = if (fp >= 20.0) badMinutes + 1 else 0
-            if (badMinutes >= 2 && sessionStartAt != 0L && now - sessionStartAt > 5 * 60_000L && now - lastResetAt > 5 * 60_000L &&
+            if (AUTO_RESET && badMinutes >= 2 && sessionStartAt != 0L && now - sessionStartAt > 5 * 60_000L && now - lastResetAt > 5 * 60_000L &&
                 !(skDistanceM in 0..300)) {
                 badMinutes = 0; lastResetAt = now
                 try { TripLog.ev("tftReset", "ageMin" to (now - sessionStartAt) / 60000, "fp" to Math.round(fp)) } catch (_: Exception) {}
@@ -2204,18 +2205,19 @@ object TftLink {
                         a.cancelDiscovery()
                     } catch (_: Exception) {
                     }
+                    // build-301: thử KHÔNG mã hoá trước (như build 298 — Sếp thấy mượt, 3 phiên 298 hết hẳn lỗi chờ 6 s), hụt mới về secure.
                     val sock = try {
-                        secureSock = device.createRfcommSocketToServiceRecord(SERVICE_UUID)
-                        secureSock.connect()
-                        secureSock
-                    } catch (_: IOException) {
-                        try {
-                            secureSock?.close()
-                        } catch (_: Exception) {
-                        }
                         insecureSock = device.createInsecureRfcommSocketToServiceRecord(SERVICE_UUID)
                         insecureSock.connect()
                         insecureSock
+                    } catch (_: IOException) {
+                        try {
+                            insecureSock?.close()
+                        } catch (_: Exception) {
+                        }
+                        secureSock = device.createRfcommSocketToServiceRecord(SERVICE_UUID)
+                        secureSock.connect()
+                        secureSock
                     }
                     try { TripLog.ev("tftSock", "kind" to (if (sock === insecureSock) "insecure" else "secure"), "fails" to failCount) } catch (_: Exception) {}
                     onConnected(sock, sock.inputStream, sock.outputStream)
