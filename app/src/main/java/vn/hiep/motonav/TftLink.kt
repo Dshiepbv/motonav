@@ -402,6 +402,9 @@ object TftLink {
         bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
     } catch (_: Throwable) { -1 }
 
+    @Volatile private var badMinutes = 0
+    @Volatile private var lastResetAt = 0L
+    @Volatile private var sessionStartAt = 0L
     private fun recordFrameStat(ackMs: Long, lost: Boolean) {
         val now = System.currentTimeMillis()
         if (statFrom == 0L) statFrom = now
@@ -439,6 +442,17 @@ object TftLink {
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
                     "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]))
             } catch (_: Exception) {}
+            // build-300: Sếp ghi nhận mượt lúc đầu, chạy lâu đứng nhiều dần, tắt/bật xe lại mượt. Log gộp: phút 0–10 của phiên
+            // thường tốt nhất rồi tăng dần (vd 6→5→9→15→21%). Thử "làm mới" kết nối: 2 phút liền đứng ≥20%, phiên ≥5 phút,
+            // cách lần trước ≥5 phút, không gần chỗ rẽ (<300 m) → đóng socket để app tự kết nối + bắt tay lại. Log tftReset.
+            val fp = if (span > 0) statStallMs * 100.0 / span else 0.0
+            badMinutes = if (fp >= 20.0) badMinutes + 1 else 0
+            if (badMinutes >= 2 && sessionStartAt != 0L && now - sessionStartAt > 5 * 60_000L && now - lastResetAt > 5 * 60_000L &&
+                !(skDistanceM in 0..300)) {
+                badMinutes = 0; lastResetAt = now
+                try { TripLog.ev("tftReset", "ageMin" to (now - sessionStartAt) / 60000, "fp" to Math.round(fp)) } catch (_: Exception) {}
+                Thread { try { Thread.sleep(200); activeSocket?.close() } catch (_: Exception) {} }.start()
+            }
             statFrom = now; statBytes = 0L; statTextTx = 0; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
             statResend = 0; statResendHit = 0
             statWindows++
@@ -2391,6 +2405,7 @@ object TftLink {
                     }
                     if (step2Done && step3Done && !authed) {
                         authed = true
+                        sessionStartAt = System.currentTimeMillis(); badMinutes = 0
                         sendInitBurst()
                     }
                 }
