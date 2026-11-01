@@ -90,6 +90,9 @@ class DriveService : Service(), LocationListener {
     private var lastFixTime = 0L
     private var prevLoc: Location? = null
     private var heading = -1.0
+    private var crsAnchor: android.location.Location? = null
+    private var brgFixCount = 0
+    private var brgFixLogAt = 0L
 
     private var currentWayId: Long? = null
     private var currentWay: Way? = null
@@ -427,8 +430,23 @@ class DriveService : Service(), LocationListener {
         // gần như đứng yên (đèn đỏ, dắt xe...) GPS vẫn trôi ngẫu nhiên trong bán kính sai số, đủ xa
         // hơn moveThresh nhưng không phải hướng đi thật, làm bản đồ xoay lung tung dù xe không chạy
         // (phản hồi thực tế: "thỉnh thoảng hơi xoay rồi" lúc gần như dừng).
+        // build-303: hướng đi tính từ vị trí (điểm neo cách ≥8 m, neo dời khi xa >25 m) — log 1/11 22:02: chip GPS báo
+        // bearing loạn từng giây (77→102→221→69°) trong khi vị trí vẫn đi thẳng → màn xe xoay vòng.
+        val anc = crsAnchor
+        var course = -1.0
+        if (anc != null) {
+            val dA = Geo.distance(anc.latitude, anc.longitude, lat, lon)
+            if (dA >= 8.0 && loc.time - anc.time < 6000) course = Geo.bearing(anc.latitude, anc.longitude, lat, lon)
+            if (dA > 25.0 || loc.time - anc.time > 6000) crsAnchor = loc
+        } else crsAnchor = loc
         if (loc.hasBearing() && speedMps > 1.0) {
             heading = loc.bearing.toDouble()
+            if (speedMps > 15 / 3.6 && course >= 0 && Geo.angleDiff(heading, course) > 45) {
+                heading = course
+                brgFixCount++
+                val nowB = System.currentTimeMillis()
+                if (nowB - brgFixLogAt > 30_000) { brgFixLogAt = nowB; TripLog.ev("brgFix", "n" to brgFixCount, "gps" to loc.bearing.toDouble(), "crs" to course) }
+            }
         } else if (prev != null && speedMps > 1.0 && Geo.distance(prev.latitude, prev.longitude, lat, lon) > moveThresh) {
             heading = Geo.bearing(prev.latitude, prev.longitude, lat, lon)
         }

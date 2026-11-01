@@ -874,6 +874,7 @@ object TftLink {
             val snapShot: org.maplibre.android.snapshotter.MapSnapshot? = run {
                 val st = mapSnapStyle; val cx = appCtx
                 if (st == null || cx == null) return@run null
+                try { MapSnap.prefetchRoute(cx, st, route.lats, route.lons, route) } catch (_: Throwable) {}
                 val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(14.5, 17.8)
                 val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
                 val aheadM = (0.22 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.15

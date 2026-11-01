@@ -54,6 +54,53 @@ object MapSnap {
         }
     }
 
+
+    // build-303: tải trước ô bản đồ dọc tuyến (mảng trắng/đen trên màn xe = ô chưa tải kịp qua 4G). Dùng vùng offline của
+    // MapLibre theo hình dạng tuyến (+ 2 đường lệch ±~600 m), z12–15; vùng cũ của app bị xoá trước khi tạo vùng mới.
+    @Volatile private var prefetchKey: Any? = null
+    fun prefetchRoute(ctx: Context, styleUrl: String, lats: DoubleArray, lons: DoubleArray, key: Any) {
+        if (prefetchKey === key || lats.size < 2) return
+        prefetchKey = key
+        main.post {
+            try {
+                MapLibre.getInstance(ctx.applicationContext)
+                val mgr = org.maplibre.android.offline.OfflineManager.getInstance(ctx.applicationContext)
+                val step = maxOf(1, lats.size / 400)
+                val lines = ArrayList<List<org.maplibre.geojson.Point>>()
+                for (off in doubleArrayOf(0.0, 0.0055, -0.0055)) {
+                    val pts = ArrayList<org.maplibre.geojson.Point>()
+                    var i = 0
+                    while (i < lats.size) { pts.add(org.maplibre.geojson.Point.fromLngLat(lons[i] + off, lats[i] + off)); i += step }
+                    pts.add(org.maplibre.geojson.Point.fromLngLat(lons.last() + off, lats.last() + off))
+                    lines.add(pts)
+                }
+                val geom = org.maplibre.geojson.MultiLineString.fromLngLats(lines)
+                val def = org.maplibre.android.offline.OfflineGeometryRegionDefinition(styleUrl, geom, 12.0, 15.0, 1.0f)
+                val meta = "motonav-route".toByteArray()
+                mgr.listOfflineRegions(object : org.maplibre.android.offline.OfflineManager.ListOfflineRegionsCallback {
+                    override fun onList(offlineRegions: Array<org.maplibre.android.offline.OfflineRegion>?) {
+                        offlineRegions?.forEach { r -> if (String(r.metadata) == "motonav-route") try { r.delete(object : org.maplibre.android.offline.OfflineRegion.OfflineRegionDeleteCallback { override fun onDelete() {}; override fun onError(error: String) {} }) } catch (_: Throwable) {} }
+                        mgr.createOfflineRegion(def, meta, object : org.maplibre.android.offline.OfflineManager.CreateOfflineRegionCallback {
+                            override fun onCreate(offlineRegion: org.maplibre.android.offline.OfflineRegion) {
+                                offlineRegion.setObserver(object : org.maplibre.android.offline.OfflineRegion.OfflineRegionObserver {
+                                    override fun onStatusChanged(st: org.maplibre.android.offline.OfflineRegionStatus) {
+                                        if (st.isComplete) { try { TripLog.ev("tilePrefetch", "done" to st.completedResourceCount, "kb" to st.completedResourceSize / 1024) } catch (_: Throwable) {}; offlineRegion.setDownloadState(org.maplibre.android.offline.OfflineRegion.STATE_INACTIVE) }
+                                    }
+                                    override fun onError(error: org.maplibre.android.offline.OfflineRegionError) { try { TripLog.ev("tilePrefetch", "err" to error.message) } catch (_: Throwable) {} }
+                                    override fun mapboxTileCountLimitExceeded(limit: Long) { try { TripLog.ev("tilePrefetch", "limit" to limit) } catch (_: Throwable) {} }
+                                })
+                                offlineRegion.setDownloadState(org.maplibre.android.offline.OfflineRegion.STATE_ACTIVE)
+                                try { TripLog.ev("tilePrefetch", "start" to lats.size) } catch (_: Throwable) {}
+                            }
+                            override fun onError(error: String) { try { TripLog.ev("tilePrefetch", "err" to error) } catch (_: Throwable) {} }
+                        })
+                    }
+                    override fun onError(error: String) { try { TripLog.ev("tilePrefetch", "err" to error) } catch (_: Throwable) {} }
+                })
+            } catch (t: Throwable) { try { TripLog.ev("tilePrefetch", "err" to (t.message ?: t.javaClass.simpleName)) } catch (_: Throwable) {} }
+        }
+    }
+
     private fun renderInner(ctx: Context, styleUrl: String, dark: Boolean, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,
                             w: Int, h: Int, timeoutMs: Long): MapSnapshot? {
         val now = SystemClock.elapsedRealtime()
