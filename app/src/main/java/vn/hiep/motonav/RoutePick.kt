@@ -256,7 +256,41 @@ object RoutePick {
         if (no(mc)) return true
         if (no(t["motor_vehicle"])) return true
         if (t["access"] == "no" || t["access"] == "private") return true
-        return w.highway == "motorway" || w.highway == "motorway_link"
+        if (w.highway == "motorway" || w.highway == "motorway_link") return true
+        return mainCarriageway(w)
+    }
+
+    // build-304: lòng chính (trunk) Xa lộ Hà Nội / Phạm Văn Đồng cấm xe máy từ lâu nhưng OSM chưa gắn nhãn (log 1/11:
+    // Goong dẫn lên lòng chính, rider đi song hành cách ~95 m, reroute liên tục). Coi là cấm xe máy KHI có đường
+    // song hành (tên chứa "Song Hành", hoặc cùng tên nhưng không phải trunk) chạy gần (khung bao cách ≤ ~150 m).
+    private val MAIN_NAMES = listOf("xa lộ hà nội", "phạm văn đồng")
+    private var mcSnap: Any? = null
+    private var mcSet: Set<Long> = emptySet()
+    private fun mainCarriageway(w: Way): Boolean {
+        if (w.highway != "trunk") return false
+        val n = w.name?.lowercase() ?: return false
+        if (MAIN_NAMES.none { n.contains(it) } || n.contains("song hành")) return false
+        val snap = Live.osm ?: return false
+        synchronized(this) {
+            if (mcSnap !== snap) {
+                val side = snap.ways.filter { o ->
+                    val on = o.name?.lowercase() ?: ""
+                    o.highway != "trunk" && o.highway != "service" && o.highway != "residential" &&
+                        (on.contains("song hành") || MAIN_NAMES.any { on.contains(it) })
+                }
+                val set = HashSet<Long>()
+                val pad = 0.0014
+                for (t in snap.ways) {
+                    if (t.highway != "trunk") continue
+                    val tn = t.name?.lowercase() ?: continue
+                    if (MAIN_NAMES.none { tn.contains(it) } || tn.contains("song hành")) continue
+                    if (side.any { o -> o.maxLat >= t.minLat - pad && o.minLat <= t.maxLat + pad && o.maxLon >= t.minLon - pad && o.minLon <= t.maxLon + pad }) set.add(t.id)
+                }
+                mcSet = set; mcSnap = snap
+                try { TripLog.ev("mainCarriageway", "n" to set.size) } catch (_: Exception) {}
+            }
+            return w.id in mcSet
+        }
     }
 
     /** Quãng tuyến (m, trong [withinM] đầu) chạy sát (≤ 8 m) đường cấm xe máy. 0 nếu không có dữ liệu. */
