@@ -433,7 +433,7 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "pace" to PACE_MS_PER_KB, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
@@ -487,7 +487,7 @@ object TftLink {
         waitingSentAt = sentAt
         val packet = pack(payload, 0, 1)
         val wr0 = System.nanoTime()
-        val okSend = send(packet)
+        val okSend = sendPaced(packet)
         lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt() // build-293: thời gian ghi ra socket BT
         if (!okSend) {
             lastFrameError = "Gửi khung lỗi (mất kết nối)"
@@ -2406,6 +2406,42 @@ object TftLink {
             busy.set(false)
             testFramesRunning = false; calibRunning = false
             synchronized(ackLock) { (ackLock as Object).notifyAll() }
+        }
+    }
+
+    /** build-294: so toàn bộ log 27/10–1/11: 2 phiên MƯỢT (28/10 sáng, build 235/236, đứng 0,2–2%) là 2 phiên duy nhất
+     * khung đi chậm ~13–15 ms/KB (ACK 129–152 ms); mọi phiên bị đứng 11–55% đều đi nhanh ~9 ms/KB. Giả thuyết: dồn dữ liệu
+     * quá nhanh làm bộ đệm màn xe tràn → màn kẹt 3–6 s. Ghi khung theo từng khối 1 KB, giữ nhịp ~PACE_MS_PER_KB. */
+    private const val PACE_MS_PER_KB = 13L
+    private const val PACE_CHUNK = 1024
+
+    @Synchronized
+    private fun sendPaced(bytes: ByteArray): Boolean {
+        val o = out ?: return false
+        writeStartedAt = System.currentTimeMillis()
+        val t0 = System.nanoTime()
+        return try {
+            var off = 0
+            while (off < bytes.size) {
+                val n = minOf(PACE_CHUNK, bytes.size - off)
+                o.write(bytes, off, n)
+                o.flush()
+                off += n
+                if (off < bytes.size) {
+                    val dueMs = off.toLong() * PACE_MS_PER_KB / 1024L
+                    val elapsedMs = (System.nanoTime() - t0) / 1_000_000L
+                    if (dueMs > elapsedMs) Thread.sleep(dueMs - elapsedMs)
+                }
+            }
+            true
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt(); false
+        } catch (e: IOException) {
+            lastError = "Gửi lỗi: ${e.message}"
+            try { activeSocket?.close() } catch (_: Exception) {}
+            false
+        } finally {
+            writeStartedAt = 0L
         }
     }
 
