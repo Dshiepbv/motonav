@@ -2190,24 +2190,20 @@ object TftLink {
                         a.cancelDiscovery()
                     } catch (_: Exception) {
                     }
-                    // build-297: thử kết nối KHÔNG mã hoá (insecure) TRƯỚC, lỗi mới về secure — nghi 2 phiên mượt duy nhất (28/10)
-                    // là lúc secure hụt và rơi xuống insecure (phiên 235 bắt tay 2 lần cách 4 s). Log tftSock để đối chứng.
-                    var sockKind = "insecure"
                     val sock = try {
-                        insecureSock = device.createInsecureRfcommSocketToServiceRecord(SERVICE_UUID)
-                        insecureSock.connect()
-                        insecureSock
-                    } catch (_: IOException) {
-                        try {
-                            insecureSock?.close()
-                        } catch (_: Exception) {
-                        }
-                        sockKind = "secure"
                         secureSock = device.createRfcommSocketToServiceRecord(SERVICE_UUID)
                         secureSock.connect()
                         secureSock
+                    } catch (_: IOException) {
+                        try {
+                            secureSock?.close()
+                        } catch (_: Exception) {
+                        }
+                        insecureSock = device.createInsecureRfcommSocketToServiceRecord(SERVICE_UUID)
+                        insecureSock.connect()
+                        insecureSock
                     }
-                    try { TripLog.ev("tftSock", "kind" to sockKind, "fails" to failCount) } catch (_: Exception) {}
+                    try { TripLog.ev("tftSock", "kind" to (if (sock === insecureSock) "insecure" else "secure"), "fails" to failCount) } catch (_: Exception) {}
                     onConnected(sock, sock.inputStream, sock.outputStream)
                 } catch (e: SecurityException) {
                     try { secureSock?.close() } catch (_: Exception) {}
