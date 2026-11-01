@@ -289,6 +289,52 @@ object TftLink {
         }
     }
 
+    // build-287 — NÉ CỬA SỔ XẤU. Log 31/10–1/11 cho thấy khung gửi vào một cửa sổ hẹp (~0,75 s) trong chu kỳ 5 s của màn xe bị
+    // đứng 3–6 s với xác suất 34–48%, ngoài cửa sổ chỉ ~1% (pha đổi theo từng lần nối, trôi chậm). App tự học xác suất "xấu"
+    // theo 40 ô × 0,125 s của chu kỳ 5 s (giảm dần theo thời gian), rồi trước khi gửi chờ qua ô xấu. Cứ 8 khung thả cho 1 khung
+    // đi thử để cập nhật khi pha trôi. Bật 3 phút / tắt 1 phút luân phiên để đo hiệu quả (tftStat "avoid").
+    private const val AV_BINS = 40
+    private const val AV_PERIOD_MS = 5000L
+    private val avTot = DoubleArray(AV_BINS)
+    private val avBad = DoubleArray(AV_BINS)
+    private var avProbe = 0
+    @Volatile private var buildEwmaMs = 250.0
+    @Volatile private var avWaitedTotalMs = 0L
+    @Volatile private var avWaits = 0
+
+    private fun avBin(tMs: Long): Int = (((tMs % AV_PERIOD_MS) + AV_PERIOD_MS) % AV_PERIOD_MS * AV_BINS / AV_PERIOD_MS).toInt()
+
+    private fun avoidEnabled(): Boolean = statWindows % 4 != 3
+
+    private fun avBlocked(tMs: Long): Boolean {
+        val i = avBin(tMs)
+        var blocked = false
+        for (d in -1..1) {
+            val j = (i + d + AV_BINS) % AV_BINS
+            if (avTot[j] >= 4.0 && (avBad[j] + 0.2) / (avTot[j] + 4.0) >= 0.12 && avBad[j] >= 1.5) { blocked = true; break }
+        }
+        return blocked
+    }
+
+    /** Cần chờ bao lâu (ms) để lần gửi dự kiến lúc now+lead rơi ra ngoài ô xấu. 0 = gửi ngay. */
+    private fun avoidWaitMs(now: Long, lead: Long): Long {
+        if (!avoidEnabled()) return 0L
+        if (!avBlocked(now + lead)) return 0L
+        if (++avProbe % 8 == 0) return 0L // khung thử
+        var w = 50L
+        while (w <= 1500L) { if (!avBlocked(now + lead + w)) return w; w += 50L }
+        return 0L
+    }
+
+    private fun avRecord(sentAtMs: Long, bad: Boolean) {
+        val i = avBin(sentAtMs)
+        for (j in 0 until AV_BINS) { avTot[j] *= 0.998; avBad[j] *= 0.998 }
+        avTot[i] += 1.0
+        if (bad) avBad[i] += 1.0
+    }
+
+    private fun avReset() { for (j in 0 until AV_BINS) { avTot[j] = 0.0; avBad[j] = 0.0 }; avProbe = 0 }
+
     /** Môi trường điện thoại mỗi phút để dò nguyên nhân TFT đứng hình: mạng, tiết kiệm pin, nhiệt pin, số thiết bị BT đã ghép/đang nối. */
     private fun envInfo(): String = try {
         val c = appCtx ?: return "?"
@@ -354,7 +400,7 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "icc" to (if (iccStripNow()) "off" else "on"), "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
@@ -482,6 +528,7 @@ object TftLink {
         }
         statBytes += jpeg.size
         recordFrameStat(waited, timedOut)
+        if (tag == null) avRecord(sentAt, timedOut || waited > 1500L)
         // Ghi vào nhật ký chuyến đi (dung lượng khung thật gửi đi + thời gian ACK) — để sau này xem
         // lại có thể đối chiếu xem ACK bắt đầu chậm hẳn từ cỡ khung bao nhiêu byte, tìm ra một mức
         // dung lượng "an toàn" thay vì đoán mò bằng chất lượng JPEG.
@@ -1549,14 +1596,20 @@ object TftLink {
                         val wait = riskWaitMs(System.currentTimeMillis())
                         if (wait > 0) sleepQuiet(wait)
                     }
+                    run {
+                        val aw = avoidWaitMs(System.currentTimeMillis(), buildEwmaMs.toLong() + 20L)
+                        if (aw > 0) { avWaits++; avWaitedTotalMs += aw; sleepQuiet(aw) }
+                    }
                     try {
                         // Lỗi trong nhánh ảnh bản đồ (kể cả lỗi nặng kiểu NoClassDefFoundError/UnsatisfiedLinkError)
                         // không được làm sập app: tắt nhánh đó rồi vẽ lại bằng vector.
+                        val tb0 = System.currentTimeMillis()
                         val frame = try { buildSketchFrame() } catch (t: Throwable) {
                             if (mapSnapStyle == null) throw t
                             MapSnap.disable("build: " + t.javaClass.simpleName + " " + (t.message ?: ""))
                             buildSketchFrame()
                         }
+                        buildEwmaMs = buildEwmaMs * 0.9 + (System.currentTimeMillis() - tb0) * 0.1
                         sendFrame(frame)
                     } catch (_: Throwable) {
                     }
@@ -2119,6 +2172,7 @@ object TftLink {
             stallWaitMs = STALL_WAIT_MS
             try { TripLog.ev("tftWait12Dis", "sinceLongWaitMs" to (System.currentTimeMillis() - lastLongWaitAt)) } catch (_: Exception) {}
         }
+        avReset()
         activeSocket = socket
         out = output
         connected = true
