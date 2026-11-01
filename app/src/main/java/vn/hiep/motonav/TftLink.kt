@@ -226,6 +226,11 @@ object TftLink {
     // thì vẫn chờ tiếp (không gửi khung mới) tới STALL_WAIT_MS, xe hồi là gửi ngay khung mới nhất.
     // 6s vẫn dưới ngưỡng im lặng 10–19s khiến xe báo "Lỗi kết nối".
     private const val STALL_WAIT_MS = 6000L
+    // build-285: thử chờ ACK tới 12 s (trước 6 s) để không gửi khung thứ 2 khi khung 1 chưa ACK (xe hiện vòng xoay khi ≥2 khung
+    // đang bay). Nếu xe ngắt kết nối ngay sau một lần chờ dài (>6,5 s) thì tự về 6 s trong phiên này (log tftWait12Dis).
+    private const val STALL_WAIT_LONG_MS = 12000L
+    @Volatile private var stallWaitMs = STALL_WAIT_LONG_MS
+    @Volatile private var lastLongWaitAt = 0L
 
     // Thống kê "đứng hình" — tftStat mỗi 60s: tỉ lệ thời gian xe không nhận khung mới (đây mới là
     // con số người lái thấy, khác với tỉ lệ khung quá 1s trước đây — 1 lần đứng từng bị đếm 4 khung).
@@ -349,7 +354,7 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "batt" to battPct(), "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
@@ -417,7 +422,7 @@ object TftLink {
             recentFrames.addLast(seq to jpeg)
             while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
         }
-        val deadline = sentAt + STALL_WAIT_MS
+        val deadline = sentAt + stallWaitMs
         var timedOut = false
         var interrupted = false
         var resentAt = 0L
@@ -434,7 +439,7 @@ object TftLink {
                 while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
                     val now = System.currentTimeMillis()
                     if (now >= deadline) {
-                        lastFrameError = "Khung #$seq chưa ACK sau ${STALL_WAIT_MS}ms — bỏ chờ, gửi khung mới"
+                        lastFrameError = "Khung #$seq chưa ACK sau ${stallWaitMs}ms — bỏ chờ, gửi khung mới"
                         timedOut = true
                         break
                     }
@@ -467,8 +472,9 @@ object TftLink {
         // (giãn ra khi ACK chậm) để không dồn thêm khung, còn lại để xe tự xử lý ACK chậm như
         // NConnect gốc vẫn vậy (cùng giới hạn phần cứng, không phải lỗi protocol sửa được từ xa).
         val waited = System.currentTimeMillis() - sentAt
+        if (waited > 6_500L) lastLongWaitAt = System.currentTimeMillis()
         if (timedOut) {
-            lastFrameAckMs = STALL_WAIT_MS
+            lastFrameAckMs = stallWaitMs
         } else {
             lastFrameAckMs = waited
             lastFrameError = null
@@ -2085,6 +2091,10 @@ object TftLink {
             } catch (_: Exception) {
             }
             return
+        }
+        if (stallWaitMs != STALL_WAIT_MS && lastLongWaitAt != 0L && System.currentTimeMillis() - lastLongWaitAt < 30_000L) {
+            stallWaitMs = STALL_WAIT_MS
+            try { TripLog.ev("tftWait12Dis", "sinceLongWaitMs" to (System.currentTimeMillis() - lastLongWaitAt)) } catch (_: Exception) {}
         }
         activeSocket = socket
         out = output
