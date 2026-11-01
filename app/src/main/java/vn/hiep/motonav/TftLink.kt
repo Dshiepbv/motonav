@@ -402,7 +402,7 @@ object TftLink {
         bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
     } catch (_: Throwable) { -1 }
 
-    private const val AUTO_RESET = false // build-301: tắt để giữ đúng điều kiện build 298 (Sếp thấy ổn)
+    private const val AUTO_RESET = true // build-302: Sếp cho test làm mới kết nối (nhịp 15 ms + không mã hoá)
     @Volatile private var badMinutes = 0
     @Volatile private var lastResetAt = 0L
     @Volatile private var sessionStartAt = 0L

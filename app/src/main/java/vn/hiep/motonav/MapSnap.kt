@@ -155,7 +155,7 @@ object MapSnap {
                         val allLayers = j.getJSONArray("layers")
                         // Bỏ toàn bộ lớp chữ/biểu tượng của nền: tên đường do app tự vẽ lên khung đặc (dễ đọc hơn trên TFT).
                         val kept = org.json.JSONArray()
-                        for (li in 0 until allLayers.length()) { val ly = allLayers.getJSONObject(li); if (ly.optString("type") != "symbol") kept.put(ly) }
+                        for (li in 0 until allLayers.length()) { val ly = allLayers.getJSONObject(li); if (ly.optString("type") != "symbol" && !ly.optString("id").lowercase().contains("building")) kept.put(ly) } // build-302: bỏ lớp toà nhà (Sếp: không cần)
                         j.put("layers", kept)
                         val layers = j.getJSONArray("layers")
                         var changed = 0
