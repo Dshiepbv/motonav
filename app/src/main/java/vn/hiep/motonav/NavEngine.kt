@@ -418,7 +418,7 @@ class NavEngine(
         val offTurn = max(12.0, acc * 0.9)
         // build-276: làn song hành/làn bên cạnh — hướng xe trùng hướng tuyến (<20°), lệch ngang < 55 m thì
         // không coi là lệch tuyến (log 31/10: 8 lần reroute vô ích trên QL1K, hdg 132° = hướng đường).
-        val parallelLane = heading != null && speedMps > 1.5 && Geo.angleDiff(heading, segBrg) < 20 && bestD < 55
+        val parallelLane = heading != null && speedMps > 1.5 && Geo.angleDiff(heading, segBrg) < 20 && bestD < 90
         val off0 = !parallelLane && ((bestD > offTurn && turnedAway) || bestD > offTol)
         // build-279: xe đang đi theo vòng quay đầu mà tuyến có sẵn chỗ quay đầu quanh đó (hình học Goong không vẽ hết
         // vòng) → không coi là lệch, không reroute (log 31/10: nút giao 10,952N/106,807E, 5–6 reroute mỗi lần qua).
@@ -506,7 +506,9 @@ class NavEngine(
         // lệch tuyến (off) — trước đây cứ vào bán kính 150m quanh đích là tự coi là urgent dù đang
         // đi ĐÚNG tuyến (d chỉ 1-5m), gây định tuyến lại vô ích liên tục ngay trước khi tới nơi.
         rerouteTimes.removeAll { now - it > 120_000 }
-        val urgent = bestD > max(45.0, acc * 2.2) || (nearDest && off)
+        // build-283: làn song hành (cùng hướng, lệch < 90 m — hai chiều của đại lộ có dải phân cách) không tính là khẩn cấp
+        // (log 1/11: 7 reroute vô ích ở d 46–54 m, hướng 61° trùng hướng đường).
+        val urgent = (bestD > max(45.0, acc * 2.2) && !parallelLane) || (nearDest && off)
         // build-214: sau ≥3 lần tìm lại trong 2 phút, hoặc lần trước không ra tuyến "không quay đầu",
         // giãn theo QUÃNG ĐƯỜNG đã đi (≥150 m) thay vì chờ cứng 50 s — log 27/10: chờ 50 s giữ tuyến
         // quay đầu sai suốt ~350 m. Vẫn tối thiểu 6 s giữa 2 lần để không dồn lượt Goong.
