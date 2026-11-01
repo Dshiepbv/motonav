@@ -2455,6 +2455,8 @@ object TftLink {
     private fun send(bytes: ByteArray): Boolean {
         val o = out ?: return false
         writeStartedAt = System.currentTimeMillis()
+        // build-296: log mọi gói KHÔNG phải khung ảnh (chữ rẽ/ETA/tên đường/bắt tay) để xem gói nào đi ngay trước lúc màn đứng.
+        if (authed) try { TripLog.ev("tftTx", "len" to bytes.size, "hd" to bytes.copyOfRange(0, minOf(12, bytes.size)).joinToString("") { String.format("%02x", it.toInt() and 0xFF) }) } catch (_: Exception) {}
         return try {
             o.write(bytes)
             o.flush()
