@@ -2420,7 +2420,7 @@ object TftLink {
      * quá nhanh làm bộ đệm màn xe tràn → màn kẹt 3–6 s. Ghi khung theo từng khối 1 KB, giữ nhịp ~PACE_MS_PER_KB. */
     // build-295: 13 ms/KB (build 294) chưa đủ (đứng ~31%) → quét 10/15/20/25/30 ms/KB, đổi mỗi 2 phút trong cùng chuyến
     // (iPhone theo tài liệu maxdash ~21 ms/KB). tftStat ghi "pace" của phút đó để so.
-    private val PACE_STEPS = longArrayOf(10L, 15L, 20L, 25L, 30L)
+    private val PACE_STEPS = longArrayOf(15L) // build-298: quét 10–30 không khác biệt (27–33%), chốt 15
     private val PACE_MS_PER_KB: Long get() = PACE_STEPS[((System.currentTimeMillis() / 120_000L) % PACE_STEPS.size).toInt()]
     private const val PACE_CHUNK = 1024
 
