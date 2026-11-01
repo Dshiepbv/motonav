@@ -237,6 +237,8 @@ object TftLink {
     private var statFrom = 0L
     private var statFrames = 0
     private var statBytes = 0L
+    @Volatile private var statTextTx = 0
+    @Volatile private var lastSentEta = -1
     private var statSlow = 0
     private var statLost = 0
     private var statStallMs = 0L
@@ -430,13 +432,13 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
                     "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]))
             } catch (_: Exception) {}
-            statFrom = now; statBytes = 0L; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
+            statFrom = now; statBytes = 0L; statTextTx = 0; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
             statResend = 0; statResendHit = 0
             statWindows++
             // Thử nghiệm 221–224 xong (log 27/10, 27 phút): A tốt nhất (gap ≈15%) — B ≈21–25%, C ≈25–30%.
@@ -2451,14 +2453,23 @@ object TftLink {
         }
         val icon = IconMap.from(sign, roundabout)
         // Làm tròn khoảng cách theo bậc 5 m để không gửi lại chỉ vì GPS nhích vài centimet.
-        val key = "$icon|${distanceM / 10}|$road|$etaMinutes"
-        if (key == lastSentKey) return
+        // build-289: bớt gói chữ — xa chỗ rẽ (>300 m) chỉ cập nhật mỗi 50 m, gần chỗ rẽ mỗi 10 m; ETA chỉ gửi khi đổi phút
+        // (trước: mỗi lần khoảng cách nhích 10 m là gửi cả gói rẽ lẫn gói ETA, ~1–2 gói/giây suốt lúc dẫn đường).
+        val distBucket = if (distanceM > 300) 30 + distanceM / 50 else distanceM / 10
+        val key = "$icon|$distBucket|$road"
+        val etaChanged = etaMinutes != lastSentEta
+        if (key == lastSentKey && !etaChanged) return
         if (lastSentKey == "off" || lastSentKey.isEmpty()) send(navActivePacket(true))
-        if (send(turnPacket(icon, distanceM.toFloat(), road))) {
-            txCount++
-            lastTxAt = System.currentTimeMillis()
+        if (key != lastSentKey) {
+            if (send(turnPacket(icon, distanceM.toFloat(), road))) {
+                txCount++
+                lastTxAt = System.currentTimeMillis()
+                statTextTx++
+            }
         }
-        send(etaPacket(etaMinutes))
+        if (etaChanged || key != lastSentKey && lastSentKey.let { it == "off" || it.isEmpty() }) {
+            send(etaPacket(etaMinutes)); lastSentEta = etaMinutes; statTextTx++
+        }
         lastSentKey = key
     }
 }
