@@ -117,10 +117,23 @@ object AppActions {
             Toast.makeText(a, "Chưa có nhật ký nào", Toast.LENGTH_SHORT).show()
             return
         }
-        val uris = ArrayList(files.map { TripLogProvider.uri(a, it) })
-        val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+        // build-292: gộp 3 nhật ký thành MỘT file .gz (nối các khối gzip, cũ trước mới sau — gzip hợp lệ),
+        // để gửi 1 file thay vì 3. Lỗi thì gửi riêng như cũ.
+        val one = try {
+            val dir = files[0].parentFile!!
+            dir.listFiles { x -> x.name.startsWith("log-") }?.forEach { it.delete() }
+            val out = java.io.File(dir, "log-" + files[0].name.removeSuffix(".jsonl.gz") + ".gz")
+            out.outputStream().use { os -> for (x in files.reversed()) x.inputStream().use { it.copyTo(os) } }
+            out
+        } catch (_: Exception) { null }
+        val send = if (one != null) Intent(Intent.ACTION_SEND).apply {
             type = "application/gzip"
-            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            putExtra(Intent.EXTRA_STREAM, TripLogProvider.uri(a, one))
+            putExtra(Intent.EXTRA_SUBJECT, "Nhật ký MotoNav")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } else Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "application/gzip"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(files.map { TripLogProvider.uri(a, it) }))
             putExtra(Intent.EXTRA_SUBJECT, "Nhật ký MotoNav")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }

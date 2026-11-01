@@ -105,7 +105,7 @@ object TripLog {
     }
 
     private fun cleanup(ctx: Context) {
-        val list = dir(ctx).listFiles()?.sortedByDescending { it.name } ?: return
+        val list = dir(ctx).listFiles { f -> f.name.endsWith(".jsonl.gz") }?.sortedByDescending { it.name } ?: return
         val old = System.currentTimeMillis() - 7 * 24 * 3600_000L
         list.forEachIndexed { i, f -> if (i >= 10 || f.lastModified() < old) f.delete() }
     }
