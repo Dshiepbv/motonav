@@ -495,6 +495,7 @@ object TftLink {
      * riêng (tách khỏi kênh chữ) đọc ra vẽ + gửi theo nhịp chậm hơn, không chặn tftWatch. */
     @Volatile private var skActive = false
     @Volatile private var skRoute: Route? = null
+    private const val PRED_S = 2.0
     @Volatile private var skLat = 0.0
     @Volatile private var skLon = 0.0
     @Volatile private var skHeadingDeg = -1.0
@@ -565,8 +566,18 @@ object TftLink {
     ) {
         skActive = active
         skRoute = route
-        skLat = lat
-        skLon = lon
+        // build-284: dự đoán vị trí — màn xe đứng 3–6 s mỗi 5–10 s (lỗi phía TFT), khung hiện lúc đó nên nằm ở GIỮA đợt
+        // đứng (xe tiến ~2 s) để lúc màn chạy lại xe nhảy ít hơn. Chỉ khi đang chạy >8 km/h, không dự đoán sát chỗ rẽ
+        // (<40 m) để khỏi cắt góc. Không đổi xoay/3D/hướng.
+        var pLat = lat; var pLon = lon
+        if (speedKmh > 8 && headingDeg >= 0 && !(distanceM in 0..40)) {
+            val lead = Math.min(speedKmh / 3.6 * PRED_S, 35.0)
+            val hr = Math.toRadians(headingDeg)
+            pLat = lat + Math.cos(hr) * lead / 110540.0
+            pLon = lon + Math.sin(hr) * lead / (111320.0 * Math.cos(Math.toRadians(lat)))
+        }
+        skLat = pLat
+        skLon = pLon
         skHeadingDeg = headingDeg
         skManLat = maneuverLat
         skManLon = maneuverLon
