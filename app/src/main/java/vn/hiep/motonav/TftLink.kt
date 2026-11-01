@@ -470,6 +470,7 @@ object TftLink {
      * tiếp, quá 6 giây thì bỏ qua khung này (coi như gửi xong, không chặn khung sau).
      * CHỈ gọi khi [authed] — chưa bắt tay xong thì xe sẽ không hiểu/ACK.
      */
+    @Volatile private var lastWriteMs = 0
     fun sendFrame(jpeg: ByteArray, tag: String? = null): Boolean {
         if (!authed) return false
         val seq = (frameSeq + 1) and 0xFFFF
@@ -485,7 +486,10 @@ object TftLink {
         waitingSeq = seq
         waitingSentAt = sentAt
         val packet = pack(payload, 0, 1)
-        if (!send(packet)) {
+        val wr0 = System.nanoTime()
+        val okSend = send(packet)
+        lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt() // build-293: thời gian ghi ra socket BT
+        if (!okSend) {
             lastFrameError = "Gửi khung lỗi (mất kết nối)"
             return false
         }
@@ -568,7 +572,7 @@ object TftLink {
         try {
             // timedOut giữ nghĩa cũ (quá ACK_WAIT_MS) để so được với log các bản trước; lost = quá
             // STALL_WAIT_MS vẫn không có ACK.
-            TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "ackMs" to (if (timedOut) null else lastFrameAckMs),
+            TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "ackMs" to (if (timedOut) null else lastFrameAckMs),
                 "timedOut" to (timedOut || waited > ACK_WAIT_MS), "lost" to (if (timedOut) true else null), "tag" to tag)
         } catch (_: Exception) {
         }
