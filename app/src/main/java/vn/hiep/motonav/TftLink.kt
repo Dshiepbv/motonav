@@ -229,7 +229,7 @@ object TftLink {
     // build-285: thử chờ ACK tới 12 s (trước 6 s) để không gửi khung thứ 2 khi khung 1 chưa ACK (xe hiện vòng xoay khi ≥2 khung
     // đang bay). Nếu xe ngắt kết nối ngay sau một lần chờ dài (>6,5 s) thì tự về 6 s trong phiên này (log tftWait12Dis).
     private const val STALL_WAIT_LONG_MS = 12000L
-    @Volatile private var stallWaitMs = STALL_WAIT_LONG_MS
+    @Volatile private var stallWaitMs = STALL_WAIT_MS // 31/10: Sếp loại bỏ thử 12 s (xe tự báo 'Lỗi kết nối' khi im lặng 10–19 s, log 24/10) — giữ 6 s
     @Volatile private var lastLongWaitAt = 0L
 
     // Thống kê "đứng hình" — tftStat mỗi 60s: tỉ lệ thời gian xe không nhận khung mới (đây mới là
@@ -354,7 +354,7 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "icc" to (if (iccStripNow()) "off" else "on"), "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
@@ -1494,7 +1494,30 @@ object TftLink {
             }
         }
         bmp.recycle()
-        return out.toByteArray()
+        val raw = out.toByteArray()
+        return if (iccStripNow()) stripIcc(raw) else raw
+    }
+
+    /** build-285: thử A/B bỏ đoạn hồ sơ màu ICC (APP2, 472 byte) trong JPEG — luân phiên mỗi 2 phút, log tftStat "icc". */
+    private fun iccStripNow(): Boolean = (statWindows / 2) % 2 == 1
+
+    private fun stripIcc(b: ByteArray): ByteArray {
+        try {
+            if (b.size < 4 || b[0] != 0xFF.toByte() || b[1] != 0xD8.toByte()) return b
+            val out = ByteArrayOutputStream(b.size)
+            out.write(b, 0, 2)
+            var i = 2
+            while (i + 4 <= b.size && b[i] == 0xFF.toByte()) {
+                val m = b[i + 1].toInt() and 0xFF
+                if (m == 0xDA) break
+                val len = ((b[i + 2].toInt() and 0xFF) shl 8) or (b[i + 3].toInt() and 0xFF)
+                val isIcc = m == 0xE2 && len >= 14 && String(b, i + 4, 11, Charsets.ISO_8859_1) == "ICC_PROFILE"
+                if (!isIcc) out.write(b, i, 2 + len)
+                i += 2 + len
+            }
+            out.write(b, i, b.size - i)
+            return out.toByteArray()
+        } catch (_: Throwable) { return b }
     }
 
     /** Luồng nền riêng gửi khung sketch — tách khỏi [update] (kênh chữ, gọi mỗi giây từ ngoài) để
