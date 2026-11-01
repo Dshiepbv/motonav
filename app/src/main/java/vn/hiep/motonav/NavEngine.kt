@@ -19,6 +19,8 @@ class NavEngine(
     private val alert: (text: String, speech: String, urgent: Boolean) -> Unit,
 ) {
     private var seg = 0
+    private val providerOf = java.util.WeakHashMap<Route, String>()
+    @Volatile private var winnerProvider = "goong"
     private var offCount = 0
     private var loopRoute: Route? = null
     private var loopUAt = -1.0
@@ -194,11 +196,36 @@ class NavEngine(
                 val origin = if (on != null) RoutePick.walk(on, 40.0) else (lat to lon)
                 val startLat = on?.lat ?: lat
                 val startLon = on?.lon ?: lon
+                // build-305: chạy Goong + VietMap song song (khi có cả hai mã). Tìm tuyến lúc bắt đầu: gọi CẢ HAI, mọi tuyến
+                // qua cùng bộ lọc/xếp hạng, log routeDual. Tìm lại (reroute)/điểm đi qua: chỉ gọi bên đã thắng lúc bắt đầu,
+                // bên kia chỉ gọi khi bên thắng lỗi.
+                val dual = goongKey.isNotBlank() && vmKey.isNotBlank()
+                fun callProv(p: String, alt: Boolean, via: List<Pair<Double, Double>>): List<Route> =
+                    if (p == "goong") { countGoongCall(); GoongMap.routes(goongKey, origin.first, origin.second, dLat, dLon, prefs.goongVehicle, alt, via) }
+                    else { countVmCall(); VietMap.routes(vmKey, origin.first, origin.second, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway) }
                 fun fromOrigin(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> {
-                    countGoongCall()
-                    val raw = if (goongKey.isNotBlank()) GoongMap.routes(goongKey, origin.first, origin.second, dLat, dLon, prefs.goongVehicle, alt, via)
-                    else VietMap.routes(vmKey, origin.first, origin.second, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway)
-                    return if (on != null) raw.map { RoutePick.prepend(it, startLat, startLon) } else raw
+                    val both = dual && !reroute && via.isEmpty()
+                    val provs = when {
+                        !dual -> listOf(if (goongKey.isNotBlank()) "goong" else "vm")
+                        both -> listOf("goong", "vm")
+                        else -> listOf(winnerProvider, if (winnerProvider == "goong") "vm" else "goong")
+                    }
+                    val out = ArrayList<Route>()
+                    var err: Exception? = null
+                    for (p in provs) {
+                        if (!both && out.isNotEmpty()) break
+                        try {
+                            val raw = callProv(p, alt, via)
+                            val m = if (on != null) raw.map { RoutePick.prepend(it, startLat, startLon) } else raw
+                            for (x in m) synchronized(providerOf) { providerOf[x] = p }
+                            out.addAll(m)
+                        } catch (e: Exception) {
+                            err = e
+                            if (dual) TripLog.ev("routeProvErr", "p" to p, "err" to (e.message ?: e.javaClass.simpleName))
+                        }
+                    }
+                    if (out.isEmpty()) throw err ?: RuntimeException("Không tìm được đường")
+                    return out
                 }
                 // Luôn lấy vài tuyến để tự chọn tuyến tốt nhất (tránh kẹt xe / ngắn nhất)
                 var list = fromOrigin(true)
@@ -206,7 +233,8 @@ class NavEngine(
                 // đi ngang điểm đó nếu còn tuyến khác không dính
                 val clean = list.filter { !BlockedRoads.blocksPath(ctx, it.lats, it.lons) }
                 if (clean.isNotEmpty() && clean.size < list.size) list = clean
-                list = RoutePick.rank(list, heading, forwardFirst = heading != null)
+                val mixed = synchronized(providerOf) { list.mapNotNull { providerOf[it] }.toSet().size > 1 }
+                list = RoutePick.rank(list, heading, forwardFirst = heading != null, mixed = mixed)
                 // Loại tuyến chạy vào làn/đường cấm xe máy (thẻ OSM) ngay từ lần tìm đầu, nếu còn tuyến khác.
                 run {
                     val cm = list.map { RoutePick.carOnlyM(it, 3000.0) }
@@ -265,8 +293,9 @@ class NavEngine(
                                 // Đặt điểm đầu đủ xa phía trước thì không còn bị gắn nhầm; nối xe → điểm đó bằng
                                 // đoạn đi tiếp trên đường đang chạy.
                                 val shifted = try {
-                                    countGoongCall()
-                                    val raw = if (goongKey.isNotBlank()) GoongMap.routes(goongKey, ap.first, ap.second, dLat, dLon, prefs.goongVehicle, false)
+                                    val useG = goongKey.isNotBlank() && (!dual || winnerProvider == "goong")
+                                    if (useG) countGoongCall() else countVmCall()
+                                    val raw = if (useG) GoongMap.routes(goongKey, ap.first, ap.second, dLat, dLon, prefs.goongVehicle, false)
                                     else VietMap.routes(vmKey, ap.first, ap.second, heading, dLat, dLon, prefs.traffic, false, emptyList(), prefs.avoidHighway)
                                     raw.firstOrNull()?.let { if (on != null) RoutePick.prependPath(it, RoutePick.walkPoints(on, 40.0 + dAhead)) else RoutePick.prepend(RoutePick.prepend(it, ap.first, ap.second), startLat, startLon) }
                                 } catch (_: Exception) { null }
@@ -311,6 +340,16 @@ class NavEngine(
                 noUturnFails = 0
                 if (!offerChoice && list.size > 1) list = list.take(1)
                 val r = list.first()
+                if (dual && !reroute) {
+                    val pw = synchronized(providerOf) { providerOf[r] } ?: winnerProvider
+                    winnerProvider = pw
+                    try {
+                        TripLog.ev("routeDual", "win" to pw, "cands" to list.joinToString(" | ") { c ->
+                            val p = synchronized(providerOf) { providerOf[c] } ?: "?"
+                            "$p ${c.total.toInt()}m ${c.timeMs / 60000}ph car${RoutePick.carOnlyM(c, 3000.0).toInt()} u${RoutePick.uturnAt(c, 3000.0).toInt()} det${RoutePick.detourM(c).toInt()} t${c.steps.count { it.sign != 0 }}"
+                        })
+                    } catch (_: Exception) {}
+                }
                 if (Live.ownNav) {
                     if (offerChoice && list.size > 1) {
                         Live.routeChoices = list
@@ -343,6 +382,13 @@ class NavEngine(
     /** Đếm lượt gọi Goong theo ngày (hạn mức 1000/ngày, 30.000/tháng) để giới hạn thử lại. */
     private fun dayKey() = "goongCalls_" + java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
     private fun goongCallsToday(): Int = ctx.applicationContext.getSharedPreferences("motonav", android.content.Context.MODE_PRIVATE).getInt(dayKey(), 0)
+    private fun countVmCall() {
+        try {
+            val sp = ctx.applicationContext.getSharedPreferences("motonav", android.content.Context.MODE_PRIVATE)
+            val k = "vm_" + dayKey()
+            sp.edit().putInt(k, sp.getInt(k, 0) + 1).apply()
+        } catch (_: Exception) {}
+    }
     private fun countGoongCall() {
         val sp = ctx.applicationContext.getSharedPreferences("motonav", android.content.Context.MODE_PRIVATE)
         val n = sp.getInt(dayKey(), 0) + 1

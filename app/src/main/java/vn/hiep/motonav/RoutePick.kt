@@ -64,12 +64,30 @@ object RoutePick {
     }
 
     /** Sắp xếp: tuyến đi tiếp về phía trước trước, rồi theo thời gian (có kẹt xe) hoặc quãng đường. */
-    fun rank(list: List<Route>, heading: Double?, forwardFirst: Boolean): List<Route> {
+    /** build-305: quãng "vòng vô lý gần đích" (m): có điểm cách đích d < 1,5 km (chim bay) mà quãng tuyến còn lại > 3d + 800 m
+     * (vd. Goong từ Xa lộ HN không đi thẳng D1 mà vòng Lê Văn Việt → D2B → Ngã Tư Công Nghệ). 0 = không vòng. */
+    fun detourM(r: Route): Double {
+        val n = r.lats.size
+        if (n < 2) return 0.0
+        val eLat = r.lats[n - 1]; val eLon = r.lons[n - 1]
+        var worst = 0.0
+        for (i in 0 until n) {
+            val d = Geo.distance(r.lats[i], r.lons[i], eLat, eLon)
+            if (d >= 1500.0) continue
+            val rem = r.total - r.cum[i]
+            val extra = rem - (3 * d + 800.0)
+            if (extra > worst) worst = extra
+        }
+        return worst
+    }
+
+    fun rank(list: List<Route>, heading: Double?, forwardFirst: Boolean, mixed: Boolean = false): List<Route> {
         if (list.size <= 1) return list
-        val traffic = list.any { hasTraffic(it) }
+        // Trộn Goong + VietMap: thời gian dự kiến hai bên không cùng thang (Goong "bike" chậm gấp ~2) → so bằng quãng đường.
+        val traffic = !mixed && list.any { hasTraffic(it) }
         // Theo yêu cầu "ưu tiên đường thẳng, đường lớn, hạn chế zigzag": cộng thêm phạt nhẹ theo
         // mật độ rẽ vào chi phí trước khi so sánh, bên cạnh thời gian/quãng đường như cũ.
-        fun cost(r: Route): Double = (if (traffic) trafficTime(r) else r.total) * (1.0 + zigzagPenalty(r) + (if (carOnlyM(r, 3000.0) >= 40.0) 1.0 else 0.0))
+        fun cost(r: Route): Double = (if (traffic) trafficTime(r) else r.total) * (1.0 + zigzagPenalty(r) + (if (carOnlyM(r, 3000.0) >= 40.0) 1.0 else 0.0) + (if (detourM(r) > 0) 0.3 else 0.0))
         // Ưu tiên số 1: tuyến không có đoạn nào cấm xe máy (luật); sau đó mới so thời gian/quãng đường.
         val sorted = list.sortedWith(compareBy<Route>({ if (carOnlyM(it, 3000.0) >= 40.0) 1 else 0 }, { cost(it) })).toMutableList()
         // Thời gian gần bằng nhau (chênh < 5%) → chọn tuyến ngắn hơn
