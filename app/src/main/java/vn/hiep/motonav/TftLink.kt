@@ -304,7 +304,7 @@ object TftLink {
 
     private fun avBin(tMs: Long): Int = (((tMs % AV_PERIOD_MS) + AV_PERIOD_MS) % AV_PERIOD_MS * AV_BINS / AV_PERIOD_MS).toInt()
 
-    private fun avoidEnabled(): Boolean = statWindows % 4 != 3
+    private fun avoidEnabled(): Boolean = false // 1/11: thử nghiệm né cửa sổ xấu không giảm đứng hình (on 33,9% vs off 36,0%) — tắt
 
     private fun avBlocked(tMs: Long): Boolean {
         val i = avBin(tMs)
@@ -335,6 +335,35 @@ object TftLink {
 
     private fun avReset() { for (j in 0 until AV_BINS) { avTot[j] = 0.0; avBad[j] = 0.0 }; avProbe = 0 }
 
+    private var btReceiver: android.content.BroadcastReceiver? = null
+
+    /** Ghi sự kiện Bluetooth (ACL nối/ngắt kèm lý do, bật/tắt adapter) vào nhật ký để tìm nguyên nhân mất kết nối. */
+    private fun registerBtLog(c: Context) {
+        if (btReceiver != null) return
+        try {
+            val r = object : android.content.BroadcastReceiver() {
+                override fun onReceive(ctx: Context, i: android.content.Intent) {
+                    try {
+                        val dev = i.getParcelableExtra<android.bluetooth.BluetoothDevice>(android.bluetooth.BluetoothDevice.EXTRA_DEVICE)
+                        val name = try { dev?.name } catch (_: SecurityException) { null }
+                        TripLog.ev("btEvent", "a" to (i.action ?: "").substringAfterLast('.'), "dev" to (name ?: dev?.address ?: ""),
+                            "reason" to i.getIntExtra("android.bluetooth.device.extra.REASON", -1),
+                            "state" to i.getIntExtra(android.bluetooth.BluetoothAdapter.EXTRA_STATE, -1))
+                    } catch (_: Throwable) {}
+                }
+            }
+            val f = android.content.IntentFilter().apply {
+                addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED)
+                addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED)
+                addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECT_REQUESTED)
+                addAction(android.bluetooth.BluetoothAdapter.ACTION_STATE_CHANGED)
+                addAction(android.bluetooth.BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 33) c.registerReceiver(r, f, Context.RECEIVER_EXPORTED) else c.registerReceiver(r, f)
+            btReceiver = r
+        } catch (_: Throwable) {}
+    }
+
     /** Môi trường điện thoại mỗi phút để dò nguyên nhân TFT đứng hình: mạng, tiết kiệm pin, nhiệt pin, số thiết bị BT đã ghép/đang nối. */
     private fun envInfo(): String = try {
         val c = appCtx ?: return "?"
@@ -354,6 +383,7 @@ object TftLink {
             val i = c.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
             sb.append(" T=").append((i?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1) / 10.0)
         } catch (_: Throwable) {}
+        try { sb.append(" therm=").append((c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).currentThermalStatus) } catch (_: Throwable) {}
         try {
             val a = (c.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
             sb.append(" bonded=").append(a.bondedDevices.size)
@@ -1546,7 +1576,7 @@ object TftLink {
     }
 
     /** build-285: thử A/B bỏ đoạn hồ sơ màu ICC (APP2, 472 byte) trong JPEG — luân phiên mỗi 2 phút, log tftStat "icc". */
-    private fun iccStripNow(): Boolean = (statWindows / 2) % 2 == 1
+    private fun iccStripNow(): Boolean = false // 1/11: bỏ ICC không khác biệt (35,3% vs 33,5%) — tắt
 
     private fun stripIcc(b: ByteArray): ByteArray {
         try {
@@ -2026,6 +2056,7 @@ object TftLink {
     fun start(ctx: Context, deviceAddr: String?) {
         if (!running.compareAndSet(false, true)) return
         appCtx = ctx.applicationContext
+        registerBtLog(ctx.applicationContext)
         if (logoBmp == null) {
             logoBmp = try { android.graphics.BitmapFactory.decodeResource(ctx.resources, R.drawable.tft_logo) } catch (_: Throwable) { null }
         }
