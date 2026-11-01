@@ -571,9 +571,24 @@ class NavEngine(
             nextIdx = r.steps.size - 1
         }
         if (next == null) return
-        val mIdx = min(next.from, n - 1)
-        val toTurn = max(0.0, r.cum[mIdx] - progress)
-        var phrase = Maneuver.phrase(next)
+        var mIdx = min(next.from, n - 1)
+        var toTurn = max(0.0, r.cum[mIdx] - progress)
+        // build-305: chỗ tách tầng cầu/dưới cầu phía trước, gần hơn chỗ rẽ kế → báo như một bước riêng.
+        var bridgeText: String? = null
+        if (next.sign != 4) try {
+            val bh = BridgeHint.ahead(r, progress, Math.min(500.0, toTurn - 30.0))
+            if (bh != null && bh.distM > 0) {
+                var bi = mIdx
+                for (q in bestI..mIdx) if (r.cum[q] >= progress + bh.distM) { bi = q; break }
+                val street = bh.name?.trim().orEmpty()
+                bridgeText = (if (bh.kind == BridgeHint.ON) "Lên cầu" else "Đi dưới cầu") + (if (street.isNotEmpty()) " $street" else "")
+                next = Step(0, bridgeText, street, bh.distM, bi, bi, 0)
+                mIdx = bi
+                toTurn = bh.distM
+                nextIdx -= 1 // "sau đó" vẫn là chỗ rẽ thật
+            }
+        } catch (_: Exception) {}
+        var phrase = bridgeText ?: Maneuver.phrase(next)
         if (next.sign == 4) {
             // "Đến nơi" báo từ xa (còn 200-300m, tuyến xanh vẫn đang dẫn) nghe như đã tới rồi —
             // gây hiểu lầm (phản hồi thực tế). Thay bằng kiểu Google Maps: định vị điểm đến THẬT
@@ -594,7 +609,7 @@ class NavEngine(
         }
         Live.maneuverLat = r.lats[mIdx]
         Live.maneuverLon = r.lons[mIdx]
-        Live.maneuverLabel = if (next.sign == 4) phrase else if (next.street.isNotBlank()) next.street else Maneuver.verb(next.sign)
+        Live.maneuverLabel = bridgeText ?: (if (next.sign == 4) phrase else if (next.street.isNotBlank()) next.street else Maneuver.verb(next.sign))
         Live.maneuverSign = next.sign
         Live.maneuverStreet = next.street.ifBlank { null }
 
