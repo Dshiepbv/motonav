@@ -584,6 +584,27 @@ object TftLink {
     private const val PRED_S = 2.0
     @Volatile private var skLat = 0.0
     @Volatile private var skLon = 0.0
+    @Volatile private var skTgtLat = 0.0
+    @Volatile private var skTgtLon = 0.0
+    @Volatile private var skTgtSpeedMps = 0.0
+    private var skStepAt = 0L
+
+    /** build-291: "bù khúc giữa" — sau một lần màn đứng, vị trí đích đã đi xa; thay vì nhảy thẳng tới đó,
+     * mỗi khung đi tới đích tối đa ~2.5x tốc độ xe (+3 m) nên các khung 0.4 s kế tiếp là các điểm trung gian,
+     * đuổi kịp sau vài khung. Cách >150 m (mất GPS/đổi chỗ) thì nhảy luôn. */
+    private fun stepSketchPos() {
+        val now = System.currentTimeMillis()
+        val dt = if (skStepAt == 0L) 0.0 else Math.min((now - skStepAt) / 1000.0, 10.0)
+        skStepAt = now
+        val tLat = skTgtLat; val tLon = skTgtLon
+        if (tLat == 0.0 && tLon == 0.0) return
+        val d = Geo.distance(skLat, skLon, tLat, tLon)
+        val cap = skTgtSpeedMps * 2.5 * Math.max(dt, 0.4) + 3.0
+        if (d <= cap || d > 150.0) { skLat = tLat; skLon = tLon; return }
+        val f = cap / d
+        skLat += (tLat - skLat) * f
+        skLon += (tLon - skLon) * f
+    }
     @Volatile private var skHeadingDeg = -1.0
     // Hướng hợp lệ gần nhất (khi xe đứng yên/chạy chậm, Live.heading = -1 vì GPS course không đáng
     // tin ở tốc độ thấp — DriveService.onLocation dòng ~401). Trước đây lúc đó khung lấy mặc định
@@ -656,14 +677,20 @@ object TftLink {
         // đứng (xe tiến ~2 s) để lúc màn chạy lại xe nhảy ít hơn. Chỉ khi đang chạy >8 km/h, không dự đoán sát chỗ rẽ
         // (<40 m) để khỏi cắt góc. Không đổi xoay/3D/hướng.
         var pLat = lat; var pLon = lon
-        if (speedKmh > 8 && headingDeg >= 0 && !(distanceM in 0..40)) {
-            val lead = Math.min(speedKmh / 3.6 * PRED_S, 35.0)
+        if (speedKmh > 6 && headingDeg >= 0) {
+            // build-291: lead tăng/giảm DẦN theo tốc độ và khoảng cách tới chỗ rẽ (trước đây bật/tắt đột ngột
+            // ở 8 km/h và 40 m => khung nhảy tới 35 m không cần thiết).
+            var k = Math.min(1.0, (speedKmh - 6) / 6.0)
+            if (distanceM in 0..80) k = Math.min(k, Math.max(0.0, (distanceM - 25) / 40.0))
+            val lead = Math.min(speedKmh / 3.6 * PRED_S, 35.0) * k
             val hr = Math.toRadians(headingDeg)
             pLat = lat + Math.cos(hr) * lead / 110540.0
             pLon = lon + Math.sin(hr) * lead / (111320.0 * Math.cos(Math.toRadians(lat)))
         }
-        skLat = pLat
-        skLon = pLon
+        skTgtLat = pLat
+        skTgtLon = pLon
+        skTgtSpeedMps = Math.max(speedKmh, 0) / 3.6
+        if (skLat == 0.0 && skLon == 0.0) { skLat = pLat; skLon = pLon }
         skHeadingDeg = headingDeg
         skManLat = maneuverLat
         skManLon = maneuverLon
@@ -693,6 +720,7 @@ object TftLink {
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
         val c = Canvas(bmp)
         c.drawColor(Color.BLACK)
+        stepSketchPos()
         val route = skRoute
         val anchorX = w / 2f
         var carX = anchorX // tam giác xe (chỉ vẽ) — xem build-231 ở khối nét đỏ
