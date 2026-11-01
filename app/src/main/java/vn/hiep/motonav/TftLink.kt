@@ -471,6 +471,7 @@ object TftLink {
      * CHỈ gọi khi [authed] — chưa bắt tay xong thì xe sẽ không hiểu/ACK.
      */
     @Volatile private var lastWriteMs = 0
+    @Volatile private var lastPace = 0L
     fun sendFrame(jpeg: ByteArray, tag: String? = null): Boolean {
         if (!authed) return false
         val seq = (frameSeq + 1) and 0xFFFF
@@ -572,7 +573,7 @@ object TftLink {
         try {
             // timedOut giữ nghĩa cũ (quá ACK_WAIT_MS) để so được với log các bản trước; lost = quá
             // STALL_WAIT_MS vẫn không có ACK.
-            TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "ackMs" to (if (timedOut) null else lastFrameAckMs),
+            TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace, "ackMs" to (if (timedOut) null else lastFrameAckMs),
                 "timedOut" to (timedOut || waited > ACK_WAIT_MS), "lost" to (if (timedOut) true else null), "tag" to tag)
         } catch (_: Exception) {
         }
@@ -2412,7 +2413,10 @@ object TftLink {
     /** build-294: so toàn bộ log 27/10–1/11: 2 phiên MƯỢT (28/10 sáng, build 235/236, đứng 0,2–2%) là 2 phiên duy nhất
      * khung đi chậm ~13–15 ms/KB (ACK 129–152 ms); mọi phiên bị đứng 11–55% đều đi nhanh ~9 ms/KB. Giả thuyết: dồn dữ liệu
      * quá nhanh làm bộ đệm màn xe tràn → màn kẹt 3–6 s. Ghi khung theo từng khối 1 KB, giữ nhịp ~PACE_MS_PER_KB. */
-    private const val PACE_MS_PER_KB = 13L
+    // build-295: 13 ms/KB (build 294) chưa đủ (đứng ~31%) → quét 10/15/20/25/30 ms/KB, đổi mỗi 2 phút trong cùng chuyến
+    // (iPhone theo tài liệu maxdash ~21 ms/KB). tftStat ghi "pace" của phút đó để so.
+    private val PACE_STEPS = longArrayOf(10L, 15L, 20L, 25L, 30L)
+    private val PACE_MS_PER_KB: Long get() = PACE_STEPS[((System.currentTimeMillis() / 120_000L) % PACE_STEPS.size).toInt()]
     private const val PACE_CHUNK = 1024
 
     @Synchronized
@@ -2421,6 +2425,8 @@ object TftLink {
         writeStartedAt = System.currentTimeMillis()
         val t0 = System.nanoTime()
         return try {
+            val pace = PACE_MS_PER_KB
+            lastPace = pace
             var off = 0
             while (off < bytes.size) {
                 val n = minOf(PACE_CHUNK, bytes.size - off)
@@ -2428,7 +2434,7 @@ object TftLink {
                 o.flush()
                 off += n
                 if (off < bytes.size) {
-                    val dueMs = off.toLong() * PACE_MS_PER_KB / 1024L
+                    val dueMs = off.toLong() * pace / 1024L
                     val elapsedMs = (System.nanoTime() - t0) / 1_000_000L
                     if (dueMs > elapsedMs) Thread.sleep(dueMs - elapsedMs)
                 }
