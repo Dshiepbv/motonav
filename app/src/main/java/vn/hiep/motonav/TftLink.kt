@@ -662,6 +662,19 @@ object TftLink {
     // công thức + kiểm chứng trước trên mockup artifact (TFT Phạm Văn Đồng) theo yêu cầu thực tế.
     @Volatile private var skTiltT: Double = 1.0
     @Volatile private var skTiltLastMs: Long = 0L
+    @Volatile private var skPitch: Double = 45.0
+    @Volatile private var skPitchMs: Long = 0L
+
+    /** Tuyến giả cho chế độ bản đồ tĩnh (chưa dẫn đường): đường thẳng theo hướng xe, chỉ để định khung bản đồ. */
+    private fun freeRoute(): Route {
+        val hd = if (skHeadingDeg >= 0) skHeadingDeg else skLastGoodHeadingDeg
+        val hr = Math.toRadians(hd)
+        val k = 111320.0 * Math.cos(Math.toRadians(skLat))
+        val ds = doubleArrayOf(-60.0, 0.0, 500.0, 1000.0, 1500.0, 2000.0, 2500.0, 3000.0)
+        val la = DoubleArray(ds.size) { skLat + Math.cos(hr) * ds[it] / 110540.0 }
+        val lo = DoubleArray(ds.size) { skLon + Math.sin(hr) * ds[it] / k }
+        return Route(la, lo, emptyList(), 3060.0, 0L)
+    }
     // "Ghim" chỉ số điểm gần nhất tìm được ở khung trước, để khung sau chỉ dò quanh đó thay vì
     // quét lại toàn tuyến — tránh nhảy lung tung sang điểm xa (một đoạn đường khác của tuyến tình
     // cờ ở gần) làm đường xanh biến mất/vẽ sai rồi tự "sửa" lại ở khung sau.
@@ -741,7 +754,10 @@ object TftLink {
         val c = Canvas(bmp)
         c.drawColor(Color.BLACK)
         stepSketchPos()
-        val route = skRoute
+        // build-306: chưa dẫn đường mà có GPS → "bản đồ tĩnh" (đi không dẫn): dựng tuyến giả thẳng theo hướng xe (60 m sau →
+        // 3 km trước) để dùng nguyên cơ chế bản đồ nền/zoom theo tốc độ/nghiêng/đường 2 bên; KHÔNG vẽ tuyến đỏ, bảng rẽ, ETA.
+        val free = skRoute == null && Live.gpsOk && skLat != 0.0
+        val route = skRoute ?: if (free) freeRoute() else null
         val anchorX = w / 2f
         var carX = anchorX // tam giác xe (chỉ vẽ) — xem build-231 ở khối nét đỏ
         // Nhích điểm xe lên khỏi mép dưới (0.82->0.72) — theo phản hồi thực tế: khi tuyến rẽ ngang
@@ -824,6 +840,14 @@ object TftLink {
             // kính, giống kiểu bản đồ fisheye): đoạn gần xe chiếm nhiều pixel hơn tỉ lệ thật (dễ thấy
             // khúc rẽ ngay trước mắt), đoạn xa bị nén lại nhưng vẫn hiện đủ hình dạng/hướng đi xa tới
             // maxAhead. Nhờ vậy nâng lại maxAhead lên hẳn (1.8km mặc định) mà điểm rẽ gần vẫn to rõ.
+            run {
+                // build-306: từ ~50 km/h nghiêng camera bản đồ 45° → 60° để nhìn xa tới chỗ cua; chuyển dần (không giật).
+                val pt = if (skSpdTier == 2) 45.0 else 60.0
+                val nowP = System.currentTimeMillis()
+                val dtP = (if (skPitchMs == 0L) 400L else nowP - skPitchMs).coerceIn(50L, 2000L)
+                skPitchMs = nowP
+                skPitch += (pt - skPitch) * (1.0 - Math.exp(-dtP / 1200.0))
+            }
             val zoomMul = when (skZoomStep) {
                 -3 -> 0.4; -2 -> 0.55; -1 -> 0.75; 1 -> 1.3; 2 -> 1.65; 3 -> 2.0; else -> 1.0
             }
@@ -874,13 +898,13 @@ object TftLink {
             val snapShot: org.maplibre.android.snapshotter.MapSnapshot? = run {
                 val st = mapSnapStyle; val cx = appCtx
                 if (st == null || cx == null) return@run null
-                try { MapSnap.prefetchRoute(cx, st, route.lats, route.lons, route) } catch (_: Throwable) {}
+                if (!free) try { MapSnap.prefetchRoute(cx, st, route.lats, route.lons, route) } catch (_: Throwable) {}
                 val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(14.5, 17.8)
                 val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
                 val aheadM = (0.22 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.15
                 val tLat = skLat + cosH * aheadM / 110540.0
                 val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 45.0, w, h)
+                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, skPitch, w, h)
             }
             // rx/ry (mét thật, đã xoay theo hướng xe) -> toạ độ pixel, nén bán kính theo căn bậc hai
             // (mũ 0.55) quanh vị trí xe: gần xe gần như không nén (dễ thấy rẽ), xa xe nén mạnh hơn.
@@ -1291,7 +1315,7 @@ object TftLink {
             // tuyến sau điểm rẽ) — đúng là "cọc chỉ dẫn" cắm trên con đường sắp đi tới, không phải
             // con đường hiện tại.
             val nextSt = skNextStreet
-            if (!nextSt.isNullOrBlank()) {
+            if (!free && !nextSt.isNullOrBlank()) {
                 val turnCumTarget = cum0 + (skDistanceM.takeIf { it >= 0 }?.toDouble() ?: 0.0)
                 var mIdx = idx0
                 while (mIdx < iEnd0 - 1 && route.cum[mIdx] < turnCumTarget) mIdx++
@@ -1490,8 +1514,10 @@ object TftLink {
                     lineTo(sp[sp.size - 1][0], sp[sp.size - 1][1])
                 }
             } else path
-            c.drawPath(drawPath, casingPaint)
-            c.drawPath(drawPath, linePaint)
+            if (!free) {
+                c.drawPath(drawPath, casingPaint)
+                c.drawPath(drawPath, linePaint)
+            }
         }
         // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up) — to hơn trước (0.06->0.085) theo yêu
         // cầu "điểm định vị to ra chút" để dễ thấy giữa tuyến xanh/nhánh trắng.
