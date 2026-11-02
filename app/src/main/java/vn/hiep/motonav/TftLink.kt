@@ -1703,8 +1703,14 @@ object TftLink {
             val iconCy = arm * 0.78f
             // Bỏ icon tự vẽ (bezier/cung tròn) — quay lại tam giác đơn giản xoay theo góc rẽ, đúng
             // kiểu bản đầu tiên (v6.77) theo yêu cầu "chỉ tam giác như lúc đầu".
+            // build-311: biểu tượng ngã rẽ kiểu Garmin StreetCross — vẽ các đường OSM quanh điểm rẽ (xám) + đường đi
+            // thật của tuyến qua ngã đó (mũi tên trắng), xoay theo hướng tới. Đúng cho cả vòng xoay, quay đầu, ngã ba
+            // lệch… không phụ thuộc mã rẽ của Goong/VietMap. Không đủ dữ liệu → mũi tên tam giác như cũ.
+            val jHalf = h * 0.2f
+            val jDrawn = try { drawJunction(c, jHalf + 3f, jHalf + 3f, jHalf, dk) } catch (_: Throwable) { false }
             val apexDeg = Maneuver.angle(skSign)
             val arrowR = arm * 0.62f
+            if (!jDrawn) {
             c.save()
             c.rotate(apexDeg, iconCx, iconCy)
             val arrowPaint = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.FILL; isAntiAlias = true }
@@ -1717,10 +1723,11 @@ object TftLink {
             }
             c.drawPath(arrowPath, arrowPaint)
             c.restore()
+            }
             // Bỏ hẳn tên đường khỏi bảng này theo yêu cầu — chỉ còn icon + khoảng cách, căn giữa
             // icon theo chiều dọc (tên đường giờ chỉ còn hiện trên bản đồ, xem nhãn gắn tuyến bên
             // dưới, đã phóng to).
-            val textX = iconCx + arm * 0.95f
+            val textX = if (jDrawn) jHalf * 2f + 12f else iconCx + arm * 0.95f
             // Khoảng cách trên bảng dẫn giữ màu trắng theo yêu cầu (không đổi đỏ như ETA/tuyến chính).
             val infoPaint = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val dM = skDistanceM
@@ -1755,6 +1762,103 @@ object TftLink {
         bmp.recycle()
         val raw = out.toByteArray()
         return if (iccStripNow()) stripIcc(raw) else raw
+    }
+
+    private val JUNCTION_ROADS = setOf("motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link", "secondary",
+        "secondary_link", "tertiary", "tertiary_link", "unclassified", "residential", "living_street", "service", "road")
+
+    /** build-311: ô ngã rẽ kiểu Garmin StreetCross ở góc trên-trái (tâm [cx],[cy], nửa cạnh [half]). */
+    private fun drawJunction(c: Canvas, cx: Float, cy: Float, half: Float, dk: Boolean): Boolean {
+        val r = skRoute ?: return false
+        val n = r.lats.size
+        if (n < 2 || (skManLat == 0.0 && skManLon == 0.0)) return false
+        val i0 = if (skIdxHintRoute === r && skIdxHint in 0 until n) skIdxHint else 0
+        val lookM = r.cum[i0] + Math.max(skDistanceM, 0) + 400.0
+        var mi = -1; var md = Double.MAX_VALUE
+        for (i in i0 until n) {
+            val d = Geo.distance(skManLat, skManLon, r.lats[i], r.lons[i])
+            if (d < md) { md = d; mi = i }
+            if (r.cum[i] > lookM) break
+        }
+        if (mi < 0 || md > 40.0) return false
+        fun pt(cv: Double): Pair<Double, Double> {
+            if (cv <= 0) return r.lats[0] to r.lons[0]
+            if (cv >= r.total) return r.lats[n - 1] to r.lons[n - 1]
+            var lo = 0; var hi = n - 1
+            while (hi - lo > 1) { val m = (lo + hi) / 2; if (r.cum[m] <= cv) lo = m else hi = m }
+            val sg = r.cum[hi] - r.cum[lo]
+            val f = if (sg < 0.01) 0.0 else (cv - r.cum[lo]) / sg
+            return (r.lats[lo] + f * (r.lats[hi] - r.lats[lo])) to (r.lons[lo] + f * (r.lons[hi] - r.lons[lo]))
+        }
+        val mc = r.cum[mi]
+        val mLat = r.lats[mi]; val mLon = r.lons[mi]
+        val a = pt(mc - 30.0)
+        if (Geo.distance(a.first, a.second, mLat, mLon) < 5.0) return false
+        val hr = Math.toRadians(Geo.bearing(a.first, a.second, mLat, mLon))
+        val sinH = Math.sin(hr); val cosH = Math.cos(hr)
+        val proj = LocalProjection(mLat, mLon)
+        val k = half / 55.0 // 55 m ~ nửa ô
+        val oy = cy + half * 0.22f // điểm rẽ hơi thấp hơn tâm để thấy rõ lối ra
+        fun px(lat: Double, lon: Double): FloatArray {
+            val x = proj.x(lon); val y = proj.y(lat)
+            val fw = x * sinH + y * cosH
+            val sd = x * cosH - y * sinH
+            return floatArrayOf(cx + (sd * k).toFloat(), oy - (fw * k).toFloat())
+        }
+        val rect = android.graphics.RectF(cx - half, cy - half, cx + half, cy + half)
+        val bg = Paint().apply { color = if (dk) Color.rgb(24, 27, 32) else Color.rgb(238, 240, 243); isAntiAlias = true }
+        c.drawRoundRect(rect, half * 0.18f, half * 0.18f, bg)
+        c.save()
+        c.clipRect(rect)
+        val roadP = Paint().apply { color = if (dk) Color.rgb(110, 116, 126) else Color.rgb(150, 156, 166); style = Paint.Style.STROKE; strokeWidth = half * 0.17f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; isAntiAlias = true }
+        val pad = 0.0009
+        val ways = skWays
+        if (ways != null) {
+            for (w in ways) {
+                if (w.highway !in JUNCTION_ROADS) continue
+                if (mLat < w.minLat - pad || mLat > w.maxLat + pad || mLon < w.minLon - pad || mLon > w.maxLon + pad) continue
+                val p = android.graphics.Path()
+                var started = false
+                for (i in w.lats.indices) {
+                    if (Math.abs(w.lats[i] - mLat) > 0.004 || Math.abs(w.lons[i] - mLon) > 0.004) { started = false; continue }
+                    val q = px(w.lats[i], w.lons[i])
+                    if (!started) { p.moveTo(q[0], q[1]); started = true } else p.lineTo(q[0], q[1])
+                }
+                c.drawPath(p, roadP)
+            }
+        }
+        // đường đi của tuyến qua ngã rẽ: từ 45 m trước tới 50 m sau
+        val rp = android.graphics.Path()
+        val pts = ArrayList<FloatArray>()
+        var cv = mc - 45.0
+        while (cv <= mc + 50.0) { val g = pt(cv); pts.add(px(g.first, g.second)); cv += 4.0 }
+        if (pts.size < 3) { c.restore(); return false }
+        rp.moveTo(pts[0][0], pts[0][1])
+        for (i in 1 until pts.size) rp.lineTo(pts[i][0], pts[i][1])
+        val caseP = Paint().apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = half * 0.30f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; isAntiAlias = true }
+        val lineP = Paint().apply { color = if (dk) Color.WHITE else Color.rgb(224, 38, 43); style = Paint.Style.STROKE; strokeWidth = half * 0.20f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; isAntiAlias = true }
+        c.drawPath(rp, caseP)
+        c.drawPath(rp, lineP)
+        // đầu mũi tên
+        val e = pts[pts.size - 1]; val b = pts[pts.size - 3]
+        val dx = e[0] - b[0]; val dy = e[1] - b[1]
+        val len = Math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+        if (len > 0.5f) {
+            val ux = dx / len; val uy = dy / len
+            val L = half * 0.42f; val W = half * 0.32f
+            val tip = floatArrayOf(e[0] + ux * L * 0.55f, e[1] + uy * L * 0.55f)
+            val baseX = tip[0] - ux * L; val baseY = tip[1] - uy * L
+            val head = android.graphics.Path().apply {
+                moveTo(tip[0], tip[1])
+                lineTo(baseX - uy * W, baseY + ux * W)
+                lineTo(baseX + uy * W, baseY - ux * W)
+                close()
+            }
+            c.drawPath(head, Paint().apply { color = lineP.color; style = Paint.Style.FILL; isAntiAlias = true })
+            c.drawPath(head, Paint().apply { color = caseP.color; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true })
+        }
+        c.restore()
+        return true
     }
 
     /** build-285: thử A/B bỏ đoạn hồ sơ màu ICC (APP2, 472 byte) trong JPEG — luân phiên mỗi 2 phút, log tftStat "icc". */
@@ -2077,6 +2181,11 @@ object TftLink {
     object IconMap {
         fun from(sign: Int, roundabout: Boolean): Int = when {
             roundabout -> 6
+            // build-311: xét quay đầu / đi về bên trái-phải TRƯỚC (trước đây -7 "đi về bên trái" và -98 "quay đầu" rơi vào
+            // nhánh sign <= -2 → hiện mũi tên RẼ TRÁI trên màn xe).
+            sign == -8 || sign == -98 || sign == 8 -> 7 // quay đầu
+            sign == -7 -> 2 // đi về bên trái → chếch trái
+            sign == 7 -> 3 // đi về bên phải → chếch phải
             sign <= -2 -> 1 // rẽ trái / quẹo gắt trái
             sign == -1 -> 2 // chếch trái
             sign == 0 -> 0 // đi thẳng
