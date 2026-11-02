@@ -23,7 +23,7 @@ object Valhalla {
             put("lat", fromLat); put("lon", fromLon); put("type", "break")
             if (heading != null && heading >= 0) { put("heading", heading.toInt()); put("heading_tolerance", 60) }
         })
-        for (v in via) locs.put(JSONObject().apply { put("lat", v.first); put("lon", v.second); put("type", "through") })
+        for (v in via) locs.put(JSONObject().apply { put("lat", v.first); put("lon", v.second); put("type", "break_through") })
         locs.put(JSONObject().apply { put("lat", toLat); put("lon", toLon); put("type", "break") })
         val req = JSONObject().apply {
             put("locations", locs)

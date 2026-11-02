@@ -273,7 +273,7 @@ object TftLink {
     // build-309: khi chưa có ACK, cứ mỗi [RS_EVERY_MS] gửi lại ĐÚNG khung đó (cùng số thứ tự) để kênh không im lâu
     // (Sếp: nghỉ 0,3–0,4 s không lag, ≥0,9 s mới lag). Bật/tắt luân phiên mỗi 2 phút theo đồng hồ (tftStat "rs").
     private const val RS_EVERY_MS = 500L
-    private fun rsOn(now: Long): Boolean = (now / 120_000L) % 2L == 0L
+    private fun rsOn(@Suppress("UNUSED_PARAMETER") now: Long): Boolean = false // build-315: tắt — log 2/11 bật 34% vs tắt 32%, vô ích
     // build-309: tắt tải trước ô bản đồ (thêm từ 303, không có ở 302) để màn giống hệt 302 khi so lag.
     private const val PREFETCH_TILES = false
     private const val RESEND_AFTER_MS = 3_600_000L // build-229: tắt gửi lại — log 226/228: làm đứng hình tăng 15% → 22–35%

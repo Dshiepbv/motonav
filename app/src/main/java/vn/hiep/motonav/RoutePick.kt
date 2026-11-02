@@ -271,6 +271,8 @@ object RoutePick {
     }
 
     /** Đường cấm xe máy (làn riêng ô tô, cao tốc, cấm xe cơ giới) theo thẻ OSM. */
+    const val CAR_ONLY_FILTER = false
+
     fun carOnly(w: Way): Boolean {
         val t = w.tags
         fun no(v: String?) = v == "no" || v == "private"
@@ -320,6 +322,9 @@ object RoutePick {
 
     /** Quãng tuyến (m, trong [withinM] đầu) chạy sát (≤ 8 m) đường cấm xe máy. 0 nếu không có dữ liệu. */
     fun carOnlyM(r: Route, withinM: Double = 3000.0): Double {
+        // build-315 (Sếp): chưa có thông tin cấm xe máy đáng tin → TẠM BỎ bộ lọc. Log 2/11: tuyến Valhalla bám đúng Song Hành
+        // nhưng nằm trong 8 m lòng chính (thẻ motorcycle=no) → bị tính 700–960 m "cấm", loại tuyến đúng, ép tuyến quay đầu.
+        if (!CAR_ONLY_FILTER) return 0.0
         val snap = Live.osm ?: return 0.0
         val bad = snap.ways.filter { carOnly(it) }
         if (bad.isEmpty()) return 0.0

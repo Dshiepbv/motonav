@@ -949,6 +949,7 @@ class DriveService : Service(), LocationListener {
     private val signPrevAhead = HashMap<String, Double>()
     private var signAheadId: String? = null
     private var signAheadUntil = 0L
+    private var signPassAt = 0L
 
     /**
      * Biển giới hạn tốc độ vừa đi qua (đúng chiều, bên phải xe) còn hiệu lực: tới khi gặp biển khác,
@@ -975,12 +976,18 @@ class DriveService : Service(), LocationListener {
                 val prev = signPrevAhead.put(s.id, ahead)
                 if (prev == null || prev <= 0.0 || ahead > 0.0) continue
                 // Vừa đi ngang biển
-                val dirOk = s.src != "osm" || s.dir < 0 || Geo.angleDiff(s.dir, hdg) <= 60
+                // OSM: direction = chiều xe chạy; Mapillary: aligned_direction = hướng MẶT biển (ngược chiều xe, log 2/11)
+                val dirOk = s.dir < 0 || (if (s.src == "osm") Geo.angleDiff(s.dir, hdg) <= 60 else Geo.angleDiff(s.dir, hdg + 180.0) <= 45)
                 val sideOk = side >= -6.0 && side <= 15.0
                 TripLog.ev("signPass", "src" to s.src, "kmh" to s.kmh, "end" to s.end, "side" to side, "dir" to s.dir,
                     "hdg" to hdg, "ok" to (dirOk && sideOk), "name" to way?.name)
                 if (!dirOk || !sideOk) continue
-                signLim = if (s.end) null else s.kmh
+                // Cụm biển cùng cột (ô tô / xe máy ghi riêng, vd Xa lộ HN 50/60/80 trong 3 s) → lấy số NHỎ nhất
+                val nowMs = SystemClock.elapsedRealtime()
+                val prevLim = signLim
+                val cluster = prevLim != null && !s.end && nowMs - signPassAt < 4000 && Geo.distance(s.lat, s.lon, signLat, signLon) < 40
+                signPassAt = nowMs
+                signLim = if (s.end) null else if (cluster) min(prevLim!!, s.kmh) else s.kmh
                 signName = way?.name
                 signHdg0 = hdg
                 signLat = s.lat
@@ -1001,7 +1008,7 @@ class DriveService : Service(), LocationListener {
                 val ahead = d * kotlin.math.cos(rel)
                 val side = d * kotlin.math.sin(rel)
                 if (ahead <= 0.0 || ahead > 100.0 || side < -6.0 || side > 15.0) continue
-                if (s.src == "osm" && s.dir >= 0 && Geo.angleDiff(s.dir, hdg) > 60) continue
+                if (s.dir >= 0 && (if (s.src == "osm") Geo.angleDiff(s.dir, hdg) > 60 else Geo.angleDiff(s.dir, hdg + 180.0) > 45)) continue
                 if (ahead < bestAhead) { bestAhead = ahead; best = s }
             }
             if (best != null) {
