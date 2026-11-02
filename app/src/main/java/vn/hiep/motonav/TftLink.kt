@@ -387,6 +387,47 @@ object TftLink {
         return if (rel in lo until hi) hi - rel else 0L
     }
 
+    // ---- build-308: TRÁNH KHE NGUY HIỂM THEO NHỊP GÓI 0x41 CỦA XE ----
+    // Log 2/11 so với đêm 1/11: khung tự "khoá pha" vào nhịp gói tốc độ 0x41 (~1,18 s) ở 2 vị trí: ~0–50 ms và ~550–650 ms
+    // trước gói 0x41 kế tiếp. Khe 550–600 ms là khe nguy hiểm: trong vùng mốc 5 s đứng 50% (64/129), khe 600–650 chỉ 8%;
+    // đêm 1/11 gần như mọi lần đứng (8/14) cũng ở khe 550–600. Đêm qua mượt vì phần lớn khung rơi vào khe 600–650 (1105 so
+    // với 182), sáng nay chia đều (637/685) — lệch chỉ ~30–50 ms do ACK/khung nhỏ hơn. Nên chủ động chỉnh khoảng nghỉ
+    // để thời điểm gửi cách gói 0x41 dự kiến kế tiếp ≥ 630 ms (hoặc ngay sau gói 0x41 nếu không kịp).
+    @Volatile private var last41At = 0L
+    private val gaps41 = LongArray(8)
+    @Volatile private var gaps41n = 0
+    @Volatile private var g41Shifts = 0
+
+    private fun on41(now: Long) {
+        val prev = last41At
+        last41At = now
+        if (prev != 0L) {
+            val g = now - prev
+            if (g in 900L..1500L) synchronized(gaps41) { gaps41[gaps41n % 8] = g; gaps41n++ }
+        }
+    }
+
+    private fun gap41(): Long = synchronized(gaps41) {
+        val n = Math.min(gaps41n, 8)
+        if (n < 4) -1L else gaps41.copyOf(n).sorted()[n / 2]
+    }
+
+    /** Khoảng nghỉ trước khung kế tiếp, chỉnh để thời điểm gửi không rơi vào khe 470–630 ms trước gói 0x41 kế tiếp. */
+    private fun restBefore41(base: Long): Long {
+        val g = gap41()
+        val l = last41At
+        val now = System.currentTimeMillis()
+        if (g < 0 || l == 0L || now - l > 3000L) return base
+        val send = now + base + buildEwmaMs.toLong() + 20L
+        var next = l + g
+        while (next < send - 50L) next += g
+        val d = next - send
+        if (d !in 470L until 630L) return base
+        g41Shifts++
+        val early = next - 640L - buildEwmaMs.toLong() - 20L - now
+        return if (early >= 250L) early else base + (d + 60L) // gửi sớm hơn, không kịp thì gửi ngay sau gói 0x41
+    }
+
     private fun avReset() { for (j in 0 until AV_BINS) { avTot[j] = 0.0; avBad[j] = 0.0 }; avProbe = 0 }
 
     private var btReceiver: android.content.BroadcastReceiver? = null
@@ -488,7 +529,7 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "pace" to PACE_MS_PER_KB, "tick" to tkCenterMs, "tw" to tkW(System.currentTimeMillis() - 30_000L), "tkWaits" to tkWaits, "tkWaitMs" to tkWaitedMs, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "pace" to PACE_MS_PER_KB, "tick" to tkCenterMs, "tw" to tkW(System.currentTimeMillis() - 30_000L), "tkWaits" to tkWaits, "tkWaitMs" to tkWaitedMs, "g41" to gap41(), "g41Shifts" to g41Shifts, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
@@ -1789,7 +1830,7 @@ object TftLink {
                 // ACK_WAIT_MS), nên khoảng lặng xấu nhất giữa 2 khung giờ chỉ còn ~1,9s (1,5s chờ ACK
                 // + 0,4s nghỉ), thay vì 6,4s trước đây.
                 // Nhịp C: nghỉ dài hơn (900 ms) giữa 2 khung — ít khung hơn, thử xem có ít lần đứng hơn.
-                sleepQuiet(if (paceMode == 2) 900 else 400)
+                sleepQuiet(restBefore41(if (paceMode == 2) 900L else 400L))
             } else {
                 sleepQuiet(400)
             }
@@ -2408,6 +2449,7 @@ object TftLink {
                         }
                     }
                     if (cmd == 0x41 && payload.size >= 2) bikeSpeedKmh = payload[1].toInt() and 0xFF
+                    if (cmd == 0x41) on41(System.currentTimeMillis())
                     when (cmd) {
                         0x42 -> { // 1/3: xe gửi serial → trả khả năng hỗ trợ
                             // Xe có thể gửi lại cmd này nhiều lần (loan báo định kỳ) kể cả sau khi đã
