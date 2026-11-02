@@ -19,6 +19,8 @@ class NavEngine(
     private val alert: (text: String, speech: String, urgent: Boolean) -> Unit,
 ) {
     private var seg = 0
+    private val providerOf = java.util.WeakHashMap<Route, String>()
+    @Volatile private var winnerProvider = "goong"
     private var offCount = 0
     private var loopRoute: Route? = null
     private var loopUAt = -1.0
@@ -194,11 +196,40 @@ class NavEngine(
                 val origin = if (on != null) RoutePick.walk(on, 40.0) else (lat to lon)
                 val startLat = on?.lat ?: lat
                 val startLon = on?.lon ?: lon
+                // build-305: chạy Goong + VietMap song song (khi có cả hai mã). Tìm tuyến lúc bắt đầu: gọi CẢ HAI, mọi tuyến
+                // qua cùng bộ lọc/xếp hạng, log routeDual. Tìm lại (reroute)/điểm đi qua: chỉ gọi bên đã thắng lúc bắt đầu,
+                // bên kia chỉ gọi khi bên thắng lỗi.
+                // build-313: thêm Valhalla xe máy (máy chủ OSM cộng đồng, miễn phí, không cần mã). Tìm tuyến lúc
+                // bắt đầu gọi MỌI nguồn; tìm lại giữa đường ưu tiên Valhalla (không tốn tiền), lỗi thì bên thắng, rồi bên còn lại.
+                val provAvail = ArrayList<String>().apply { if (goongKey.isNotBlank()) add("goong"); if (vmKey.isNotBlank()) add("vm"); add("vh") }
+                val dual = provAvail.size > 1
+                val rerouteOrder = (listOf("vh", winnerProvider) + provAvail).distinct().filter { it in provAvail }
+                val vhHeading = if (moving) heading else null
+                fun callAt(p: String, fLat: Double, fLon: Double, alt: Boolean, via: List<Pair<Double, Double>>): List<Route> = when (p) {
+                    "goong" -> { countGoongCall(); GoongMap.routes(goongKey, fLat, fLon, dLat, dLon, prefs.goongVehicle, alt, via) }
+                    "vm" -> { countVmCall(); VietMap.routes(vmKey, fLat, fLon, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway) }
+                    else -> Valhalla.routes(fLat, fLon, vhHeading, dLat, dLon, alt, via)
+                }
+                fun callProv(p: String, alt: Boolean, via: List<Pair<Double, Double>>): List<Route> = callAt(p, origin.first, origin.second, alt, via)
                 fun fromOrigin(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> {
-                    countGoongCall()
-                    val raw = if (goongKey.isNotBlank()) GoongMap.routes(goongKey, origin.first, origin.second, dLat, dLon, prefs.goongVehicle, alt, via)
-                    else VietMap.routes(vmKey, origin.first, origin.second, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway)
-                    return if (on != null) raw.map { RoutePick.prepend(it, startLat, startLon) } else raw
+                    val both = dual && !reroute && via.isEmpty()
+                    val provs = if (both) provAvail else rerouteOrder
+                    val out = ArrayList<Route>()
+                    var err: Exception? = null
+                    for (p in provs) {
+                        if (!both && out.isNotEmpty()) break
+                        try {
+                            val raw = callProv(p, alt, via)
+                            val m = if (on != null) raw.map { RoutePick.prepend(it, startLat, startLon) } else raw
+                            for (x in m) synchronized(providerOf) { providerOf[x] = p }
+                            out.addAll(m)
+                        } catch (e: Exception) {
+                            err = e
+                            if (dual) TripLog.ev("routeProvErr", "p" to p, "err" to (e.message ?: e.javaClass.simpleName))
+                        }
+                    }
+                    if (out.isEmpty()) throw err ?: RuntimeException("Không tìm được đường")
+                    return out
                 }
                 // Luôn lấy vài tuyến để tự chọn tuyến tốt nhất (tránh kẹt xe / ngắn nhất)
                 var list = fromOrigin(true)
@@ -206,7 +237,8 @@ class NavEngine(
                 // đi ngang điểm đó nếu còn tuyến khác không dính
                 val clean = list.filter { !BlockedRoads.blocksPath(ctx, it.lats, it.lons) }
                 if (clean.isNotEmpty() && clean.size < list.size) list = clean
-                list = RoutePick.rank(list, heading, forwardFirst = heading != null)
+                val mixed = synchronized(providerOf) { list.mapNotNull { providerOf[it] }.toSet().size > 1 }
+                list = RoutePick.rank(list, heading, forwardFirst = heading != null, mixed = mixed)
                 // Loại tuyến chạy vào làn/đường cấm xe máy (thẻ OSM) ngay từ lần tìm đầu, nếu còn tuyến khác.
                 run {
                     val cm = list.map { RoutePick.carOnlyM(it, 3000.0) }
@@ -265,9 +297,10 @@ class NavEngine(
                                 // Đặt điểm đầu đủ xa phía trước thì không còn bị gắn nhầm; nối xe → điểm đó bằng
                                 // đoạn đi tiếp trên đường đang chạy.
                                 val shifted = try {
-                                    countGoongCall()
-                                    val raw = if (goongKey.isNotBlank()) GoongMap.routes(goongKey, ap.first, ap.second, dLat, dLon, prefs.goongVehicle, false)
-                                    else VietMap.routes(vmKey, ap.first, ap.second, heading, dLat, dLon, prefs.traffic, false, emptyList(), prefs.avoidHighway)
+                                    var raw: List<Route> = emptyList()
+                                    for (p in rerouteOrder) {
+                                        try { raw = callAt(p, ap.first, ap.second, false, emptyList()); if (raw.isNotEmpty()) break } catch (_: Exception) {}
+                                    }
                                     raw.firstOrNull()?.let { if (on != null) RoutePick.prependPath(it, RoutePick.walkPoints(on, 40.0 + dAhead)) else RoutePick.prepend(RoutePick.prepend(it, ap.first, ap.second), startLat, startLon) }
                                 } catch (_: Exception) { null }
                                 val sWhy = shifted?.let { RoutePick.rejectReason(it, heading, trailNow) }
@@ -284,7 +317,7 @@ class NavEngine(
                         }
                         if (found != null) {
                             list = listOf(found)
-                        } else if (fails >= 2 && rejected.isNotEmpty()) {
+                        } else if (fails >= 2 && rejected.isNotEmpty()) { // build-310: về như 302 (luật 304 làm giữ tuyến cũ 80 s, log 2/11)
                             // build-229 — quay đầu chỉ bị phạt, không cấm tuyệt đối (như Google/Waze):
                             // đã thử ≥3 lần (~10 s) mà phía trước không có tuyến nào hợp lệ (đường bị
                             // chặn, dải phân cách…) → nhận tuyến NHANH NHẤT trong số đã thử, kể cả quay
@@ -308,6 +341,16 @@ class NavEngine(
                 noUturnFails = 0
                 if (!offerChoice && list.size > 1) list = list.take(1)
                 val r = list.first()
+                if (dual && !reroute) {
+                    val pw = synchronized(providerOf) { providerOf[r] } ?: winnerProvider
+                    winnerProvider = pw
+                    try {
+                        TripLog.ev("routeDual", "win" to pw, "cands" to list.joinToString(" | ") { c ->
+                            val p = synchronized(providerOf) { providerOf[c] } ?: "?"
+                            "$p ${c.total.toInt()}m ${c.timeMs / 60000}ph car${RoutePick.carOnlyM(c, 3000.0).toInt()} u${RoutePick.uturnAt(c, 3000.0).toInt()} det${RoutePick.detourM(c).toInt()} t${c.steps.count { it.sign != 0 }}"
+                        })
+                    } catch (_: Exception) {}
+                }
                 if (Live.ownNav) {
                     if (offerChoice && list.size > 1) {
                         Live.routeChoices = list
@@ -340,6 +383,13 @@ class NavEngine(
     /** Đếm lượt gọi Goong theo ngày (hạn mức 1000/ngày, 30.000/tháng) để giới hạn thử lại. */
     private fun dayKey() = "goongCalls_" + java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
     private fun goongCallsToday(): Int = ctx.applicationContext.getSharedPreferences("motonav", android.content.Context.MODE_PRIVATE).getInt(dayKey(), 0)
+    private fun countVmCall() {
+        try {
+            val sp = ctx.applicationContext.getSharedPreferences("motonav", android.content.Context.MODE_PRIVATE)
+            val k = "vm_" + dayKey()
+            sp.edit().putInt(k, sp.getInt(k, 0) + 1).apply()
+        } catch (_: Exception) {}
+    }
     private fun countGoongCall() {
         val sp = ctx.applicationContext.getSharedPreferences("motonav", android.content.Context.MODE_PRIVATE)
         val n = sp.getInt(dayKey(), 0) + 1
@@ -568,9 +618,24 @@ class NavEngine(
             nextIdx = r.steps.size - 1
         }
         if (next == null) return
-        val mIdx = min(next.from, n - 1)
-        val toTurn = max(0.0, r.cum[mIdx] - progress)
-        var phrase = Maneuver.phrase(next)
+        var mIdx = min(next.from, n - 1)
+        var toTurn = max(0.0, r.cum[mIdx] - progress)
+        // build-305: chỗ tách tầng cầu/dưới cầu phía trước, gần hơn chỗ rẽ kế → báo như một bước riêng.
+        var bridgeText: String? = null
+        if (next.sign != 4) try {
+            val bh = BridgeHint.ahead(r, progress, Math.min(500.0, toTurn - 30.0))
+            if (bh != null && bh.distM > 0) {
+                var bi = mIdx
+                for (q in bestI..mIdx) if (r.cum[q] >= progress + bh.distM) { bi = q; break }
+                val street = bh.name?.trim().orEmpty()
+                bridgeText = (if (bh.kind == BridgeHint.ON) "Lên cầu" else "Đi dưới cầu") + (if (street.isNotEmpty()) " $street" else "")
+                next = Step(0, bridgeText, street, bh.distM, bi, bi, 0)
+                mIdx = bi
+                toTurn = bh.distM
+                nextIdx -= 1 // "sau đó" vẫn là chỗ rẽ thật
+            }
+        } catch (_: Exception) {}
+        var phrase = bridgeText ?: Maneuver.phrase(next)
         if (next.sign == 4) {
             // "Đến nơi" báo từ xa (còn 200-300m, tuyến xanh vẫn đang dẫn) nghe như đã tới rồi —
             // gây hiểu lầm (phản hồi thực tế). Thay bằng kiểu Google Maps: định vị điểm đến THẬT
@@ -591,7 +656,7 @@ class NavEngine(
         }
         Live.maneuverLat = r.lats[mIdx]
         Live.maneuverLon = r.lons[mIdx]
-        Live.maneuverLabel = if (next.sign == 4) phrase else if (next.street.isNotBlank()) next.street else Maneuver.verb(next.sign)
+        Live.maneuverLabel = bridgeText ?: (if (next.sign == 4) phrase else if (next.street.isNotBlank()) next.street else Maneuver.verb(next.sign))
         Live.maneuverSign = next.sign
         Live.maneuverStreet = next.street.ifBlank { null }
 
