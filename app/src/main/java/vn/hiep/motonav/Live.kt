@@ -64,6 +64,7 @@ object Live {
     @Volatile var maneuverLon = 0.0
     @Volatile var maneuverLabel: String? = null
     @Volatile var maneuverSign = 0
+    @Volatile var maneuverExit = 0
     @Volatile var thenText: String? = null
     @Volatile var thenSign = 0
     /** Khoảng cách (m) từ chỗ rẽ SẮP TỚI tới chỗ rẽ KẾ TIẾP NỮA — để màn TFT biết cần nhìn xa

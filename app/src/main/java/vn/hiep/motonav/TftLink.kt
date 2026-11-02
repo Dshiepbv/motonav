@@ -635,6 +635,9 @@ object TftLink {
     @Volatile private var skManLon = 0.0
     @Volatile private var skSign = 0
     @Volatile private var skRoundabout = false
+    @Volatile private var skExit = 0
+    @Volatile private var skNextLimit: Int? = null
+    @Volatile private var skNextLimitDist = -1
     @Volatile private var skWays: List<Way>? = null
     @Volatile private var skSpeedKmh: Int = -1
     @Volatile private var skLimitKmh: Int? = null
@@ -690,7 +693,13 @@ object TftLink {
         wxLabel: String? = null,
         wxNight: Boolean = false,
         thenDistM: Double = 0.0,
+        nextLimitKmh: Int? = null,
+        nextLimitDistM: Int = -1,
+        exitNum: Int = 0,
     ) {
+        skNextLimit = nextLimitKmh
+        skNextLimitDist = nextLimitDistM
+        skExit = exitNum
         skActive = active
         skRoute = route
         // build-284: dự đoán vị trí — màn xe đứng 3–6 s mỗi 5–10 s (lỗi phía TFT), khung hiện lúc đó nên nằm ở GIỮA đợt
@@ -1518,6 +1527,22 @@ object TftLink {
             val fm = numPaint.fontMetrics
             c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
             limBottomY = cy + r
+            // build-320: biển GIẢM tốc phía trước ≤100 m → biển mới cạnh biển hiện tại + vòng vàng đếm mét + số mét.
+            val nl = skNextLimit
+            val nd = skNextLimitDist
+            if (nl != null && nl > 0 && nl < lim && nd in 0..100) {
+                val ncx = cx - r * 2.5f; val ncy = cy; val nr = r * 0.85f
+                c.drawCircle(ncx, ncy, nr, ringPaint)
+                c.drawCircle(ncx, ncy, nr * 0.78f, facePaint)
+                val np = Paint(numPaint).apply { textSize = nr * 1.15f }
+                val fm2 = np.fontMetrics
+                c.drawText(nl.toString(), ncx, ncy - (fm2.ascent + fm2.descent) / 2f, np)
+                val arcR = nr + h * 0.022f
+                val arcPaint = Paint().apply { color = Color.rgb(255, 196, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                c.drawArc(android.graphics.RectF(ncx - arcR, ncy - arcR, ncx + arcR, ncy + arcR), -90f, 360f * nd / 100f, false, arcPaint)
+                val dp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.075f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                c.drawText("$nd m", ncx, ncy + arcR + h * 0.075f, dp)
+            }
         }
         // ETA (giờ đến, bên TRÁI) và thời gian+quãng đường còn lại (bên PHẢI) — 2 khung giống hệt
         // nhau (trắng, viền đỏ, chữ đen) để đối xứng 2 bên, cùng ngang hàng với tam giác vị trí xe
@@ -1570,22 +1595,9 @@ object TftLink {
             // Đẩy cả bảng sát kịch góc trên-trái theo yêu cầu mới nhất.
             val iconCx = w * 0.075f
             val iconCy = arm * 0.78f
-            // Bỏ icon tự vẽ (bezier/cung tròn) — quay lại tam giác đơn giản xoay theo góc rẽ, đúng
-            // kiểu bản đầu tiên (v6.77) theo yêu cầu "chỉ tam giác như lúc đầu".
-            val apexDeg = Maneuver.angle(skSign)
-            val arrowR = arm * 0.62f
-            c.save()
-            c.rotate(apexDeg, iconCx, iconCy)
-            val arrowPaint = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.FILL; isAntiAlias = true }
-            val arrowPath = android.graphics.Path().apply {
-                moveTo(iconCx, iconCy - arrowR)
-                lineTo(iconCx - arrowR * 0.8f, iconCy + arrowR * 0.7f)
-                lineTo(iconCx, iconCy + arrowR * 0.3f)
-                lineTo(iconCx + arrowR * 0.8f, iconCy + arrowR * 0.7f)
-                close()
-            }
-            c.drawPath(arrowPath, arrowPaint)
-            c.restore()
+            // build-320: bộ mũi tên kiểu Garmin (Sếp: đủ rẽ trái/phải, chếch, gắt, đi thẳng, quay đầu, vòng xuyến, đi về
+            // bên, đến nơi) — nét dày bo tròn + đầu mũi tên tam giác, viền tương phản để nổi trên bản đồ.
+            drawManeuverIcon(c, iconCx, iconCy, arm * 1.25f, if (skRoundabout) 6 else skSign, skExit, dk)
             // Bỏ hẳn tên đường khỏi bảng này theo yêu cầu — chỉ còn icon + khoảng cách, căn giữa
             // icon theo chiều dọc (tên đường giờ chỉ còn hiện trên bản đồ, xem nhãn gắn tuyến bên
             // dưới, đã phóng to).
@@ -1624,6 +1636,121 @@ object TftLink {
         bmp.recycle()
         val raw = out.toByteArray()
         return if (iccStripNow()) stripIcc(raw) else raw
+    }
+
+    /** Vẽ biểu tượng chỉ dẫn kiểu Garmin trong ô vuông cạnh [sz] tâm (cx, cy). Toạ độ đơn vị -0.5..0.5, y hướng xuống. */
+    private fun drawManeuverIcon(c: Canvas, cx: Float, cy: Float, sz: Float, sign: Int, exitNum: Int, dk: Boolean) {
+        val fg = if (dk) Color.WHITE else Color.BLACK
+        val bg = if (dk) Color.BLACK else Color.WHITE
+        val sw = sz * 0.15f
+        fun X(u: Float) = cx + u * sz
+        fun Y(v: Float) = cy + v * sz
+        val pStroke = Paint().apply { style = Paint.Style.STROKE; strokeWidth = sw; strokeCap = Paint.Cap.BUTT; strokeJoin = Paint.Join.ROUND; isAntiAlias = true }
+        val pFill = Paint().apply { style = Paint.Style.FILL; isAntiAlias = true }
+        // Vẽ một nét có đầu mũi tên ở cuối: [path] là thân, (tx,ty) là đỉnh mũi tên, (dx,dy) là hướng cuối (đơn vị).
+        fun arrow(path: android.graphics.Path, tx: Float, ty: Float, dx: Float, dy: Float, color: Int = fg, width: Float = sw) {
+            val l = Math.hypot(dx.toDouble(), dy.toDouble()).toFloat().coerceAtLeast(1e-4f)
+            val ux = dx / l; val uy = dy / l
+            val hl = width * 1.6f; val hw = width * 1.35f
+            val bx = tx - ux * hl; val by = ty - uy * hl
+            val head = android.graphics.Path().apply {
+                moveTo(tx, ty); lineTo(bx - uy * hw, by + ux * hw); lineTo(bx + uy * hw, by - ux * hw); close()
+            }
+            for (pass in 0..1) {
+                val col = if (pass == 0) bg else color
+                val extra = if (pass == 0) sz * 0.06f else 0f
+                pStroke.color = col; pStroke.strokeWidth = width + extra
+                pFill.color = col
+                c.drawPath(path, pStroke)
+                if (pass == 0) { pFill.style = Paint.Style.FILL_AND_STROKE; pFill.strokeWidth = extra; pFill.strokeJoin = Paint.Join.ROUND } else pFill.style = Paint.Style.FILL
+                c.drawPath(head, pFill)
+            }
+        }
+        // Thân nét kết thúc tại gốc đầu mũi tên (lùi lại theo hướng cuối để nét không lòi ra trước đỉnh)
+        fun stemTo(path: android.graphics.Path, tx: Float, ty: Float, dx: Float, dy: Float) {
+            val l = Math.hypot(dx.toDouble(), dy.toDouble()).toFloat().coerceAtLeast(1e-4f)
+            path.lineTo(tx - dx / l * sw * 1.4f, ty - dy / l * sw * 1.4f)
+        }
+        val mir = if (sign < 0 && sign != -98) -1f else 1f // hình gốc vẽ cho bên PHẢI, bên trái lật ngang
+        fun MX(u: Float) = X(u * mir)
+        when (sign) {
+            0 -> {
+                val p = android.graphics.Path().apply { moveTo(X(0f), Y(0.48f)) }
+                stemTo(p, X(0f), Y(-0.45f), 0f, -1f); arrow(p, X(0f), Y(-0.45f), 0f, -1f)
+            }
+            1, -1 -> { // chếch
+                val p = android.graphics.Path().apply { moveTo(MX(-0.12f), Y(0.48f)); lineTo(MX(-0.12f), Y(0.08f)) }
+                stemTo(p, MX(0.3f), Y(-0.38f), 0.42f * mir, -0.46f); arrow(p, MX(0.3f), Y(-0.38f), 0.42f * mir, -0.46f)
+            }
+            2, -2 -> { // rẽ
+                val p = android.graphics.Path().apply {
+                    moveTo(MX(-0.2f), Y(0.48f)); lineTo(MX(-0.2f), Y(0.02f))
+                    quadTo(MX(-0.2f), Y(-0.18f), MX(0.0f), Y(-0.18f))
+                }
+                stemTo(p, MX(0.45f), Y(-0.18f), mir, 0f); arrow(p, MX(0.45f), Y(-0.18f), mir, 0f)
+            }
+            3, -3 -> { // quẹo gắt
+                val p = android.graphics.Path().apply {
+                    moveTo(MX(-0.25f), Y(0.48f)); lineTo(MX(-0.25f), Y(-0.2f))
+                    quadTo(MX(-0.25f), Y(-0.38f), MX(-0.08f), Y(-0.28f))
+                }
+                stemTo(p, MX(0.38f), Y(0.22f), 0.46f * mir, 0.5f); arrow(p, MX(0.38f), Y(0.22f), 0.46f * mir, 0.5f)
+            }
+            7, -7 -> { // đi về bên phải/trái (rẽ nhánh): nhánh thẳng mờ + nhánh chếch đậm
+                val gray = Color.rgb(140, 140, 140)
+                val g = android.graphics.Path().apply { moveTo(MX(-0.1f), Y(0.2f)) }
+                stemTo(g, MX(-0.1f), Y(-0.45f), 0f, -1f); arrow(g, MX(-0.1f), Y(-0.45f), 0f, -1f, gray, sw * 0.75f)
+                val p = android.graphics.Path().apply { moveTo(MX(-0.1f), Y(0.48f)); lineTo(MX(-0.1f), Y(0.12f)) }
+                stemTo(p, MX(0.3f), Y(-0.4f), 0.4f * mir, -0.52f); arrow(p, MX(0.3f), Y(-0.4f), 0.4f * mir, -0.52f)
+            }
+            -8, -98, 8 -> { // quay đầu (VN đi bên phải → quay đầu vòng sang TRÁI; sign 8 = vòng phải)
+                val m = if (sign == 8) 1f else -1f
+                val p = android.graphics.Path().apply {
+                    moveTo(X(0.18f * -m), Y(0.48f)); lineTo(X(0.18f * -m), Y(-0.1f))
+                    cubicTo(X(0.18f * -m), Y(-0.42f), X(0.18f * m), Y(-0.42f), X(0.18f * m), Y(-0.1f))
+                }
+                stemTo(p, X(0.18f * m), Y(0.3f), 0f, 1f); arrow(p, X(0.18f * m), Y(0.3f), 0f, 1f)
+            }
+            6 -> { // vòng xuyến: vòng tròn + lối vào dưới + lối ra theo số lối (VN đi ngược kim đồng hồ: lối 1 = phải)
+                val rr = 0.2f
+                val ocx = 0f; val ocy = -0.06f
+                pStroke.color = bg; pStroke.strokeWidth = sw * 0.6f + sz * 0.06f
+                c.drawCircle(X(ocx), Y(ocy), rr * sz, pStroke)
+                pStroke.color = fg; pStroke.strokeWidth = sw * 0.6f
+                c.drawCircle(X(ocx), Y(ocy), rr * sz, pStroke)
+                val stem = android.graphics.Path().apply { moveTo(X(0f), Y(0.48f)); lineTo(X(0f), Y(ocy + rr)) }
+                pStroke.color = bg; pStroke.strokeWidth = sw + sz * 0.06f; c.drawPath(stem, pStroke)
+                pStroke.color = fg; pStroke.strokeWidth = sw; c.drawPath(stem, pStroke)
+                // góc lối ra tính từ hướng "lên" theo chiều kim đồng hồ: lối 1 → 90° (phải), 2 → 0°, 3 → -90°, 4 → -150°
+                val ang = when (exitNum) { 1 -> 90.0; 2, 0 -> 0.0; 3 -> -90.0; else -> -150.0 }
+                val ar = Math.toRadians(ang)
+                val ex = Math.sin(ar).toFloat(); val ey = -Math.cos(ar).toFloat()
+                val p = android.graphics.Path().apply { moveTo(X(ocx + ex * rr), Y(ocy + ey * rr)) }
+                val tx = X(ocx + ex * (rr + 0.27f)); val ty = Y(ocy + ey * (rr + 0.27f))
+                stemTo(p, tx, ty, ex, ey); arrow(p, tx, ty, ex, ey)
+                if (exitNum > 0) {
+                    val tp = Paint().apply { color = fg; textSize = sz * 0.22f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    val fm = tp.fontMetrics
+                    c.drawText(exitNum.toString(), X(ocx), Y(ocy) - (fm.ascent + fm.descent) / 2f, tp)
+                }
+            }
+            4, 5 -> { // đến nơi: cờ ca-rô
+                val pole = Paint().apply { color = fg; strokeWidth = sw * 0.6f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                c.drawLine(X(-0.3f), Y(0.45f), X(-0.3f), Y(-0.45f), pole)
+                val fw = 0.6f; val fh = 0.4f; val n = 4; val m = 3
+                for (i in 0 until n) for (j in 0 until m) {
+                    pFill.style = Paint.Style.FILL
+                    pFill.color = if ((i + j) % 2 == 0) fg else bg
+                    c.drawRect(X(-0.3f + fw * i / n), Y(-0.45f + fh * j / m), X(-0.3f + fw * (i + 1) / n), Y(-0.45f + fh * (j + 1) / m), pFill)
+                }
+                pStroke.color = fg; pStroke.strokeWidth = sz * 0.02f
+                c.drawRect(X(-0.3f), Y(-0.45f), X(-0.3f + fw), Y(-0.45f + fh), pStroke)
+            }
+            else -> {
+                val p = android.graphics.Path().apply { moveTo(X(0f), Y(0.48f)) }
+                stemTo(p, X(0f), Y(-0.45f), 0f, -1f); arrow(p, X(0f), Y(-0.45f), 0f, -1f)
+            }
+        }
     }
 
     /** build-285: thử A/B bỏ đoạn hồ sơ màu ICC (APP2, 472 byte) trong JPEG — luân phiên mỗi 2 phút, log tftStat "icc". */

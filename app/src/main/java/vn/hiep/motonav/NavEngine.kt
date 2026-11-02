@@ -658,6 +658,7 @@ class NavEngine(
         Live.maneuverLon = r.lons[mIdx]
         Live.maneuverLabel = bridgeText ?: (if (next.sign == 4) phrase else if (next.street.isNotBlank()) next.street else Maneuver.verb(next.sign))
         Live.maneuverSign = next.sign
+        Live.maneuverExit = next.exitNumber
         Live.maneuverStreet = next.street.ifBlank { null }
 
         // Đoạn đường sắp rẽ vào: từ chỗ rẽ đi tiếp ~250 m (tô sáng trên bản đồ)

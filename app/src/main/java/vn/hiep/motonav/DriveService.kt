@@ -351,6 +351,9 @@ class DriveService : Service(), LocationListener {
                     wxLabel = Live.wxDestLabel,
                     wxNight = Live.wxDestNight,
                     thenDistM = Live.thenDistM,
+                    nextLimitKmh = Live.nextLimit,
+                    nextLimitDistM = Live.nextLimitDist,
+                    exitNum = Live.maneuverExit,
                 )
             }
             try { logPhone() } catch (_: Throwable) {}
