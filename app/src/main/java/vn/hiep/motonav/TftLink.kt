@@ -336,6 +336,57 @@ object TftLink {
         if (bad) avBad[i] += 1.0
     }
 
+    // ---- build-307: NÉ MỐC 5 GIÂY CỦA MÀN XE ----
+    // Log 27/10–2/11 (45 phiên): mọi phiên lag đều có 1 "điểm nóng" trong chu kỳ 5 s — khung gửi trong ~0,65 s trước mốc
+    // đứng 25–33%, lúc khác 1–3%. Mốc đổi mỗi lần bật máy xe nhưng giữ nguyên cả chuyến, kể cả qua các lần nối lại
+    // (2/11: 48 phút, 5 lần nối, mốc không xê dịch). Học mốc từ các lần đứng (không xoá khi nối lại, chỉ xoá khi
+    // mất kết nối > 90 s = tắt máy xe), rồi không gửi trong [c − 0,45 s, c + 0,35 s + W]. W luân phiên mỗi 2 phút:
+    // 0,3 s / 1,5 s / không né — để một chuyến đo được mức nào hết đứng (tftStat "tw").
+    private const val TK_BINS = 40 // 125 ms
+    private val tkBad = DoubleArray(TK_BINS)
+    @Volatile private var tkCenterMs = -1L
+    @Volatile private var tkWaits = 0
+    @Volatile private var tkWaitedMs = 0L
+    @Volatile private var lastFrameDoneAt = 0L
+
+    private fun tkW(now: Long): Long = when ((now / 120_000L) % 3L) { 0L -> 300L; 1L -> 1500L; else -> -1L }
+
+    private fun tkRecordStall(sentAt: Long) {
+        val b = (((sentAt % 5000L) + 5000L) % 5000L * TK_BINS / 5000L).toInt()
+        for (j in 0 until TK_BINS) tkBad[j] *= 0.97
+        tkBad[b] += 1.0
+        // cửa sổ 5 ô (0,625 s) có nhiều lần đứng nhất
+        val tot = tkBad.sum()
+        var best = -1; var bestV = 0.0
+        for (i in 0 until TK_BINS) {
+            var v = 0.0
+            for (d in 0 until 5) v += tkBad[(i + d) % TK_BINS]
+            if (v > bestV) { bestV = v; best = i }
+        }
+        val rateIn = bestV / 5.0
+        val rateOut = (tot - bestV) / (TK_BINS - 5)
+        val old = tkCenterMs
+        tkCenterMs = if (best >= 0 && bestV >= 4.0 && bestV >= 0.35 * tot && rateIn >= 3.0 * rateOut.coerceAtLeast(0.05)) {
+            var sw = 0.0; var sx = 0.0
+            for (d in 0 until 5) { val w = tkBad[(best + d) % TK_BINS]; sw += w; sx += w * (d + 0.5) }
+            (((best + sx / sw) * 125.0).toLong()) % 5000L
+        } else -1L
+        if (old != tkCenterMs && (old < 0 || tkCenterMs < 0 || Math.abs(old - tkCenterMs) > 120)) {
+            try { TripLog.ev("tftTick", "c" to tkCenterMs, "inWin" to Math.round(bestV * 10) / 10.0, "tot" to Math.round(tot * 10) / 10.0) } catch (_: Exception) {}
+        }
+    }
+
+    /** ms cần chờ để thời điểm gửi [now] ra khỏi vùng cấm quanh mốc; 0 = gửi ngay. */
+    private fun tkWaitMs(now: Long): Long {
+        val c = tkCenterMs
+        val w = tkW(now)
+        if (c < 0 || w < 0) return 0L
+        val ph = ((now - c) % 5000L + 5000L) % 5000L // 0 = đúng tâm điểm nóng
+        val rel = if (ph > 2500L) ph - 5000L else ph // -2500..2500
+        val lo = -450L; val hi = 350L + w
+        return if (rel in lo until hi) hi - rel else 0L
+    }
+
     private fun avReset() { for (j in 0 until AV_BINS) { avTot[j] = 0.0; avBad[j] = 0.0 }; avProbe = 0 }
 
     private var btReceiver: android.content.BroadcastReceiver? = null
@@ -402,7 +453,7 @@ object TftLink {
         bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
     } catch (_: Throwable) { -1 }
 
-    private const val AUTO_RESET = true // build-302: Sếp cho test làm mới kết nối (nhịp 15 ms + không mã hoá)
+    private const val AUTO_RESET = false // build-307: log 2/11 — làm mới 4 lần không lần nào hết đứng (kết nối lại không reset màn như tắt máy) → tắt
     @Volatile private var badMinutes = 0
     @Volatile private var lastResetAt = 0L
     @Volatile private var sessionStartAt = 0L
@@ -437,7 +488,7 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "pace" to PACE_MS_PER_KB, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "pace" to PACE_MS_PER_KB, "tick" to tkCenterMs, "tw" to tkW(System.currentTimeMillis() - 30_000L), "tkWaits" to tkWaits, "tkWaitMs" to tkWaitedMs, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
@@ -582,6 +633,8 @@ object TftLink {
         statBytes += jpeg.size
         recordFrameStat(waited, timedOut)
         if (tag == null) avRecord(sentAt, timedOut || waited > 1500L)
+        if (tag == null && (timedOut || waited > 1500L)) tkRecordStall(sentAt)
+        lastFrameDoneAt = System.currentTimeMillis()
         // Ghi vào nhật ký chuyến đi (dung lượng khung thật gửi đi + thời gian ACK) — để sau này xem
         // lại có thể đối chiếu xem ACK bắt đầu chậm hẳn từ cỡ khung bao nhiêu byte, tìm ra một mức
         // dung lượng "an toàn" thay vì đoán mò bằng chất lượng JPEG.
@@ -589,7 +642,7 @@ object TftLink {
             // timedOut giữ nghĩa cũ (quá ACK_WAIT_MS) để so được với log các bản trước; lost = quá
             // STALL_WAIT_MS vẫn không có ACK.
             TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace, "ackMs" to (if (timedOut) null else lastFrameAckMs),
-                "timedOut" to (timedOut || waited > ACK_WAIT_MS), "lost" to (if (timedOut) true else null), "tag" to tag)
+                "timedOut" to (timedOut || waited > ACK_WAIT_MS), "lost" to (if (timedOut) true else null), "tag" to tag, "tw" to tkW(sentAt), "tk" to tkCenterMs)
         } catch (_: Exception) {
         }
         return true
@@ -1718,6 +1771,8 @@ object TftLink {
                             buildSketchFrame()
                         }
                         buildEwmaMs = buildEwmaMs * 0.9 + (System.currentTimeMillis() - tb0) * 0.1
+                        val tw = tkWaitMs(System.currentTimeMillis())
+                        if (tw > 0) { tkWaits++; tkWaitedMs += tw; sleepQuiet(tw) }
                         sendFrame(frame)
                     } catch (_: Throwable) {
                     }
@@ -2284,6 +2339,11 @@ object TftLink {
             try { TripLog.ev("tftWait12Dis", "sinceLongWaitMs" to (System.currentTimeMillis() - lastLongWaitAt)) } catch (_: Exception) {}
         }
         avReset()
+        // build-307: mốc 5 s giữ qua các lần nối lại; chỉ xoá khi đã mất kênh ảnh > 90 s (tắt máy xe).
+        if (lastFrameDoneAt == 0L || System.currentTimeMillis() - lastFrameDoneAt > 90_000L) {
+            for (j in 0 until TK_BINS) tkBad[j] = 0.0
+            tkCenterMs = -1L
+        }
         activeSocket = socket
         out = output
         connected = true
