@@ -313,10 +313,7 @@ class NavEngine(
                         }
                         if (found != null) {
                             list = listOf(found)
-                        } else if (fails >= 2 && rejected.isNotEmpty() &&
-                            // build-304: không ép nhận tuyến đi làn ô tô (log 1/11 21:12, 21:36: ép nhận tuyến carOnly 70–360 m) —
-                            // chỉ khi đã hụt rất nhiều lần (≥6) và đoạn cấm ngắn (≤100 m).
-                            rejected.any { RoutePick.carOnlyM(it, 3000.0) <= 0.0 || (fails >= 6 && RoutePick.carOnlyM(it, 3000.0) <= 100.0) }) {
+                        } else if (fails >= 2 && rejected.isNotEmpty()) { // build-310: về như 302 (luật 304 làm giữ tuyến cũ 80 s, log 2/11)
                             // build-229 — quay đầu chỉ bị phạt, không cấm tuyệt đối (như Google/Waze):
                             // đã thử ≥3 lần (~10 s) mà phía trước không có tuyến nào hợp lệ (đường bị
                             // chặn, dải phân cách…) → nhận tuyến NHANH NHẤT trong số đã thử, kể cả quay

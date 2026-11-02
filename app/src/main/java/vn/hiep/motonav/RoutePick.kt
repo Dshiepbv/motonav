@@ -275,7 +275,9 @@ object RoutePick {
         if (no(t["motor_vehicle"])) return true
         if (t["access"] == "no" || t["access"] == "private") return true
         if (w.highway == "motorway" || w.highway == "motorway_link") return true
-        return mainCarriageway(w)
+        // build-310: bỏ luật "làn chính Xa lộ HN / Phạm Văn Đồng = cấm xe máy" (304) — Sếp: có khúc xe máy đi được, không có
+        // dữ liệu thời gian thực thì để như 302.
+        return false
     }
 
     // build-304: lòng chính (trunk) Xa lộ Hà Nội / Phạm Văn Đồng cấm xe máy từ lâu nhưng OSM chưa gắn nhãn (log 1/11:
