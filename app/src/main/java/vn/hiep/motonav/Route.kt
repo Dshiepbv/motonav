@@ -74,7 +74,7 @@ class Route(
 
     companion object {
         /** Giải mã Google polyline (độ chính xác 5). */
-        fun decodePolyline(enc: String): Pair<DoubleArray, DoubleArray> {
+        fun decodePolyline(enc: String, f: Double = 1e5): Pair<DoubleArray, DoubleArray> {
             val la = ArrayList<Double>()
             val lo = ArrayList<Double>()
             var index = 0
@@ -98,8 +98,8 @@ class Route(
                     shift += 5
                 } while (b >= 0x20 && index < enc.length)
                 lng += if (result and 1 != 0) (result shr 1).inv() else (result shr 1)
-                la.add(lat / 1e5)
-                lo.add(lng / 1e5)
+                la.add(lat / f)
+                lo.add(lng / f)
             }
             return Pair(la.toDoubleArray(), lo.toDoubleArray())
         }

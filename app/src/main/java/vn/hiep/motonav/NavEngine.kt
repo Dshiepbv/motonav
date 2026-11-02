@@ -199,17 +199,21 @@ class NavEngine(
                 // build-305: chạy Goong + VietMap song song (khi có cả hai mã). Tìm tuyến lúc bắt đầu: gọi CẢ HAI, mọi tuyến
                 // qua cùng bộ lọc/xếp hạng, log routeDual. Tìm lại (reroute)/điểm đi qua: chỉ gọi bên đã thắng lúc bắt đầu,
                 // bên kia chỉ gọi khi bên thắng lỗi.
-                val dual = goongKey.isNotBlank() && vmKey.isNotBlank()
-                fun callProv(p: String, alt: Boolean, via: List<Pair<Double, Double>>): List<Route> =
-                    if (p == "goong") { countGoongCall(); GoongMap.routes(goongKey, origin.first, origin.second, dLat, dLon, prefs.goongVehicle, alt, via) }
-                    else { countVmCall(); VietMap.routes(vmKey, origin.first, origin.second, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway) }
+                // build-313: thêm Valhalla xe máy (máy chủ OSM cộng đồng, miễn phí, không cần mã). Tìm tuyến lúc
+                // bắt đầu gọi MỌI nguồn; tìm lại giữa đường ưu tiên Valhalla (không tốn tiền), lỗi thì bên thắng, rồi bên còn lại.
+                val provAvail = ArrayList<String>().apply { if (goongKey.isNotBlank()) add("goong"); if (vmKey.isNotBlank()) add("vm"); add("vh") }
+                val dual = provAvail.size > 1
+                val rerouteOrder = (listOf("vh", winnerProvider) + provAvail).distinct().filter { it in provAvail }
+                val vhHeading = if (moving) heading else null
+                fun callAt(p: String, fLat: Double, fLon: Double, alt: Boolean, via: List<Pair<Double, Double>>): List<Route> = when (p) {
+                    "goong" -> { countGoongCall(); GoongMap.routes(goongKey, fLat, fLon, dLat, dLon, prefs.goongVehicle, alt, via) }
+                    "vm" -> { countVmCall(); VietMap.routes(vmKey, fLat, fLon, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway) }
+                    else -> Valhalla.routes(fLat, fLon, vhHeading, dLat, dLon, alt, via)
+                }
+                fun callProv(p: String, alt: Boolean, via: List<Pair<Double, Double>>): List<Route> = callAt(p, origin.first, origin.second, alt, via)
                 fun fromOrigin(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> {
                     val both = dual && !reroute && via.isEmpty()
-                    val provs = when {
-                        !dual -> listOf(if (goongKey.isNotBlank()) "goong" else "vm")
-                        both -> listOf("goong", "vm")
-                        else -> listOf(winnerProvider, if (winnerProvider == "goong") "vm" else "goong")
-                    }
+                    val provs = if (both) provAvail else rerouteOrder
                     val out = ArrayList<Route>()
                     var err: Exception? = null
                     for (p in provs) {
@@ -293,10 +297,10 @@ class NavEngine(
                                 // Đặt điểm đầu đủ xa phía trước thì không còn bị gắn nhầm; nối xe → điểm đó bằng
                                 // đoạn đi tiếp trên đường đang chạy.
                                 val shifted = try {
-                                    val useG = goongKey.isNotBlank() && (!dual || winnerProvider == "goong")
-                                    if (useG) countGoongCall() else countVmCall()
-                                    val raw = if (useG) GoongMap.routes(goongKey, ap.first, ap.second, dLat, dLon, prefs.goongVehicle, false)
-                                    else VietMap.routes(vmKey, ap.first, ap.second, heading, dLat, dLon, prefs.traffic, false, emptyList(), prefs.avoidHighway)
+                                    var raw: List<Route> = emptyList()
+                                    for (p in rerouteOrder) {
+                                        try { raw = callAt(p, ap.first, ap.second, false, emptyList()); if (raw.isNotEmpty()) break } catch (_: Exception) {}
+                                    }
                                     raw.firstOrNull()?.let { if (on != null) RoutePick.prependPath(it, RoutePick.walkPoints(on, 40.0 + dAhead)) else RoutePick.prepend(RoutePick.prepend(it, ap.first, ap.second), startLat, startLon) }
                                 } catch (_: Exception) { null }
                                 val sWhy = shifted?.let { RoutePick.rejectReason(it, heading, trailNow) }
