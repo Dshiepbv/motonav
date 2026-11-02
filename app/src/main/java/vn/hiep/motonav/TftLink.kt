@@ -270,12 +270,6 @@ object TftLink {
     @Volatile private var lastStallStart = 0L
     // build-226: khung chưa ACK sau [RESEND_AFTER_MS] thì gửi lại đúng gói đó MỘT lần (cùng số thứ tự)
     // — thử xem màn có "tỉnh" sớm hơn không. resendHit = số lần ACK tới trong 1 s sau khi gửi lại.
-    // build-309: khi chưa có ACK, cứ mỗi [RS_EVERY_MS] gửi lại ĐÚNG khung đó (cùng số thứ tự) để kênh không im lâu
-    // (Sếp: nghỉ 0,3–0,4 s không lag, ≥0,9 s mới lag). Bật/tắt luân phiên mỗi 2 phút theo đồng hồ (tftStat "rs").
-    private const val RS_EVERY_MS = 500L
-    private fun rsOn(@Suppress("UNUSED_PARAMETER") now: Long): Boolean = false // build-315: tắt — log 2/11 bật 34% vs tắt 32%, vô ích
-    // build-309: tắt tải trước ô bản đồ (thêm từ 303, không có ở 302) để màn giống hệt 302 khi so lag.
-    private const val PREFETCH_TILES = false
     private const val RESEND_AFTER_MS = 3_600_000L // build-229: tắt gửi lại — log 226/228: làm đứng hình tăng 15% → 22–35%
     private var statResend = 0
     private var statResendHit = 0
@@ -340,101 +334,6 @@ object TftLink {
         for (j in 0 until AV_BINS) { avTot[j] *= 0.998; avBad[j] *= 0.998 }
         avTot[i] += 1.0
         if (bad) avBad[i] += 1.0
-    }
-
-    // ---- build-307: NÉ MỐC 5 GIÂY CỦA MÀN XE ----
-    // Log 27/10–2/11 (45 phiên): mọi phiên lag đều có 1 "điểm nóng" trong chu kỳ 5 s — khung gửi trong ~0,65 s trước mốc
-    // đứng 25–33%, lúc khác 1–3%. Mốc đổi mỗi lần bật máy xe nhưng giữ nguyên cả chuyến, kể cả qua các lần nối lại
-    // (2/11: 48 phút, 5 lần nối, mốc không xê dịch). Học mốc từ các lần đứng (không xoá khi nối lại, chỉ xoá khi
-    // mất kết nối > 90 s = tắt máy xe), rồi không gửi trong [c − 0,45 s, c + 0,35 s + W]. W luân phiên mỗi 2 phút:
-    // 0,3 s / 1,5 s / không né — để một chuyến đo được mức nào hết đứng (tftStat "tw").
-    private const val TK_BINS = 40 // 125 ms
-    private val tkBad = DoubleArray(TK_BINS)
-    @Volatile private var tkCenterMs = -1L
-    @Volatile private var tkWaits = 0
-    @Volatile private var tkWaitedMs = 0L
-    @Volatile private var lastFrameDoneAt = 0L
-
-    // build-309: TẮT — log 308: né mốc tạo khoảng im ≥0,9 s, khung sau khoảng im lại kẹt 35–40% (nghỉ 0,3–0,4 s chỉ 4%).
-    private fun tkW(now: Long): Long = -1L
-
-    private fun tkRecordStall(sentAt: Long) {
-        val b = (((sentAt % 5000L) + 5000L) % 5000L * TK_BINS / 5000L).toInt()
-        for (j in 0 until TK_BINS) tkBad[j] *= 0.97
-        tkBad[b] += 1.0
-        // cửa sổ 5 ô (0,625 s) có nhiều lần đứng nhất
-        val tot = tkBad.sum()
-        var best = -1; var bestV = 0.0
-        for (i in 0 until TK_BINS) {
-            var v = 0.0
-            for (d in 0 until 5) v += tkBad[(i + d) % TK_BINS]
-            if (v > bestV) { bestV = v; best = i }
-        }
-        val rateIn = bestV / 5.0
-        val rateOut = (tot - bestV) / (TK_BINS - 5)
-        val old = tkCenterMs
-        tkCenterMs = if (best >= 0 && bestV >= 4.0 && bestV >= 0.35 * tot && rateIn >= 3.0 * rateOut.coerceAtLeast(0.05)) {
-            var sw = 0.0; var sx = 0.0
-            for (d in 0 until 5) { val w = tkBad[(best + d) % TK_BINS]; sw += w; sx += w * (d + 0.5) }
-            (((best + sx / sw) * 125.0).toLong()) % 5000L
-        } else -1L
-        if (old != tkCenterMs && (old < 0 || tkCenterMs < 0 || Math.abs(old - tkCenterMs) > 120)) {
-            try { TripLog.ev("tftTick", "c" to tkCenterMs, "inWin" to Math.round(bestV * 10) / 10.0, "tot" to Math.round(tot * 10) / 10.0) } catch (_: Exception) {}
-        }
-    }
-
-    /** ms cần chờ để thời điểm gửi [now] ra khỏi vùng cấm quanh mốc; 0 = gửi ngay. */
-    private fun tkWaitMs(now: Long): Long {
-        val c = tkCenterMs
-        val w = tkW(now)
-        if (c < 0 || w < 0) return 0L
-        val ph = ((now - c) % 5000L + 5000L) % 5000L // 0 = đúng tâm điểm nóng
-        val rel = if (ph > 2500L) ph - 5000L else ph // -2500..2500
-        val lo = -450L; val hi = 350L + w
-        return if (rel in lo until hi) hi - rel else 0L
-    }
-
-    // ---- build-308: TRÁNH KHE NGUY HIỂM THEO NHỊP GÓI 0x41 CỦA XE ----
-    // Log 2/11 so với đêm 1/11: khung tự "khoá pha" vào nhịp gói tốc độ 0x41 (~1,18 s) ở 2 vị trí: ~0–50 ms và ~550–650 ms
-    // trước gói 0x41 kế tiếp. Khe 550–600 ms là khe nguy hiểm: trong vùng mốc 5 s đứng 50% (64/129), khe 600–650 chỉ 8%;
-    // đêm 1/11 gần như mọi lần đứng (8/14) cũng ở khe 550–600. Đêm qua mượt vì phần lớn khung rơi vào khe 600–650 (1105 so
-    // với 182), sáng nay chia đều (637/685) — lệch chỉ ~30–50 ms do ACK/khung nhỏ hơn. Nên chủ động chỉnh khoảng nghỉ
-    // để thời điểm gửi cách gói 0x41 dự kiến kế tiếp ≥ 630 ms (hoặc ngay sau gói 0x41 nếu không kịp).
-    @Volatile private var last41At = 0L
-    private val gaps41 = LongArray(8)
-    @Volatile private var gaps41n = 0
-    @Volatile private var g41Shifts = 0
-
-    private fun on41(now: Long) {
-        val prev = last41At
-        last41At = now
-        if (prev != 0L) {
-            val g = now - prev
-            if (g in 900L..1500L) synchronized(gaps41) { gaps41[gaps41n % 8] = g; gaps41n++ }
-        }
-    }
-
-    private fun gap41(): Long = synchronized(gaps41) {
-        val n = Math.min(gaps41n, 8)
-        if (n < 4) -1L else gaps41.copyOf(n).sorted()[n / 2]
-    }
-
-    /** Khoảng nghỉ trước khung kế tiếp, chỉnh để thời điểm gửi không rơi vào khe 470–630 ms trước gói 0x41 kế tiếp. */
-    private const val G41_GUARD = false // build-309: tắt — log 308 không giảm đứng
-    private fun restBefore41(base: Long): Long {
-        if (!G41_GUARD) return base
-        val g = gap41()
-        val l = last41At
-        val now = System.currentTimeMillis()
-        if (g < 0 || l == 0L || now - l > 3000L) return base
-        val send = now + base + buildEwmaMs.toLong() + 20L
-        var next = l + g
-        while (next < send - 50L) next += g
-        val d = next - send
-        if (d !in 470L until 630L) return base
-        g41Shifts++
-        val early = next - 640L - buildEwmaMs.toLong() - 20L - now
-        return if (early >= 250L) early else base + (d + 60L) // gửi sớm hơn, không kịp thì gửi ngay sau gói 0x41
     }
 
     private fun avReset() { for (j in 0 until AV_BINS) { avTot[j] = 0.0; avBad[j] = 0.0 }; avProbe = 0 }
@@ -503,7 +402,7 @@ object TftLink {
         bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
     } catch (_: Throwable) { -1 }
 
-    private const val AUTO_RESET = false // build-307: log 2/11 — làm mới 4 lần không lần nào hết đứng (kết nối lại không reset màn như tắt máy) → tắt
+    private const val AUTO_RESET = true // build-302: Sếp cho test làm mới kết nối (nhịp 15 ms + không mã hoá)
     @Volatile private var badMinutes = 0
     @Volatile private var lastResetAt = 0L
     @Volatile private var sessionStartAt = 0L
@@ -538,7 +437,7 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "pace" to PACE_MS_PER_KB, "tick" to tkCenterMs, "tw" to tkW(System.currentTimeMillis() - 30_000L), "tkWaits" to tkWaits, "tkWaitMs" to tkWaitedMs, "rs" to (if (rsOn(System.currentTimeMillis() - 30_000L)) "on" else "off"), "resends" to statResend, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "pace" to PACE_MS_PER_KB, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
@@ -633,7 +532,7 @@ object TftLink {
                 resentAt = System.currentTimeMillis()
                 statResend++
                 try { TripLog.ev("tftResend", "seq" to seq, "afterMs" to (resentAt - sentAt)) } catch (_: Exception) {}
-                if (!sendPaced(packet)) break
+                if (!send(packet)) break
             }
             synchronized(ackLock) {
                 while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
@@ -643,12 +542,11 @@ object TftLink {
                         timedOut = true
                         break
                     }
-                    val lastTx = if (resentAt == 0L) sentAt else resentAt
-                    if (rsOn(sentAt) && now - lastTx >= RS_EVERY_MS) {
+                    if (resentAt == 0L && now - sentAt >= RESEND_AFTER_MS) {
                         resendPending = true
                         break
                     }
-                    val until = if (rsOn(sentAt)) minOf(deadline, lastTx + RS_EVERY_MS) else deadline
+                    val until = if (resentAt == 0L) minOf(deadline, sentAt + RESEND_AFTER_MS) else deadline
                     try {
                         (ackLock as Object).wait((until - now).coerceAtLeast(1))
                     } catch (_: InterruptedException) {
@@ -684,8 +582,6 @@ object TftLink {
         statBytes += jpeg.size
         recordFrameStat(waited, timedOut)
         if (tag == null) avRecord(sentAt, timedOut || waited > 1500L)
-        if (tag == null && (timedOut || waited > 1500L)) tkRecordStall(sentAt)
-        lastFrameDoneAt = System.currentTimeMillis()
         // Ghi vào nhật ký chuyến đi (dung lượng khung thật gửi đi + thời gian ACK) — để sau này xem
         // lại có thể đối chiếu xem ACK bắt đầu chậm hẳn từ cỡ khung bao nhiêu byte, tìm ra một mức
         // dung lượng "an toàn" thay vì đoán mò bằng chất lượng JPEG.
@@ -693,7 +589,7 @@ object TftLink {
             // timedOut giữ nghĩa cũ (quá ACK_WAIT_MS) để so được với log các bản trước; lost = quá
             // STALL_WAIT_MS vẫn không có ACK.
             TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace, "ackMs" to (if (timedOut) null else lastFrameAckMs),
-                "timedOut" to (timedOut || waited > ACK_WAIT_MS), "lost" to (if (timedOut) true else null), "tag" to tag, "rs" to (if (rsOn(sentAt)) 1 else 0))
+                "timedOut" to (timedOut || waited > ACK_WAIT_MS), "lost" to (if (timedOut) true else null), "tag" to tag)
         } catch (_: Exception) {
         }
         return true
@@ -742,8 +638,6 @@ object TftLink {
     @Volatile private var skWays: List<Way>? = null
     @Volatile private var skSpeedKmh: Int = -1
     @Volatile private var skLimitKmh: Int? = null
-    @Volatile private var skNextLimit: Int? = null
-    @Volatile private var skNextLimitDist = -1
     @Volatile private var skDistanceM: Int = -1
     @Volatile private var skNextStreet: String? = null
     @Volatile private var skRemainingM: Double = 0.0
@@ -768,19 +662,6 @@ object TftLink {
     // công thức + kiểm chứng trước trên mockup artifact (TFT Phạm Văn Đồng) theo yêu cầu thực tế.
     @Volatile private var skTiltT: Double = 1.0
     @Volatile private var skTiltLastMs: Long = 0L
-    @Volatile private var skPitch: Double = 45.0
-    @Volatile private var skPitchMs: Long = 0L
-
-    /** Tuyến giả cho chế độ bản đồ tĩnh (chưa dẫn đường): đường thẳng theo hướng xe, chỉ để định khung bản đồ. */
-    private fun freeRoute(): Route {
-        val hd = if (skHeadingDeg >= 0) skHeadingDeg else skLastGoodHeadingDeg
-        val hr = Math.toRadians(hd)
-        val k = 111320.0 * Math.cos(Math.toRadians(skLat))
-        val ds = doubleArrayOf(-60.0, 0.0, 500.0, 1000.0, 1500.0, 2000.0, 2500.0, 3000.0)
-        val la = DoubleArray(ds.size) { skLat + Math.cos(hr) * ds[it] / 110540.0 }
-        val lo = DoubleArray(ds.size) { skLon + Math.sin(hr) * ds[it] / k }
-        return Route(la, lo, emptyList(), 3060.0, 0L)
-    }
     // "Ghim" chỉ số điểm gần nhất tìm được ở khung trước, để khung sau chỉ dò quanh đó thay vì
     // quét lại toàn tuyến — tránh nhảy lung tung sang điểm xa (một đoạn đường khác của tuyến tình
     // cờ ở gần) làm đường xanh biến mất/vẽ sai rồi tự "sửa" lại ở khung sau.
@@ -809,11 +690,7 @@ object TftLink {
         wxLabel: String? = null,
         wxNight: Boolean = false,
         thenDistM: Double = 0.0,
-        nextLimitKmh: Int? = null,
-        nextLimitDistM: Int = -1,
     ) {
-        skNextLimit = nextLimitKmh
-        skNextLimitDist = nextLimitDistM
         skActive = active
         skRoute = route
         // build-284: dự đoán vị trí — màn xe đứng 3–6 s mỗi 5–10 s (lỗi phía TFT), khung hiện lúc đó nên nằm ở GIỮA đợt
@@ -864,10 +741,7 @@ object TftLink {
         val c = Canvas(bmp)
         c.drawColor(Color.BLACK)
         stepSketchPos()
-        // build-306: chưa dẫn đường mà có GPS → "bản đồ tĩnh" (đi không dẫn): dựng tuyến giả thẳng theo hướng xe (60 m sau →
-        // 3 km trước) để dùng nguyên cơ chế bản đồ nền/zoom theo tốc độ/nghiêng/đường 2 bên; KHÔNG vẽ tuyến đỏ, bảng rẽ, ETA.
-        val free = skRoute == null && Live.gpsOk && skLat != 0.0
-        val route = skRoute ?: if (free) freeRoute() else null
+        val route = skRoute
         val anchorX = w / 2f
         var carX = anchorX // tam giác xe (chỉ vẽ) — xem build-231 ở khối nét đỏ
         // Nhích điểm xe lên khỏi mép dưới (0.82->0.72) — theo phản hồi thực tế: khi tuyến rẽ ngang
@@ -950,14 +824,6 @@ object TftLink {
             // kính, giống kiểu bản đồ fisheye): đoạn gần xe chiếm nhiều pixel hơn tỉ lệ thật (dễ thấy
             // khúc rẽ ngay trước mắt), đoạn xa bị nén lại nhưng vẫn hiện đủ hình dạng/hướng đi xa tới
             // maxAhead. Nhờ vậy nâng lại maxAhead lên hẳn (1.8km mặc định) mà điểm rẽ gần vẫn to rõ.
-            run {
-                // build-306: từ ~50 km/h nghiêng camera bản đồ 45° → 60° để nhìn xa tới chỗ cua; chuyển dần (không giật).
-                val pt = if (skSpdTier == 2) 45.0 else 60.0
-                val nowP = System.currentTimeMillis()
-                val dtP = (if (skPitchMs == 0L) 400L else nowP - skPitchMs).coerceIn(50L, 2000L)
-                skPitchMs = nowP
-                skPitch += (pt - skPitch) * (1.0 - Math.exp(-dtP / 1200.0))
-            }
             val zoomMul = when (skZoomStep) {
                 -3 -> 0.4; -2 -> 0.55; -1 -> 0.75; 1 -> 1.3; 2 -> 1.65; 3 -> 2.0; else -> 1.0
             }
@@ -1008,13 +874,12 @@ object TftLink {
             val snapShot: org.maplibre.android.snapshotter.MapSnapshot? = run {
                 val st = mapSnapStyle; val cx = appCtx
                 if (st == null || cx == null) return@run null
-                if (PREFETCH_TILES && !free) try { MapSnap.prefetchRoute(cx, st, route.lats, route.lons, route) } catch (_: Throwable) {}
                 val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(14.5, 17.8)
                 val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
                 val aheadM = (0.22 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.15
                 val tLat = skLat + cosH * aheadM / 110540.0
                 val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, skPitch, w, h)
+                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 45.0, w, h)
             }
             // rx/ry (mét thật, đã xoay theo hướng xe) -> toạ độ pixel, nén bán kính theo căn bậc hai
             // (mũ 0.55) quanh vị trí xe: gần xe gần như không nén (dễ thấy rẽ), xa xe nén mạnh hơn.
@@ -1425,7 +1290,7 @@ object TftLink {
             // tuyến sau điểm rẽ) — đúng là "cọc chỉ dẫn" cắm trên con đường sắp đi tới, không phải
             // con đường hiện tại.
             val nextSt = skNextStreet
-            if (!free && !nextSt.isNullOrBlank()) {
+            if (!nextSt.isNullOrBlank()) {
                 val turnCumTarget = cum0 + (skDistanceM.takeIf { it >= 0 }?.toDouble() ?: 0.0)
                 var mIdx = idx0
                 while (mIdx < iEnd0 - 1 && route.cum[mIdx] < turnCumTarget) mIdx++
@@ -1624,10 +1489,8 @@ object TftLink {
                     lineTo(sp[sp.size - 1][0], sp[sp.size - 1][1])
                 }
             } else path
-            if (!free) {
-                c.drawPath(drawPath, casingPaint)
-                c.drawPath(drawPath, linePaint)
-            }
+            c.drawPath(drawPath, casingPaint)
+            c.drawPath(drawPath, linePaint)
         }
         // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up) — to hơn trước (0.06->0.085) theo yêu
         // cầu "điểm định vị to ra chút" để dễ thấy giữa tuyến xanh/nhánh trắng.
@@ -1655,23 +1518,6 @@ object TftLink {
             val fm = numPaint.fontMetrics
             c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
             limBottomY = cy + r
-            // build-314: biển GIẢM tốc phía trước ≤100 m → biển mới nhỏ bên trái biển hiện tại, vòng
-            // đếm mét quanh biển (vòng ngắn dần theo khoảng cách) + số mét bên dưới.
-            val nl = skNextLimit
-            val nd = skNextLimitDist
-            if (nl != null && nl > 0 && nl < lim && nd in 0..100) {
-                val ncx = cx - r * 2.5f; val ncy = cy; val nr = r * 0.85f
-                c.drawCircle(ncx, ncy, nr, ringPaint)
-                c.drawCircle(ncx, ncy, nr * 0.78f, facePaint)
-                val np = Paint(numPaint).apply { textSize = nr * 1.15f }
-                val fm2 = np.fontMetrics
-                c.drawText(nl.toString(), ncx, ncy - (fm2.ascent + fm2.descent) / 2f, np)
-                val arcR = nr + h * 0.022f
-                val arcPaint = Paint().apply { color = Color.rgb(255, 196, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                c.drawArc(android.graphics.RectF(ncx - arcR, ncy - arcR, ncx + arcR, ncy + arcR), -90f, 360f * nd / 100f, false, arcPaint)
-                val dp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.075f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                c.drawText("$nd m", ncx, ncy + arcR + h * 0.075f, dp)
-            }
         }
         // ETA (giờ đến, bên TRÁI) và thời gian+quãng đường còn lại (bên PHẢI) — 2 khung giống hệt
         // nhau (trắng, viền đỏ, chữ đen) để đối xứng 2 bên, cùng ngang hàng với tam giác vị trí xe
@@ -1726,14 +1572,8 @@ object TftLink {
             val iconCy = arm * 0.78f
             // Bỏ icon tự vẽ (bezier/cung tròn) — quay lại tam giác đơn giản xoay theo góc rẽ, đúng
             // kiểu bản đầu tiên (v6.77) theo yêu cầu "chỉ tam giác như lúc đầu".
-            // build-311: biểu tượng ngã rẽ kiểu Garmin StreetCross — vẽ các đường OSM quanh điểm rẽ (xám) + đường đi
-            // thật của tuyến qua ngã đó (mũi tên trắng), xoay theo hướng tới. Đúng cho cả vòng xoay, quay đầu, ngã ba
-            // lệch… không phụ thuộc mã rẽ của Goong/VietMap. Không đủ dữ liệu → mũi tên tam giác như cũ.
-            val jHalf = h * 0.2f
-            val jDrawn = try { drawJunction(c, jHalf + 3f, jHalf + 3f, jHalf, dk) } catch (_: Throwable) { false }
             val apexDeg = Maneuver.angle(skSign)
             val arrowR = arm * 0.62f
-            if (!jDrawn) {
             c.save()
             c.rotate(apexDeg, iconCx, iconCy)
             val arrowPaint = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.FILL; isAntiAlias = true }
@@ -1746,11 +1586,10 @@ object TftLink {
             }
             c.drawPath(arrowPath, arrowPaint)
             c.restore()
-            }
             // Bỏ hẳn tên đường khỏi bảng này theo yêu cầu — chỉ còn icon + khoảng cách, căn giữa
             // icon theo chiều dọc (tên đường giờ chỉ còn hiện trên bản đồ, xem nhãn gắn tuyến bên
             // dưới, đã phóng to).
-            val textX = if (jDrawn) jHalf * 2f + 12f else iconCx + arm * 0.95f
+            val textX = iconCx + arm * 0.95f
             // Khoảng cách trên bảng dẫn giữ màu trắng theo yêu cầu (không đổi đỏ như ETA/tuyến chính).
             val infoPaint = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val dM = skDistanceM
@@ -1785,103 +1624,6 @@ object TftLink {
         bmp.recycle()
         val raw = out.toByteArray()
         return if (iccStripNow()) stripIcc(raw) else raw
-    }
-
-    private val JUNCTION_ROADS = setOf("motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link", "secondary",
-        "secondary_link", "tertiary", "tertiary_link", "unclassified", "residential", "living_street", "service", "road")
-
-    /** build-311: ô ngã rẽ kiểu Garmin StreetCross ở góc trên-trái (tâm [cx],[cy], nửa cạnh [half]). */
-    private fun drawJunction(c: Canvas, cx: Float, cy: Float, half: Float, dk: Boolean): Boolean {
-        val r = skRoute ?: return false
-        val n = r.lats.size
-        if (n < 2 || (skManLat == 0.0 && skManLon == 0.0)) return false
-        val i0 = if (skIdxHintRoute === r && skIdxHint in 0 until n) skIdxHint else 0
-        val lookM = r.cum[i0] + Math.max(skDistanceM, 0) + 400.0
-        var mi = -1; var md = Double.MAX_VALUE
-        for (i in i0 until n) {
-            val d = Geo.distance(skManLat, skManLon, r.lats[i], r.lons[i])
-            if (d < md) { md = d; mi = i }
-            if (r.cum[i] > lookM) break
-        }
-        if (mi < 0 || md > 40.0) return false
-        fun pt(cv: Double): Pair<Double, Double> {
-            if (cv <= 0) return r.lats[0] to r.lons[0]
-            if (cv >= r.total) return r.lats[n - 1] to r.lons[n - 1]
-            var lo = 0; var hi = n - 1
-            while (hi - lo > 1) { val m = (lo + hi) / 2; if (r.cum[m] <= cv) lo = m else hi = m }
-            val sg = r.cum[hi] - r.cum[lo]
-            val f = if (sg < 0.01) 0.0 else (cv - r.cum[lo]) / sg
-            return (r.lats[lo] + f * (r.lats[hi] - r.lats[lo])) to (r.lons[lo] + f * (r.lons[hi] - r.lons[lo]))
-        }
-        val mc = r.cum[mi]
-        val mLat = r.lats[mi]; val mLon = r.lons[mi]
-        val a = pt(mc - 30.0)
-        if (Geo.distance(a.first, a.second, mLat, mLon) < 5.0) return false
-        val hr = Math.toRadians(Geo.bearing(a.first, a.second, mLat, mLon))
-        val sinH = Math.sin(hr); val cosH = Math.cos(hr)
-        val proj = LocalProjection(mLat, mLon)
-        val k = half / 55.0 // 55 m ~ nửa ô
-        val oy = cy + half * 0.22f // điểm rẽ hơi thấp hơn tâm để thấy rõ lối ra
-        fun px(lat: Double, lon: Double): FloatArray {
-            val x = proj.x(lon); val y = proj.y(lat)
-            val fw = x * sinH + y * cosH
-            val sd = x * cosH - y * sinH
-            return floatArrayOf(cx + (sd * k).toFloat(), oy - (fw * k).toFloat())
-        }
-        val rect = android.graphics.RectF(cx - half, cy - half, cx + half, cy + half)
-        val bg = Paint().apply { color = if (dk) Color.rgb(24, 27, 32) else Color.rgb(238, 240, 243); isAntiAlias = true }
-        c.drawRoundRect(rect, half * 0.18f, half * 0.18f, bg)
-        c.save()
-        c.clipRect(rect)
-        val roadP = Paint().apply { color = if (dk) Color.rgb(110, 116, 126) else Color.rgb(150, 156, 166); style = Paint.Style.STROKE; strokeWidth = half * 0.17f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; isAntiAlias = true }
-        val pad = 0.0009
-        val ways = skWays
-        if (ways != null) {
-            for (w in ways) {
-                if (w.highway !in JUNCTION_ROADS) continue
-                if (mLat < w.minLat - pad || mLat > w.maxLat + pad || mLon < w.minLon - pad || mLon > w.maxLon + pad) continue
-                val p = android.graphics.Path()
-                var started = false
-                for (i in w.lats.indices) {
-                    if (Math.abs(w.lats[i] - mLat) > 0.004 || Math.abs(w.lons[i] - mLon) > 0.004) { started = false; continue }
-                    val q = px(w.lats[i], w.lons[i])
-                    if (!started) { p.moveTo(q[0], q[1]); started = true } else p.lineTo(q[0], q[1])
-                }
-                c.drawPath(p, roadP)
-            }
-        }
-        // đường đi của tuyến qua ngã rẽ: từ 45 m trước tới 50 m sau
-        val rp = android.graphics.Path()
-        val pts = ArrayList<FloatArray>()
-        var cv = mc - 45.0
-        while (cv <= mc + 50.0) { val g = pt(cv); pts.add(px(g.first, g.second)); cv += 4.0 }
-        if (pts.size < 3) { c.restore(); return false }
-        rp.moveTo(pts[0][0], pts[0][1])
-        for (i in 1 until pts.size) rp.lineTo(pts[i][0], pts[i][1])
-        val caseP = Paint().apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = half * 0.30f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; isAntiAlias = true }
-        val lineP = Paint().apply { color = if (dk) Color.WHITE else Color.rgb(224, 38, 43); style = Paint.Style.STROKE; strokeWidth = half * 0.20f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; isAntiAlias = true }
-        c.drawPath(rp, caseP)
-        c.drawPath(rp, lineP)
-        // đầu mũi tên
-        val e = pts[pts.size - 1]; val b = pts[pts.size - 3]
-        val dx = e[0] - b[0]; val dy = e[1] - b[1]
-        val len = Math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
-        if (len > 0.5f) {
-            val ux = dx / len; val uy = dy / len
-            val L = half * 0.42f; val W = half * 0.32f
-            val tip = floatArrayOf(e[0] + ux * L * 0.55f, e[1] + uy * L * 0.55f)
-            val baseX = tip[0] - ux * L; val baseY = tip[1] - uy * L
-            val head = android.graphics.Path().apply {
-                moveTo(tip[0], tip[1])
-                lineTo(baseX - uy * W, baseY + ux * W)
-                lineTo(baseX + uy * W, baseY - ux * W)
-                close()
-            }
-            c.drawPath(head, Paint().apply { color = lineP.color; style = Paint.Style.FILL; isAntiAlias = true })
-            c.drawPath(head, Paint().apply { color = caseP.color; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true })
-        }
-        c.restore()
-        return true
     }
 
     /** build-285: thử A/B bỏ đoạn hồ sơ màu ICC (APP2, 472 byte) trong JPEG — luân phiên mỗi 2 phút, log tftStat "icc". */
@@ -1949,8 +1691,6 @@ object TftLink {
                             buildSketchFrame()
                         }
                         buildEwmaMs = buildEwmaMs * 0.9 + (System.currentTimeMillis() - tb0) * 0.1
-                        val tw = tkWaitMs(System.currentTimeMillis())
-                        if (tw > 0) { tkWaits++; tkWaitedMs += tw; sleepQuiet(tw) }
                         sendFrame(frame)
                     } catch (_: Throwable) {
                     }
@@ -1967,7 +1707,7 @@ object TftLink {
                 // ACK_WAIT_MS), nên khoảng lặng xấu nhất giữa 2 khung giờ chỉ còn ~1,9s (1,5s chờ ACK
                 // + 0,4s nghỉ), thay vì 6,4s trước đây.
                 // Nhịp C: nghỉ dài hơn (900 ms) giữa 2 khung — ít khung hơn, thử xem có ít lần đứng hơn.
-                sleepQuiet(restBefore41(if (paceMode == 2) 900L else 400L))
+                sleepQuiet(if (paceMode == 2) 900 else 400)
             } else {
                 sleepQuiet(400)
             }
@@ -2204,8 +1944,7 @@ object TftLink {
     object IconMap {
         fun from(sign: Int, roundabout: Boolean): Int = when {
             roundabout -> 6
-            // build-311: xét quay đầu / đi về bên trái-phải TRƯỚC (trước đây -7 "đi về bên trái" và -98 "quay đầu" rơi vào
-            // nhánh sign <= -2 → hiện mũi tên RẼ TRÁI trên màn xe).
+            // build-311 (giữ lại trong bản 316 = TFT như 302): quay đầu / đi về bên trái-phải xét TRƯỚC nhánh sign <= -2
             sign == -8 || sign == -98 || sign == 8 -> 7 // quay đầu
             sign == -7 -> 2 // đi về bên trái → chếch trái
             sign == 7 -> 3 // đi về bên phải → chếch phải
@@ -2522,11 +2261,6 @@ object TftLink {
             try { TripLog.ev("tftWait12Dis", "sinceLongWaitMs" to (System.currentTimeMillis() - lastLongWaitAt)) } catch (_: Exception) {}
         }
         avReset()
-        // build-307: mốc 5 s giữ qua các lần nối lại; chỉ xoá khi đã mất kênh ảnh > 90 s (tắt máy xe).
-        if (lastFrameDoneAt == 0L || System.currentTimeMillis() - lastFrameDoneAt > 90_000L) {
-            for (j in 0 until TK_BINS) tkBad[j] = 0.0
-            tkCenterMs = -1L
-        }
         activeSocket = socket
         out = output
         connected = true
@@ -2591,7 +2325,6 @@ object TftLink {
                         }
                     }
                     if (cmd == 0x41 && payload.size >= 2) bikeSpeedKmh = payload[1].toInt() and 0xFF
-                    if (cmd == 0x41) on41(System.currentTimeMillis())
                     when (cmd) {
                         0x42 -> { // 1/3: xe gửi serial → trả khả năng hỗ trợ
                             // Xe có thể gửi lại cmd này nhiều lần (loan báo định kỳ) kể cả sau khi đã

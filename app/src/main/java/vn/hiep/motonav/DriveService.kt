@@ -351,8 +351,6 @@ class DriveService : Service(), LocationListener {
                     wxLabel = Live.wxDestLabel,
                     wxNight = Live.wxDestNight,
                     thenDistM = Live.thenDistM,
-                    nextLimitKmh = Live.nextLimit,
-                    nextLimitDistM = Live.nextLimitDist,
                 )
             }
             handler.postDelayed(this, 1000)
