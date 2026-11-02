@@ -1193,6 +1193,7 @@ class DriveService : Service(), LocationListener {
         if (snap != null) cams.addAll(snap.cameras)
         cams.addAll(CameraStore.all(this))
         cams.addAll(OfficialCameras.cameras(this))
+        Live.tftCams = cams.filter { it.kind <= CamKind.FINE && Math.abs(it.lat - lat) < 0.03 && Math.abs(it.lon - lon) < 0.03 }
         val way = currentWay
 
         var nearest: Camera? = null

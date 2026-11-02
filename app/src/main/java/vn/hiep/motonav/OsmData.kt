@@ -144,6 +144,8 @@ class OsmSnapshot(
     val urbanArea: Boolean?,
     val areaName: String?,
     val signs: List<RoadSign> = emptyList(),
+    /** Cây xăng (lat, lon) — build-321, hiện ghim trên màn TFT. */
+    val fuel: List<DoubleArray> = emptyList(),
 )
 
 /** Tải đường và camera quanh vị trí từ OpenStreetMap (Overpass API). */
@@ -180,6 +182,12 @@ object Overpass {
             append("node(around:$wayRadius,$p)[\"traffic_calming\"];\n")
             append(");\n")
             append("out;\n")
+            // Cây xăng (ghim trên màn TFT)
+            append("(\n")
+            append("node(around:$wayRadius,$p)[\"amenity\"=\"fuel\"];\n")
+            append("way(around:$wayRadius,$p)[\"amenity\"=\"fuel\"];\n")
+            append(");\n")
+            append("out center;\n")
             append("is_in($p)->.a;\n")
             append("area.a[\"boundary\"=\"administrative\"];\n")
             append("out tags;\n")
@@ -249,6 +257,7 @@ object Overpass {
         val ways = ArrayList<Way>()
         val cams = ArrayList<Camera>()
         val signs = ArrayList<RoadSign>()
+        val fuel = ArrayList<DoubleArray>()
         var bestAreaLevel = -1
         var urban: Boolean? = null
         var areaName: String? = null
@@ -270,6 +279,7 @@ object Overpass {
                     // Trường học / chợ (có "center", không có hình đường)
                     val ctr = e.optJSONObject("center")
                     val amen = tags["amenity"]
+                    if (ctr != null && amen == "fuel") { fuel.add(doubleArrayOf(ctr.optDouble("lat"), ctr.optDouble("lon"))); continue }
                     if (ctr != null && (amen == "school" || amen == "marketplace")) {
                         cams.add(
                             Camera(
@@ -314,6 +324,7 @@ object Overpass {
                     ways.add(Way(e.optLong("id"), tags, la, lo))
                 }
                 "node" -> {
+                    if (tags["amenity"] == "fuel") { fuel.add(doubleArrayOf(e.optDouble("lat"), e.optDouble("lon"))); continue }
                     val isCam = tags["highway"] == "speed_camera" || tags.containsKey("enforcement") ||
                         tags["man_made"] == "surveillance" || tags.containsKey("hazard") ||
                         tags["railway"] == "level_crossing" || tags["railway"] == "crossing" ||
@@ -361,6 +372,6 @@ object Overpass {
                 }
             }
         }
-        return OsmSnapshot(lat, lon, ways, cams, urban, areaName, signs)
+        return OsmSnapshot(lat, lon, ways, cams, urban, areaName, signs, fuel)
     }
 }

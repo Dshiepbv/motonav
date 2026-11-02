@@ -65,6 +65,8 @@ object Live {
     @Volatile var maneuverLabel: String? = null
     @Volatile var maneuverSign = 0
     @Volatile var maneuverExit = 0
+    /** Camera phạt nguội/bắn tốc độ quanh xe để vẽ ghim trên TFT (build-321). */
+    @Volatile var tftCams: List<Camera> = emptyList()
     @Volatile var thenText: String? = null
     @Volatile var thenSign = 0
     /** Khoảng cách (m) từ chỗ rẽ SẮP TỚI tới chỗ rẽ KẾ TIẾP NỮA — để màn TFT biết cần nhìn xa

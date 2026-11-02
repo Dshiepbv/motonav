@@ -1500,6 +1500,23 @@ object TftLink {
             } else path
             c.drawPath(drawPath, casingPaint)
             c.drawPath(drawPath, linePaint)
+            // build-321: ghim nổi kiểu Garmin — cây xăng (xanh) và camera (đỏ) trong tầm nhìn phía trước.
+            try {
+                val pins = ArrayList<Triple<Float, Float, Int>>() // sx, sy, loại (0 xăng, 1 camera)
+                fun addPin(la: Double, lo: Double, kind: Int) {
+                    val dx = proj.x(lo); val dy = proj.y(la)
+                    val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
+                    if (ry < 15.0 || ry > drawAhead || Math.abs(rx) > drawAhead * 0.8) return
+                    val (sx, sy) = toScreen(rx, ry)
+                    if (sx.isNaN() || sy.isNaN() || sx < h * 0.06f || sx > w - h * 0.06f || sy < h * 0.12f || sy > h * 0.95f) return
+                    pins.add(Triple(sx, sy, kind))
+                }
+                Live.osm?.fuel?.forEach { addPin(it[0], it[1], 0) }
+                Live.tftCams.forEach { addPin(it.lat, it.lon, 1) }
+                // xa trước, gần sau (ghim gần đè lên ghim xa); tối đa 8 ghim
+                pins.sortBy { it.second }
+                for (pn in pins.takeLast(8)) drawPin(c, pn.first, pn.second, h * 0.06f, pn.third)
+            } catch (_: Throwable) {}
         }
         // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up) — to hơn trước (0.06->0.085) theo yêu
         // cầu "điểm định vị to ra chút" để dễ thấy giữa tuyến xanh/nhánh trắng.
@@ -1636,6 +1653,32 @@ object TftLink {
         bmp.recycle()
         val raw = out.toByteArray()
         return if (iccStripNow()) stripIcc(raw) else raw
+    }
+
+    /** Ghim nổi: đầu nhọn chạm (x, y), vòng tròn bán kính r phía trên, biểu tượng trắng bên trong. kind 0 = cây xăng, 1 = camera. */
+    private fun drawPin(c: Canvas, x: Float, y: Float, r: Float, kind: Int) {
+        val col = if (kind == 0) Color.rgb(25, 118, 210) else Color.rgb(211, 47, 47)
+        val cy = y - r * 1.9f
+        val body = android.graphics.Path().apply {
+            addCircle(x, cy, r, android.graphics.Path.Direction.CW)
+            moveTo(x - r * 0.62f, cy + r * 0.78f); lineTo(x, y); lineTo(x + r * 0.62f, cy + r * 0.78f); close()
+        }
+        c.drawPath(body, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r * 0.28f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
+        c.drawPath(body, Paint().apply { color = col; style = Paint.Style.FILL; isAntiAlias = true })
+        val wp = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+        if (kind == 0) {
+            // cột bơm xăng + vòi
+            c.drawRoundRect(android.graphics.RectF(x - r * 0.5f, cy - r * 0.55f, x + r * 0.15f, cy + r * 0.6f), r * 0.1f, r * 0.1f, wp)
+            c.drawRect(x - r * 0.38f, cy - r * 0.42f, x + r * 0.03f, cy - r * 0.08f, Paint().apply { color = col; style = Paint.Style.FILL })
+            val hose = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r * 0.14f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+            c.drawLine(x + r * 0.15f, cy - r * 0.3f, x + r * 0.45f, cy - r * 0.1f, hose)
+            c.drawLine(x + r * 0.45f, cy - r * 0.1f, x + r * 0.45f, cy + r * 0.35f, hose)
+        } else {
+            // thân camera + ống kính
+            c.drawRoundRect(android.graphics.RectF(x - r * 0.55f, cy - r * 0.35f, x + r * 0.55f, cy + r * 0.4f), r * 0.12f, r * 0.12f, wp)
+            c.drawRect(x - r * 0.2f, cy - r * 0.5f, x + r * 0.2f, cy - r * 0.3f, wp)
+            c.drawCircle(x, cy + r * 0.03f, r * 0.24f, Paint().apply { color = col; style = Paint.Style.FILL; isAntiAlias = true })
+        }
     }
 
     /** Vẽ biểu tượng chỉ dẫn kiểu Garmin trong ô vuông cạnh [sz] tâm (cx, cy). Toạ độ đơn vị -0.5..0.5, y hướng xuống. */
