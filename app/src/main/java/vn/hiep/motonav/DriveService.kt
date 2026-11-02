@@ -351,6 +351,8 @@ class DriveService : Service(), LocationListener {
                     wxLabel = Live.wxDestLabel,
                     wxNight = Live.wxDestNight,
                     thenDistM = Live.thenDistM,
+                    nextLimitKmh = Live.nextLimit,
+                    nextLimitDistM = Live.nextLimitDist,
                 )
             }
             handler.postDelayed(this, 1000)
@@ -590,6 +592,7 @@ class DriveService : Service(), LocationListener {
 
     private fun updateLimitAhead() {
         val now = SystemClock.elapsedRealtime()
+        if (now < signAheadUntil) return // biển giảm tốc thật phía trước đang đếm mét
         if (now - lastAhead < 2000) return
         lastAhead = now
         val r = Live.route
@@ -944,6 +947,8 @@ class DriveService : Service(), LocationListener {
     private var signLon = 0.0
     private var signOff = 0
     private val signPrevAhead = HashMap<String, Double>()
+    private var signAheadId: String? = null
+    private var signAheadUntil = 0L
 
     /**
      * Biển giới hạn tốc độ vừa đi qua (đúng chiều, bên phải xe) còn hiệu lực: tới khi gặp biển khác,
@@ -983,6 +988,38 @@ class DriveService : Service(), LocationListener {
                 signOff = 0
             }
             signPrevAhead.keys.retainAll(seen)
+            // build-314: biển GIẢM phía trước ≤100 m (đúng chiều, bên phải) → báo trước + vòng đếm mét.
+            // Biển TĂNG không báo trước: chỉ đổi khi đã đi qua biển (logic ở trên).
+            val cur = signLim ?: shownLimit?.kmh
+            var best: SpeedSign? = null
+            var bestAhead = 1e9
+            if (cur != null) for (s in cands) {
+                if (s.end || s.kmh >= cur) continue
+                val d = Geo.distance(lat, lon, s.lat, s.lon)
+                if (d > 110) continue
+                val rel = Math.toRadians(Geo.signedAngle(hdg, Geo.bearing(lat, lon, s.lat, s.lon)))
+                val ahead = d * kotlin.math.cos(rel)
+                val side = d * kotlin.math.sin(rel)
+                if (ahead <= 0.0 || ahead > 100.0 || side < -6.0 || side > 15.0) continue
+                if (s.src == "osm" && s.dir >= 0 && Geo.angleDiff(s.dir, hdg) > 60) continue
+                if (ahead < bestAhead) { bestAhead = ahead; best = s }
+            }
+            if (best != null) {
+                if (signAheadId != best.id) {
+                    signAheadId = best.id
+                    TripLog.ev("signAhead", "src" to best.src, "kmh" to best.kmh, "d" to bestAhead.roundToInt())
+                    alert("Sắp giảm tốc: ${best.kmh} km/h · còn ${max(10, (bestAhead / 10).roundToInt() * 10)} m", "Phía trước giới hạn ${best.kmh}", beep = true, showMs = 4000)
+                }
+                Live.nextLimit = best.kmh
+                Live.nextLimitDist = bestAhead.roundToInt()
+                Live.nextLimitLat = best.lat
+                Live.nextLimitLon = best.lon
+                Live.nextLimitEst = false
+                signAheadUntil = SystemClock.elapsedRealtime() + 1500
+            } else if (signAheadId != null) {
+                signAheadId = null
+                clearAhead()
+            }
         }
         val lim = signLim ?: return null
         val nm = way?.name

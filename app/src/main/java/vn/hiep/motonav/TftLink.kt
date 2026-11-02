@@ -742,6 +742,8 @@ object TftLink {
     @Volatile private var skWays: List<Way>? = null
     @Volatile private var skSpeedKmh: Int = -1
     @Volatile private var skLimitKmh: Int? = null
+    @Volatile private var skNextLimit: Int? = null
+    @Volatile private var skNextLimitDist = -1
     @Volatile private var skDistanceM: Int = -1
     @Volatile private var skNextStreet: String? = null
     @Volatile private var skRemainingM: Double = 0.0
@@ -807,7 +809,11 @@ object TftLink {
         wxLabel: String? = null,
         wxNight: Boolean = false,
         thenDistM: Double = 0.0,
+        nextLimitKmh: Int? = null,
+        nextLimitDistM: Int = -1,
     ) {
+        skNextLimit = nextLimitKmh
+        skNextLimitDist = nextLimitDistM
         skActive = active
         skRoute = route
         // build-284: dự đoán vị trí — màn xe đứng 3–6 s mỗi 5–10 s (lỗi phía TFT), khung hiện lúc đó nên nằm ở GIỮA đợt
@@ -1649,6 +1655,23 @@ object TftLink {
             val fm = numPaint.fontMetrics
             c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
             limBottomY = cy + r
+            // build-314: biển GIẢM tốc phía trước ≤100 m → biển mới nhỏ bên trái biển hiện tại, vòng
+            // đếm mét quanh biển (vòng ngắn dần theo khoảng cách) + số mét bên dưới.
+            val nl = skNextLimit
+            val nd = skNextLimitDist
+            if (nl != null && nl > 0 && nl < lim && nd in 0..100) {
+                val ncx = cx - r * 2.5f; val ncy = cy; val nr = r * 0.85f
+                c.drawCircle(ncx, ncy, nr, ringPaint)
+                c.drawCircle(ncx, ncy, nr * 0.78f, facePaint)
+                val np = Paint(numPaint).apply { textSize = nr * 1.15f }
+                val fm2 = np.fontMetrics
+                c.drawText(nl.toString(), ncx, ncy - (fm2.ascent + fm2.descent) / 2f, np)
+                val arcR = nr + h * 0.022f
+                val arcPaint = Paint().apply { color = Color.rgb(255, 196, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                c.drawArc(android.graphics.RectF(ncx - arcR, ncy - arcR, ncx + arcR, ncy + arcR), -90f, 360f * nd / 100f, false, arcPaint)
+                val dp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.075f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                c.drawText("$nd m", ncx, ncy + arcR + h * 0.075f, dp)
+            }
         }
         // ETA (giờ đến, bên TRÁI) và thời gian+quãng đường còn lại (bên PHẢI) — 2 khung giống hệt
         // nhau (trắng, viền đỏ, chữ đen) để đối xứng 2 bên, cùng ngang hàng với tam giác vị trí xe
