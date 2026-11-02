@@ -270,6 +270,12 @@ object TftLink {
     @Volatile private var lastStallStart = 0L
     // build-226: khung chưa ACK sau [RESEND_AFTER_MS] thì gửi lại đúng gói đó MỘT lần (cùng số thứ tự)
     // — thử xem màn có "tỉnh" sớm hơn không. resendHit = số lần ACK tới trong 1 s sau khi gửi lại.
+    // build-309: khi chưa có ACK, cứ mỗi [RS_EVERY_MS] gửi lại ĐÚNG khung đó (cùng số thứ tự) để kênh không im lâu
+    // (Sếp: nghỉ 0,3–0,4 s không lag, ≥0,9 s mới lag). Bật/tắt luân phiên mỗi 2 phút theo đồng hồ (tftStat "rs").
+    private const val RS_EVERY_MS = 500L
+    private fun rsOn(now: Long): Boolean = (now / 120_000L) % 2L == 0L
+    // build-309: tắt tải trước ô bản đồ (thêm từ 303, không có ở 302) để màn giống hệt 302 khi so lag.
+    private const val PREFETCH_TILES = false
     private const val RESEND_AFTER_MS = 3_600_000L // build-229: tắt gửi lại — log 226/228: làm đứng hình tăng 15% → 22–35%
     private var statResend = 0
     private var statResendHit = 0
@@ -349,7 +355,8 @@ object TftLink {
     @Volatile private var tkWaitedMs = 0L
     @Volatile private var lastFrameDoneAt = 0L
 
-    private fun tkW(now: Long): Long = when ((now / 120_000L) % 3L) { 0L -> 300L; 1L -> 1500L; else -> -1L }
+    // build-309: TẮT — log 308: né mốc tạo khoảng im ≥0,9 s, khung sau khoảng im lại kẹt 35–40% (nghỉ 0,3–0,4 s chỉ 4%).
+    private fun tkW(now: Long): Long = -1L
 
     private fun tkRecordStall(sentAt: Long) {
         val b = (((sentAt % 5000L) + 5000L) % 5000L * TK_BINS / 5000L).toInt()
@@ -413,7 +420,9 @@ object TftLink {
     }
 
     /** Khoảng nghỉ trước khung kế tiếp, chỉnh để thời điểm gửi không rơi vào khe 470–630 ms trước gói 0x41 kế tiếp. */
+    private const val G41_GUARD = false // build-309: tắt — log 308 không giảm đứng
     private fun restBefore41(base: Long): Long {
+        if (!G41_GUARD) return base
         val g = gap41()
         val l = last41At
         val now = System.currentTimeMillis()
@@ -529,7 +538,7 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "pace" to PACE_MS_PER_KB, "tick" to tkCenterMs, "tw" to tkW(System.currentTimeMillis() - 30_000L), "tkWaits" to tkWaits, "tkWaitMs" to tkWaitedMs, "g41" to gap41(), "g41Shifts" to g41Shifts, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "pace" to PACE_MS_PER_KB, "tick" to tkCenterMs, "tw" to tkW(System.currentTimeMillis() - 30_000L), "tkWaits" to tkWaits, "tkWaitMs" to tkWaitedMs, "rs" to (if (rsOn(System.currentTimeMillis() - 30_000L)) "on" else "off"), "resends" to statResend, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
@@ -624,7 +633,7 @@ object TftLink {
                 resentAt = System.currentTimeMillis()
                 statResend++
                 try { TripLog.ev("tftResend", "seq" to seq, "afterMs" to (resentAt - sentAt)) } catch (_: Exception) {}
-                if (!send(packet)) break
+                if (!sendPaced(packet)) break
             }
             synchronized(ackLock) {
                 while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
@@ -634,11 +643,12 @@ object TftLink {
                         timedOut = true
                         break
                     }
-                    if (resentAt == 0L && now - sentAt >= RESEND_AFTER_MS) {
+                    val lastTx = if (resentAt == 0L) sentAt else resentAt
+                    if (rsOn(sentAt) && now - lastTx >= RS_EVERY_MS) {
                         resendPending = true
                         break
                     }
-                    val until = if (resentAt == 0L) minOf(deadline, sentAt + RESEND_AFTER_MS) else deadline
+                    val until = if (rsOn(sentAt)) minOf(deadline, lastTx + RS_EVERY_MS) else deadline
                     try {
                         (ackLock as Object).wait((until - now).coerceAtLeast(1))
                     } catch (_: InterruptedException) {
@@ -683,7 +693,7 @@ object TftLink {
             // timedOut giữ nghĩa cũ (quá ACK_WAIT_MS) để so được với log các bản trước; lost = quá
             // STALL_WAIT_MS vẫn không có ACK.
             TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace, "ackMs" to (if (timedOut) null else lastFrameAckMs),
-                "timedOut" to (timedOut || waited > ACK_WAIT_MS), "lost" to (if (timedOut) true else null), "tag" to tag, "tw" to tkW(sentAt), "tk" to tkCenterMs)
+                "timedOut" to (timedOut || waited > ACK_WAIT_MS), "lost" to (if (timedOut) true else null), "tag" to tag, "rs" to (if (rsOn(sentAt)) 1 else 0))
         } catch (_: Exception) {
         }
         return true
@@ -992,7 +1002,7 @@ object TftLink {
             val snapShot: org.maplibre.android.snapshotter.MapSnapshot? = run {
                 val st = mapSnapStyle; val cx = appCtx
                 if (st == null || cx == null) return@run null
-                if (!free) try { MapSnap.prefetchRoute(cx, st, route.lats, route.lons, route) } catch (_: Throwable) {}
+                if (PREFETCH_TILES && !free) try { MapSnap.prefetchRoute(cx, st, route.lats, route.lons, route) } catch (_: Throwable) {}
                 val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(14.5, 17.8)
                 val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
                 val aheadM = (0.22 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.15
