@@ -353,8 +353,56 @@ class DriveService : Service(), LocationListener {
                     thenDistM = Live.thenDistM,
                 )
             }
+            try { logPhone() } catch (_: Throwable) {}
             handler.postDelayed(this, 1000)
         }
+    }
+
+    // build-319: số liệu phía điện thoại mỗi 10 s (tìm thứ đổi theo giờ ngày/đêm đi cùng độ đứng màn TFT):
+    // dữ liệu mạng KB nhận/gửi (cả máy), loại mạng + mức sóng di động, CPU của app, khung TFT đã gửi.
+    private var phAt = 0L
+    private var phRx = -1L
+    private var phTx = -1L
+    private var phCpu = -1L
+    private var phFrames = 0
+    private fun logPhone() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - phAt < 10_000L) return
+        val dt = if (phAt == 0L) 0L else now - phAt
+        phAt = now
+        val rx = android.net.TrafficStats.getTotalRxBytes()
+        val tx = android.net.TrafficStats.getTotalTxBytes()
+        val mrx = android.net.TrafficStats.getMobileRxBytes()
+        val cpu = android.os.Process.getElapsedCpuTime()
+        val fr = TftLink.frameTxCount
+        if (dt > 0 && phRx >= 0) {
+            var net = "?"
+            var lvl = -1
+            var dbm = 0
+            try {
+                val cm = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+                val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+                net = when {
+                    caps == null -> "none"
+                    caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                    caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "cell${caps.linkDownstreamBandwidthKbps / 1000}M"
+                    else -> "other"
+                }
+            } catch (_: Throwable) {}
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= 28) {
+                    val tm = getSystemService(android.content.Context.TELEPHONY_SERVICE) as android.telephony.TelephonyManager
+                    val ss = tm.signalStrength
+                    if (ss != null) {
+                        lvl = ss.level
+                        if (android.os.Build.VERSION.SDK_INT >= 29) dbm = ss.cellSignalStrengths.firstOrNull()?.dbm ?: 0
+                    }
+                }
+            } catch (_: Throwable) {}
+            TripLog.ev("phone", "dtMs" to dt, "rxKB" to (rx - phRx) / 1024, "txKB" to (tx - phTx) / 1024, "mobRxKB" to (if (mrx >= 0) mrx / 1024 else -1),
+                "net" to net, "lvl" to lvl, "dbm" to dbm, "cpuPct" to Math.round((cpu - phCpu) * 1000.0 / dt) / 10.0, "frames" to (fr - phFrames))
+        }
+        phRx = rx; phTx = tx; phCpu = cpu; phFrames = fr
     }
 
     private val watchdog = object : Runnable {
