@@ -1944,10 +1944,6 @@ object TftLink {
     object IconMap {
         fun from(sign: Int, roundabout: Boolean): Int = when {
             roundabout -> 6
-            // build-311 (giữ lại trong bản 316 = TFT như 302): quay đầu / đi về bên trái-phải xét TRƯỚC nhánh sign <= -2
-            sign == -8 || sign == -98 || sign == 8 -> 7 // quay đầu
-            sign == -7 -> 2 // đi về bên trái → chếch trái
-            sign == 7 -> 3 // đi về bên phải → chếch phải
             sign <= -2 -> 1 // rẽ trái / quẹo gắt trái
             sign == -1 -> 2 // chếch trái
             sign == 0 -> 0 // đi thẳng

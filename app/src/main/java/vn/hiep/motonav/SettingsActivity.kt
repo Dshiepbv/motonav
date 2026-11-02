@@ -856,16 +856,6 @@ class SettingsActivity : Activity() {
             goongStatus,
             note = "Có mã REST API là app dùng Goong để tìm địa chỉ và định tuyến. Có thêm Map Tiles Key là bản đồ nền cũng tự chuyển sang Goong",
         ) { GoongKeyDialog.show(this, prefs) { refresh() } }
-        val mlyStatus = if (prefs.mapillaryToken.isBlank()) "Chưa nhập — chỉ dùng biển OSM + ước tính" else "✅ Đã nhập · ${SpeedSigns.loadedSigns} biển đã tải"
-        action("Mã Mapillary (biển tốc độ)", mlyStatus, note = "Client Token dạng MLY|… ở mapillary.com/dashboard/developers → View. Dùng để tải biển giới hạn tốc độ thật, miễn phí") {
-            val ed = android.widget.EditText(this).apply { setText(prefs.mapillaryToken); hint = "MLY|…"; setSingleLine() }
-            android.app.AlertDialog.Builder(this)
-                .setTitle("Mã Mapillary")
-                .setView(ed)
-                .setPositiveButton("Lưu") { _, _ -> prefs.mapillaryToken = ed.text.toString(); SpeedSigns.token = prefs.mapillaryToken; refresh() }
-                .setNegativeButton("Đóng", null)
-                .show()
-        }
         val keysStatus = when {
             prefs.vietmapKey.isBlank() -> "⚠️ Chưa nhập mã default"
             prefs.vietmapTileKey.isBlank() -> "⚠️ Thiếu mã \"public tile\""
