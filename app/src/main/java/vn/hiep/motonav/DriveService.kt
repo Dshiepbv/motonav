@@ -120,6 +120,7 @@ class DriveService : Service(), LocationListener {
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
+        SpeedSigns.init(this)
         try { TripLog.start(this) } catch (_: Exception) {}
         voice = Voice(this)
         overlay = Overlay(this, prefs)
@@ -464,6 +465,8 @@ class DriveService : Service(), LocationListener {
         ensureData(lat, lon)
         val snap = snapshot
 
+        // Biển tốc độ thật vừa đi qua (OSM + Mapillary) — ưu tiên hơn thẻ đường và ước tính
+        val signKmh = try { signLimit(lat, lon, movingHeading) } catch (_: Exception) { null }
         // Tốc độ giới hạn
         if (snap != null) {
             matchMax = if (loc.hasAccuracy()) (loc.accuracy * 1.4).coerceIn(MATCH_MAX, 70.0) else MATCH_MAX
@@ -499,7 +502,8 @@ class DriveService : Service(), LocationListener {
                     warnedNoMoto = m.way.id
                     alert("CẢNH BÁO: đang đi vào làn/đường cấm xe máy!", "Cảnh báo, đang đi vào đường cấm xe máy", urgent = true, showMs = 10000)
                 }
-                val res = SpeedRules.resolve(m.way, m.forward, prefs, snap.urbanArea)
+                val res0 = SpeedRules.resolve(m.way, m.forward, prefs, snap.urbanArea)
+                val res = if (signKmh != null) LimitResult(min(signKmh, if (prefs.moped) 40 else 70), false) else res0
                 val key = res?.let { "${it.kmh}/${it.estimated}" } ?: "none"
                 if (key == pendingKey) pendingCount++ else {
                     pendingKey = key
@@ -511,7 +515,7 @@ class DriveService : Service(), LocationListener {
                 if (lk != logMatchKey) {
                     logMatchKey = lk
                     TripLog.ev("match", "way" to m.way.id, "name" to m.way.name, "hw" to m.way.highway,
-                        "lim" to res?.kmh, "est" to res?.estimated, "shown" to shownLimit?.kmh, "score" to m.score, "mm" to matchMax.toDouble())
+                        "lim" to res?.kmh, "est" to res?.estimated, "sign" to signKmh, "rule" to res0?.kmh, "shown" to shownLimit?.kmh, "score" to m.score, "mm" to matchMax.toDouble())
                 }
             } else {
                 noMatchCount++
@@ -931,6 +935,71 @@ class DriveService : Service(), LocationListener {
     private fun norm(s: String): String = s.lowercase()
         .replace(Regex("""^(đường|đ\.|duong|phố|pho|hẻm|hem|quốc lộ|ql\.?)\s*"""), "")
         .replace(Regex("""[.\s]+"""), " ").trim()
+
+    // ---------- Biển tốc độ thật đã đi qua ----------
+    private var signLim: Int? = null
+    private var signName: String? = null
+    private var signHdg0 = 0.0
+    private var signLat = 0.0
+    private var signLon = 0.0
+    private var signOff = 0
+    private val signPrevAhead = HashMap<String, Double>()
+
+    /**
+     * Biển giới hạn tốc độ vừa đi qua (đúng chiều, bên phải xe) còn hiệu lực: tới khi gặp biển khác,
+     * biển hết hạn chế, rẽ sang đường tên khác (hoặc đổi hướng > 60° nếu đường không tên), hay quá 10 km.
+     */
+    private fun signLimit(lat: Double, lon: Double, hdg: Double?): Int? {
+        SpeedSigns.token = prefs.mapillaryToken
+        SpeedSigns.ensure(lat, lon)
+        val way = currentWay
+        if (hdg != null) {
+            val cands = ArrayList<SpeedSign>()
+            snapshot?.signs?.forEach {
+                if (it.type == SignType.SPEED && it.value > 0) cands.add(SpeedSign("o" + it.id, it.lat, it.lon, it.value, false, it.heading, "osm"))
+            }
+            cands.addAll(SpeedSigns.near(lat, lon, 60.0))
+            val seen = HashSet<String>()
+            for (s in cands) {
+                val d = Geo.distance(lat, lon, s.lat, s.lon)
+                if (d > 60) continue
+                seen.add(s.id)
+                val rel = Math.toRadians(Geo.signedAngle(hdg, Geo.bearing(lat, lon, s.lat, s.lon)))
+                val ahead = d * kotlin.math.cos(rel)
+                val side = d * kotlin.math.sin(rel) // dương = bên phải
+                val prev = signPrevAhead.put(s.id, ahead)
+                if (prev == null || prev <= 0.0 || ahead > 0.0) continue
+                // Vừa đi ngang biển
+                val dirOk = s.src != "osm" || s.dir < 0 || Geo.angleDiff(s.dir, hdg) <= 60
+                val sideOk = side >= -6.0 && side <= 15.0
+                TripLog.ev("signPass", "src" to s.src, "kmh" to s.kmh, "end" to s.end, "side" to side, "dir" to s.dir,
+                    "hdg" to hdg, "ok" to (dirOk && sideOk), "name" to way?.name)
+                if (!dirOk || !sideOk) continue
+                signLim = if (s.end) null else s.kmh
+                signName = way?.name
+                signHdg0 = hdg
+                signLat = s.lat
+                signLon = s.lon
+                signOff = 0
+            }
+            signPrevAhead.keys.retainAll(seen)
+        }
+        val lim = signLim ?: return null
+        val nm = way?.name
+        val off = when {
+            Geo.distance(lat, lon, signLat, signLon) > 10000 -> true
+            signName != null && nm != null -> nm != signName
+            signName == null && hdg != null -> Geo.angleDiff(hdg, signHdg0) > 60
+            else -> false
+        }
+        if (off) signOff++ else signOff = 0
+        if (signOff >= 5) {
+            TripLog.ev("signEnd", "kmh" to lim, "from" to signName, "to" to nm)
+            signLim = null
+            return null
+        }
+        return lim
+    }
 
     private fun applyLimit(res: LimitResult?) {
         shownLimit = res
