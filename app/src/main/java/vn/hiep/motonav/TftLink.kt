@@ -776,13 +776,12 @@ object TftLink {
             // ~5KB JPEG, nhẹ hơn khung dẫn đường). Chưa nạp được logo thì về dòng chữ cũ.
             val logo = logoBmp
             if (logo != null) {
-                // Ảnh chờ phủ kín cả màn (cắt giữa cho vừa tỉ lệ), không để khung vuông.
+                // build-332: thanh firmware của xe che trên và dưới (Sếp) → ảnh tft_logo đã được làm lại: mèo thu nhỏ
+                // nằm trong khoảng 13%–83% chiều cao, nền một màu. Phủ kín màn, không nâng.
                 val sc = Math.max(w.toFloat() / logo.width, h.toFloat() / logo.height)
                 val lw = logo.width * sc
                 val lh = logo.height * sc
-                // Nâng ảnh lên ~22px: thanh chữ firmware của xe đè lên đáy khung, che đuôi con mèo.
-                val up = 22f
-                val dst = android.graphics.RectF((w - lw) / 2f, (h - lh) / 2f - up, (w + lw) / 2f, (h + lh) / 2f - up)
+                val dst = android.graphics.RectF((w - lw) / 2f, (h - lh) / 2f, (w + lw) / 2f, (h + lh) / 2f)
                 c.drawBitmap(logo, null, dst, Paint().apply { isFilterBitmap = true; isAntiAlias = true })
             } else {
                 val p2 = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
@@ -1581,7 +1580,7 @@ object TftLink {
             val remMin = (skEtaMs / 60000L).toInt()
             val arriveCal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
             val etaTxt = String.format("%02d:%02d", arriveCal.get(java.util.Calendar.HOUR_OF_DAY), arriveCal.get(java.util.Calendar.MINUTE))
-            val remainTxt = String.format("%02d:%02d", remMin / 60, remMin % 60) + " · $remTxt" // build-331: giờ:phút còn lại (Sếp)
+            val remainTxt = String.format("%02d:%02d", remMin / 60, remMin % 60) + "\u2009·\u2009$remTxt" // build-331: giờ:phút còn lại (Sếp)
             // Chữ to hơn chút theo yêu cầu (0.11->0.12) nhưng khung giữ kiểu/đệm như cũ.
             val etaTextPaint = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.12f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val padX2 = h * 0.035f; val padY2 = h * 0.028f
@@ -1601,13 +1600,23 @@ object TftLink {
             c.drawRoundRect(rectEta, cornerR, cornerR, etaBorderPaint)
             c.drawText(etaTxt, rectEta.centerX(), rectEta.centerY() - (fmE.ascent + fmE.descent) / 2f, etaTextPaint)
             // Khung thời gian+quãng đường còn lại — bên phải, cùng hàng, cùng kiểu, cùng chiều cao
-            val twRem = etaTextPaint.measureText(remainTxt)
-            val boxWRem = twRem + padX2 * 2f
-            val boxRightRem = w - w * 0.035f
+            // build-332: ô còn lại che tam giác xe (Sếp) — đệm ngang hẹp lại, nếu vẫn lấn vào vùng tam giác
+            // (giữa màn ± 0.15h) thì thu nhỏ chữ cho tới khi vừa.
+            val remPaint = Paint(etaTextPaint)
+            val padRem = h * 0.018f
+            val boxRightRem = w - w * 0.02f
+            val clearLeft = w / 2f + h * 0.15f
+            var twRem = remPaint.measureText(remainTxt)
+            while (boxRightRem - twRem - padRem * 2f < clearLeft && remPaint.textSize > h * 0.08f) {
+                remPaint.textSize = remPaint.textSize - 1f
+                twRem = remPaint.measureText(remainTxt)
+            }
+            val boxWRem = twRem + padRem * 2f
             val rectRem = android.graphics.RectF(boxRightRem - boxWRem, boxTop, boxRightRem, boxTop + boxH)
             c.drawRoundRect(rectRem, cornerR, cornerR, etaFillPaint)
             c.drawRoundRect(rectRem, cornerR, cornerR, etaBorderPaint)
-            c.drawText(remainTxt, rectRem.centerX(), rectRem.centerY() - (fmE.ascent + fmE.descent) / 2f, etaTextPaint)
+            val fmR = remPaint.fontMetrics
+            c.drawText(remainTxt, rectRem.centerX(), rectRem.centerY() - (fmR.ascent + fmR.descent) / 2f, remPaint)
         }
         // Chỉ dẫn rẽ — icon mũi tên tự vẽ (KHÔNG ghi chữ "trái"/"phải"), khoảng cách đếm ngược và
         // tên đường sắp quẹo vào, cố định góc trên-trái, KHÔNG nền (theo yêu cầu). Trước đây icon rẽ
@@ -1867,7 +1876,10 @@ object TftLink {
                         val tb0 = System.currentTimeMillis()
                         val frame = if (diagMode == 1) buildTestFrame("DIAG " + ((System.currentTimeMillis() / 1000) % 1000)) else try { buildSketchFrame() } catch (t: Throwable) {
                             if (mapSnapStyle == null) throw t
-                            MapSnap.disable("build: " + t.javaClass.simpleName + " " + (t.message ?: ""))
+                            // build-332: trước tắt 10 phút → TFT về bản vẽ dự phòng (đường mảnh/mất đường, log 3/11 19:37–19:48).
+                            // Giờ chỉ nghỉ 20 s, ghi kèm vết lỗi để tìm chỗ NullPointerException.
+                            MapSnap.disable("build: " + t.javaClass.simpleName + " " + (t.message ?: "") + " @ " +
+                                t.stackTrace.take(4).joinToString(" < ") { it.fileName + ":" + it.lineNumber }, 20_000L)
                             buildSketchFrame()
                         }
                         buildEwmaMs = buildEwmaMs * 0.9 + (System.currentTimeMillis() - tb0) * 0.1
