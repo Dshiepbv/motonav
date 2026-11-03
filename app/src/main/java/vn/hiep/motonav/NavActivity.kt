@@ -1369,7 +1369,7 @@ class NavActivity : Activity() {
         // về các điểm chưa xác nhận. Lỗi tải thì addOnDidFailLoadingMapListener bên dưới tự rơi về
         // OpenFreeMap.
         val goongTile = prefs.goongTileKey
-        if (goongTile.isNotBlank()) {
+        if (!GoongMap.TILES_OFF && goongTile.isNotBlank()) {
             usingGoongTile = true
             style = null
             m.setStyle(Style.Builder().fromUri(GoongMap.tileStyleUrl(goongTile, night))) { s -> onLoaded(s) }

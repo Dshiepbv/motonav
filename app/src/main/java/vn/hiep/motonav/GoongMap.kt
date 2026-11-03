@@ -28,6 +28,8 @@ import java.util.Locale
  *    lặng, để dễ debug).
  */
 object GoongMap {
+    /** build-334: Hiệp "Tắt goong đi" — không tải bản đồ/mảnh vector Goong nữa (tính phí, 404 liên tục). Bản đồ dùng OpenFreeMap. */
+    const val TILES_OFF = true
     private const val REST_BASE = "https://rsapi.goong.io"
     private const val TILE_BASE = "https://tiles.goong.io/assets"
 

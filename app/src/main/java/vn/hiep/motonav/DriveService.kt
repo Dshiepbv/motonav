@@ -315,8 +315,8 @@ class DriveService : Service(), LocationListener {
                 TftLink.diagMode = prefs.tftDiag
                 TftLink.mapSnapStyle = when {
                     !prefs.tftMapSnap -> null
-                    prefs.tftMapOsm -> "https://tiles.openfreemap.org/styles/positron"
-                    prefs.goongTileKey.isNotBlank() -> GoongMap.tileStyleUrl(prefs.goongTileKey, false)
+                    prefs.tftMapOsm || GoongMap.TILES_OFF -> "https://tiles.openfreemap.org/styles/positron"
+                    !GoongMap.TILES_OFF && prefs.goongTileKey.isNotBlank() -> GoongMap.tileStyleUrl(prefs.goongTileKey, false)
                     else -> null
                 }
                 val navOn = Live.ownNav && Live.navActive && !Live.offRoute
@@ -1325,7 +1325,7 @@ class DriveService : Service(), LocationListener {
 
     private fun ensureGoongWays(lat: Double, lon: Double) {
         val key = prefs.goongTileKey // mảnh vector cần Map Tiles Key (không phải REST API Key)
-        if (key.isBlank() || goongFetching) return
+        if (GoongMap.TILES_OFF || key.isBlank() || goongFetching) return
         if (Live.goongWays != null && Geo.distance(goongCenterLat, goongCenterLon, lat, lon) < 800.0) return
         // Lùi dần khi lỗi liên tục (30 s, 2 phút, 10 phút) — log 27/10: 404 mỗi ~3 s suốt chuyến.
         val backoff = when { goongFailCount <= 0 -> 0L; goongFailCount == 1 -> 30_000L; goongFailCount == 2 -> 120_000L; else -> 600_000L }
