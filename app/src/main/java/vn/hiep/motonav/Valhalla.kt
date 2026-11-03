@@ -30,9 +30,13 @@ object Valhalla {
             put("costing", "motorcycle")
             put("costing_options", JSONObject().put("motorcycle", JSONObject().apply {
                 put("use_highways", 0.0)   // VN: xe máy không vào cao tốc
-                put("use_primary", 0.8)    // ưu tiên đường chính, ít luồn hẻm
+                put("use_primary", 1.0)    // build-335: ưu tiên đường chính tối đa (Hiệp: "dẫn vào đường xấu")
                 put("use_trails", 0.0)
                 put("use_tolls", 0.5)
+                put("use_tracks", 0.0)          // không đi đường đất/ruộng
+                put("use_living_streets", 0.0)  // tránh đường nội bộ khu dân cư (living_street)
+                put("service_penalty", 300)     // mỗi lần rẽ vào hẻm/đường dịch vụ +5 phút
+                put("service_factor", 3.0)      // đi trong hẻm/đường dịch vụ tính chậm gấp 3
             }))
             put("units", "kilometers")
             put("directions_options", JSONObject().put("units", "kilometers"))

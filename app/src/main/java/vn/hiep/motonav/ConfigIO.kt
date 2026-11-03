@@ -24,6 +24,7 @@ object ConfigIO {
         put("uturnRule", "chỉ bỏ tuyến tìm lại quay đầu về đường vừa đi; quay đầu nằm trong tuyến thì giữ")
         put("speedSign", "lấy biển gần điểm cách đường xe đi 10 m về bên phải nhất")
         put("routing", "chỉ Valhalla (Goong, VietMap tạm tắt cho tìm đường; tìm kiếm địa điểm vẫn dùng)")
+        put("valhallaCosting", "motorcycle: use_highways 0, use_primary 1.0, use_trails 0, use_tracks 0, use_living_streets 0, service_penalty 300, service_factor 3, use_tolls 0.5")
         put("bridgeHint", false)
         put("uturnAccept", "lần tìm lại thứ 2 bị chặn quay đầu → nhận tuyến quay lại; đếm chỉ xoá sau 15 s đúng tuyến")
         put("loopHold", "nhịn tìm lại khi đi vòng quay đầu: cách tuyến < 60 m, tối đa 20 s")
