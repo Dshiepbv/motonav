@@ -374,6 +374,61 @@ object TftLink {
         } catch (_: Throwable) {}
     }
 
+    private var phoneReceiver: android.content.BroadcastReceiver? = null
+
+    /** build-333: ghi ngay lúc màn điện thoại bật/tắt/mở khóa, đổi tiết kiệm pin / chế độ ngủ — để so với lúc TFT đơ. */
+    private fun registerPhoneLog(c: Context) {
+        if (phoneReceiver != null) return
+        try {
+            val r = object : android.content.BroadcastReceiver() {
+                override fun onReceive(ctx: Context, i: android.content.Intent) {
+                    try { TripLog.ev("phoneEv", "a" to (i.action ?: "").substringAfterLast('.'), "st" to phoneInfo()) } catch (_: Throwable) {}
+                }
+            }
+            val f = android.content.IntentFilter().apply {
+                addAction(android.content.Intent.ACTION_SCREEN_ON)
+                addAction(android.content.Intent.ACTION_SCREEN_OFF)
+                addAction(android.content.Intent.ACTION_USER_PRESENT)
+                addAction(android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+                addAction(android.os.PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 33) c.registerReceiver(r, f, Context.RECEIVER_EXPORTED) else c.registerReceiver(r, f)
+            phoneReceiver = r
+        } catch (_: Throwable) {}
+    }
+
+    /** build-333: trạng thái điện thoại: màn bật/tắt, mức ưu tiên tiến trình MotoNav, nhóm standby, tiết kiệm pin, ngủ (doze), app trên cùng. */
+    private fun phoneInfo(): String = try {
+        val c = appCtx ?: return "?"
+        val sb = StringBuilder()
+        val pm = c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        try { sb.append(if (pm.isInteractive) "scrOn" else "scrOff") } catch (_: Throwable) { sb.append("scr?") }
+        try {
+            val km = c.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+            if (km.isKeyguardLocked) sb.append(" locked")
+        } catch (_: Throwable) {}
+        try {
+            val st = android.app.ActivityManager.RunningAppProcessInfo()
+            android.app.ActivityManager.getMyMemoryState(st)
+            sb.append(" imp=").append(st.importance)
+        } catch (_: Throwable) {}
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                val usm = c.getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+                sb.append(" bucket=").append(usm.appStandbyBucket)
+            }
+        } catch (_: Throwable) {}
+        try { if (pm.isPowerSaveMode) sb.append(" saver") } catch (_: Throwable) {}
+        try { if (pm.isDeviceIdleMode) sb.append(" doze") } catch (_: Throwable) {}
+        try { if (!pm.isIgnoringBatteryOptimizations(c.packageName)) sb.append(" battOpt") } catch (_: Throwable) {}
+        try {
+            val am = c.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            if (android.os.Build.VERSION.SDK_INT >= 28 && am.isBackgroundRestricted) sb.append(" bgRestricted")
+        } catch (_: Throwable) {}
+        try { if (ForegroundApp.hasPermission(c)) sb.append(" top=").append(ForegroundApp.current(c) ?: "?") } catch (_: Throwable) {}
+        sb.toString()
+    } catch (_: Throwable) { "?" }
+
     /** Môi trường điện thoại mỗi phút để dò nguyên nhân TFT đứng hình: mạng, tiết kiệm pin, nhiệt pin, số thiết bị BT đã ghép/đang nối. */
     private fun envInfo(): String = try {
         val c = appCtx ?: return "?"
@@ -446,7 +501,7 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "pace" to PACE_MS_PER_KB, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "pace" to PACE_MS_PER_KB, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "phone" to phoneInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
@@ -2304,6 +2359,7 @@ object TftLink {
         if (!running.compareAndSet(false, true)) return
         appCtx = ctx.applicationContext
         registerBtLog(ctx.applicationContext)
+        registerPhoneLog(ctx.applicationContext)
         if (logoBmp == null) {
             logoBmp = try { android.graphics.BitmapFactory.decodeResource(ctx.resources, R.drawable.tft_logo) } catch (_: Throwable) { null }
         }
