@@ -218,14 +218,14 @@ object TftLink {
     // xảy ra ngay cả khi GPS/app vẫn chạy bình thường — là xe không ACK kịp (giới hạn phần cứng),
     // không phải do App chờ lâu — nên rút ngắn thêm chỉ giúp bỏ chờ sớm hơn ở MỖI khung lẻ, không
     // chữa được chuỗi dài; vẫn rút theo yêu cầu để nhịp gửi bám sát 1-2s hơn.
-    private const val ACK_WAIT_MS = 1000L
+    const val ACK_WAIT_MS = 1000L
 
     // build-214, theo log 20261027-144231 (2346 khung, 15,2% quá 1s): khung KHÔNG mất — xe chỉ
     // "đứng" 3,5–6s theo nhịp 5/10s rồi ACK dồn cả loạt khung đã cũ. Gửi thêm khung trong lúc xe
     // đứng chỉ chất thêm hàng đợi khung lỗi thời. Nay chỉ còn MỘT khung "đang bay": quá ACK_WAIT_MS
     // thì vẫn chờ tiếp (không gửi khung mới) tới STALL_WAIT_MS, xe hồi là gửi ngay khung mới nhất.
     // 6s vẫn dưới ngưỡng im lặng 10–19s khiến xe báo "Lỗi kết nối".
-    private const val STALL_WAIT_MS = 6000L
+    const val STALL_WAIT_MS = 6000L
     // build-285: thử chờ ACK tới 12 s (trước 6 s) để không gửi khung thứ 2 khi khung 1 chưa ACK (xe hiện vòng xoay khi ≥2 khung
     // đang bay). Nếu xe ngắt kết nối ngay sau một lần chờ dài (>6,5 s) thì tự về 6 s trong phiên này (log tftWait12Dis).
     private const val STALL_WAIT_LONG_MS = 12000L
@@ -270,7 +270,7 @@ object TftLink {
     @Volatile private var lastStallStart = 0L
     // build-226: khung chưa ACK sau [RESEND_AFTER_MS] thì gửi lại đúng gói đó MỘT lần (cùng số thứ tự)
     // — thử xem màn có "tỉnh" sớm hơn không. resendHit = số lần ACK tới trong 1 s sau khi gửi lại.
-    private const val RESEND_AFTER_MS = 3_600_000L // build-229: tắt gửi lại — log 226/228: làm đứng hình tăng 15% → 22–35%
+    const val RESEND_AFTER_MS = 3_600_000L // build-229: tắt gửi lại — log 226/228: làm đứng hình tăng 15% → 22–35%
     private var statResend = 0
     private var statResendHit = 0
 
@@ -402,7 +402,7 @@ object TftLink {
         bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
     } catch (_: Throwable) { -1 }
 
-    private const val AUTO_RESET = false // build-319: tắt — log 2/11 19:54 làm mới xong chạy 2 luồng gửi song song (đứng 88–96%)
+    const val AUTO_RESET = false // build-319: tắt — log 2/11 19:54 làm mới xong chạy 2 luồng gửi song song (đứng 88–96%)
     @Volatile private var badMinutes = 0
     @Volatile private var lastResetAt = 0L
     @Volatile private var sessionStartAt = 0L
@@ -601,7 +601,7 @@ object TftLink {
      * riêng (tách khỏi kênh chữ) đọc ra vẽ + gửi theo nhịp chậm hơn, không chặn tftWatch. */
     @Volatile private var skActive = false
     @Volatile private var skRoute: Route? = null
-    private const val PRED_S = 2.0
+    const val PRED_S = 2.0
     @Volatile private var skLat = 0.0
     @Volatile private var skLon = 0.0
     @Volatile private var skTgtLat = 0.0
@@ -2607,9 +2607,9 @@ object TftLink {
      * quá nhanh làm bộ đệm màn xe tràn → màn kẹt 3–6 s. Ghi khung theo từng khối 1 KB, giữ nhịp ~PACE_MS_PER_KB. */
     // build-295: 13 ms/KB (build 294) chưa đủ (đứng ~31%) → quét 10/15/20/25/30 ms/KB, đổi mỗi 2 phút trong cùng chuyến
     // (iPhone theo tài liệu maxdash ~21 ms/KB). tftStat ghi "pace" của phút đó để so.
-    private val PACE_STEPS = longArrayOf(15L) // build-298: quét 10–30 không khác biệt (27–33%), chốt 15
+    val PACE_STEPS = longArrayOf(15L) // build-298: quét 10–30 không khác biệt (27–33%), chốt 15
     private val PACE_MS_PER_KB: Long get() = PACE_STEPS[((System.currentTimeMillis() / 120_000L) % PACE_STEPS.size).toInt()]
-    private const val PACE_CHUNK = 1024
+    const val PACE_CHUNK = 1024
 
     @Synchronized
     private fun sendPaced(bytes: ByteArray): Boolean {

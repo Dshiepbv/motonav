@@ -557,6 +557,7 @@ class SettingsActivity : Activity() {
                     if (!permsOk) warnOrange else null,
                 ) { openPanel(R.drawable.ic_set_background, "Quyền của app") { fillBackground() } },
                 Tile(R.drawable.ic_set_sendlog, "Gửi nhật ký", "3 chuyến gần nhất") { AppActions.sendTripLogs(this) },
+                Tile(R.drawable.ic_set_settings, "Cấu hình", "Xuất / nhập file") { openPanel(R.drawable.ic_set_settings, "Sao lưu cấu hình") { fillConfig() } },
                 Tile(R.drawable.ic_set_update, "Cập nhật", "Bản ${Updater.currentVersion(this)}") { openUpdatePanel(auto = true) },
             ),
         )
@@ -699,6 +700,22 @@ class SettingsActivity : Activity() {
                     .setNegativeButton("Để sau", null)
                     .show()
             }
+        }
+    }
+
+    private fun fillConfig() {
+        action("Xuất cấu hình ra file", "Key, Home/Công ty, định tuyến, map, cảnh báo, mục ẩn", note = "File có chứa key — đừng gửi vào nhóm chung") {
+            val name = "motonav-config-" + java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US).format(java.util.Date()) + ".json"
+            startActivityForResult(
+                Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("application/json").putExtra(Intent.EXTRA_TITLE, name),
+                REQ_CFG_EXPORT,
+            )
+        }
+        action("Nhập cấu hình từ file", "Ghi đè cài đặt hiện tại", note = "Thông số viết cứng trong code (15 ms/KB, kết nối…) chỉ để xem, không đổi khi nhập") {
+            startActivityForResult(
+                Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), REQ_CFG_IMPORT,
+            )
         }
     }
 
@@ -1096,6 +1113,16 @@ class SettingsActivity : Activity() {
                     contentResolver.openOutputStream(uri)?.use { it.write(CameraIO.toCsv(cams).toByteArray(Charsets.UTF_8)) }
                     toast("Đã xuất ${cams.size} điểm.")
                 }
+                REQ_CFG_EXPORT -> {
+                    contentResolver.openOutputStream(uri)?.use { it.write(ConfigIO.export(this).toByteArray(Charsets.UTF_8)) }
+                    toast("Đã xuất cấu hình.")
+                }
+                REQ_CFG_IMPORT -> {
+                    val text = contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+                    val n = ConfigIO.load(this, text)
+                    Live.changed()
+                    toast("Đã nạp $n mục cấu hình. Nên tắt hẳn app rồi mở lại.")
+                }
             }
         } catch (e: Exception) {
             toast("Lỗi đọc/ghi file: ${e.message}")
@@ -1109,5 +1136,7 @@ class SettingsActivity : Activity() {
         private const val REQ_EXPORT = 52
         private const val REQ_BT_PERM = 53
         private const val REQ_BLE_PERM = 54
+        private const val REQ_CFG_EXPORT = 55
+        private const val REQ_CFG_IMPORT = 56
     }
 }
