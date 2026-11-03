@@ -1009,6 +1009,30 @@ class DriveService : Service(), LocationListener {
      * Biển giới hạn tốc độ vừa đi qua (đúng chiều, bên phải xe) còn hiệu lực: tới khi gặp biển khác,
      * biển hết hạn chế, rẽ sang đường tên khác (hoặc đổi hướng > 60° nếu đường không tên), hay quá 10 km.
      */
+    /**
+     * Chọn vòng tốc độ dành cho xe máy trong một nhóm biển (Sếp 3/11, D1: biển 50 xe máy cắm riêng sát mép phải;
+     * cặp 40 tải / 60 ô tô cắm chung ở hàng rào giữa làn). Điểm = độ lệch phải (m) − 5 nếu biển nằm trong một
+     * cặp khác số cắm sát nhau (≤5 m) → ưu tiên biển đứng riêng, bên phải nhất. Trả (biển, điểm).
+     */
+    private fun boardPick(s: SpeedSign, cands: List<SpeedSign>, lat: Double, lon: Double, hdg: Double): Pair<SpeedSign, Double> {
+        fun sideOf(o: SpeedSign): Double {
+            val d = Geo.distance(lat, lon, o.lat, o.lon)
+            return d * kotlin.math.sin(Math.toRadians(Geo.signedAngle(hdg, Geo.bearing(lat, lon, o.lat, o.lon))))
+        }
+        fun facing(o: SpeedSign) = o.dir < 0 || (if (o.src == "osm") Geo.angleDiff(o.dir, hdg) <= 70 else Geo.angleDiff(o.dir, hdg + 180.0) <= 70)
+        val group = cands.filter { o -> !o.end && (o === s || (Geo.distance(o.lat, o.lon, s.lat, s.lon) <= 30 && facing(o))) }
+            .filter { o -> val sd = sideOf(o); sd >= -14.0 && sd <= 15.0 }
+        if (group.size <= 1) return s to sideOf(s)
+        var best = s
+        var bestScore = -1e9
+        for (o in group) {
+            val paired = group.any { q -> q !== o && q.kmh != o.kmh && Geo.distance(q.lat, q.lon, o.lat, o.lon) <= 5.0 }
+            val sc = sideOf(o) - (if (paired) 5.0 else 0.0)
+            if (sc > bestScore) { bestScore = sc; best = o }
+        }
+        return best to bestScore
+    }
+
     private fun signLimit(lat: Double, lon: Double, hdg: Double?): Int? {
         SpeedSigns.token = prefs.mapillaryToken
         SpeedSigns.ensure(lat, lon)
@@ -1042,12 +1066,15 @@ class DriveService : Service(), LocationListener {
                 val prevLim = signLim
                 val cluster = prevLim != null && !s.end && nowMs - signPassAt < 4000 && Geo.distance(s.lat, s.lon, signLat, signLon) < 40
                 signPassAt = nowMs
-                if (cluster && side <= signSide) {
-                    TripLog.ev("signSkip", "kmh" to s.kmh, "side" to side, "keep" to prevLim, "keepSide" to signSide)
+                // build-327: xét cả bảng (các vòng ≤30 m quanh biển vừa qua, cùng hướng mặt) → chọn biển xe máy
+                val (pick, score) = if (s.end) (s to side) else boardPick(s, cands, lat, lon, hdg)
+                if (pick !== s) TripLog.ev("signBoard", "passed" to s.kmh, "pick" to pick.kmh, "score" to score)
+                if (cluster && score <= signSide) {
+                    TripLog.ev("signSkip", "kmh" to pick.kmh, "side" to score, "keep" to prevLim, "keepSide" to signSide)
                     continue
                 }
-                signSide = side
-                signLim = if (s.end) null else s.kmh
+                signSide = score
+                signLim = if (s.end) null else pick.kmh
                 signName = way?.name
                 signHdg0 = hdg
                 signLat = s.lat
@@ -1076,8 +1103,7 @@ class DriveService : Service(), LocationListener {
                 }
                 for ((s, ahead, side) in valid) {
                     if (s.kmh >= cur || ahead > 100.0) continue
-                    val outRight = valid.any { (o, _, oSide) -> o !== s && oSide > side && Geo.distance(o.lat, o.lon, s.lat, s.lon) < 15 }
-                    if (outRight) continue
+                    if (boardPick(s, cands, lat, lon, hdg).first !== s) continue // không phải biển xe máy của bảng
                     if (ahead < bestAhead) { bestAhead = ahead; best = s }
                 }
             }
