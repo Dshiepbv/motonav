@@ -66,7 +66,7 @@ jobs:
 
       # Repo công khai chỉ chứa APK (giống NConnect) – chạy khi đã cài RELEASES_TOKEN
       - name: Publish APK to public releases repo
-        if: false
+        if: env.RELEASES_TOKEN != ''
         uses: softprops/action-gh-release@v2
         with:
           repository: ${{ github.repository_owner }}/motonav-releases
