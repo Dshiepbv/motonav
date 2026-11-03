@@ -58,6 +58,7 @@ class NavEngine(
     @Volatile private var noUturnFails = 0
     @Volatile private var destGen = 0
     @Volatile private var destChanged = false
+    private val DEST_SNAP = false
     // build-323: sau khi chốt điểm đến vào cổng/lối vào, tuyến mới dài hơn tuyến đang chạy > 300 m → bỏ, giữ điểm gốc
     @Volatile private var destCheckRemain = -1.0
     private var origDestLat = 0.0
@@ -85,7 +86,8 @@ class NavEngine(
         destCheckRemain = -1.0
         origDestLat = lat
         origDestLon = lon
-        Thread({
+        // build-324: Sếp chốt — giữ đúng điểm đến theo kết quả tìm kiếm, không tự dời vào cổng/lối vào (OSM)
+        if (DEST_SNAP) Thread({
             try {
                 val acc = DestAccess.resolve(lat, lon, name)
                 if (acc != null && gen == destGen && Live.ownNav) {
