@@ -239,6 +239,13 @@ object TftLink {
     private var statBytes = 0L
     @Volatile private var statTextTx = 0
     @Volatile private var lastSentEta = -1
+    // build-330: thử tắt hẳn gói chữ (tên đường / rẽ / ETA) — đổi mỗi 2 cửa sổ tftStat (~2 phút) trong cùng chuyến.
+    // tftStat ghi "text" on/off và tỉ lệ đơ cộng dồn frzTextOn / frzTextOff để so.
+    private const val TEXT_AB = true
+    private val gapByText = LongArray(2)
+    private val spanByText = LongArray(2)
+    private fun textOffNow() = TEXT_AB && (statWindows / 2) % 2 == 1
+    @Volatile private var textWasOff = false
     @Volatile var diagMode: Int = 0
     private var statSlow = 0
     private var statLost = 0
@@ -428,6 +435,8 @@ object TftLink {
         }
         val span = now - statFrom
         if (span >= 60_000) {
+            val tx = if (textOffNow()) 1 else 0
+            gapByText[tx] += statStallMs; spanByText[tx] += span
             val totSpan = (now - totFrom).coerceAtLeast(1)
             val m = paceMode
             gapByMode[m] += statGapMs; spanByMode[m] += span
@@ -441,7 +450,8 @@ object TftLink {
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
-                    "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]))
+                    "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]),
+                    "text" to (if (tx == 1) "off" else "on"), "frzTextOn" to pct(gapByText[0], spanByText[0]), "frzTextOff" to pct(gapByText[1], spanByText[1]))
             } catch (_: Exception) {}
             // build-300: Sếp ghi nhận mượt lúc đầu, chạy lâu đứng nhiều dần, tắt/bật xe lại mượt. Log gộp: phút 0–10 của phiên
             // thường tốt nhất rồi tăng dần (vd 6→5→9→15→21%). Thử "làm mới" kết nối: 2 phút liền đứng ≥20%, phiên ≥5 phút,
@@ -2609,7 +2619,8 @@ object TftLink {
     // (iPhone theo tài liệu maxdash ~21 ms/KB). tftStat ghi "pace" của phút đó để so.
     val PACE_STEPS = longArrayOf(15L) // build-298: quét 10–30 không khác biệt (27–33%), chốt 15
     private val PACE_MS_PER_KB: Long get() = PACE_STEPS[((System.currentTimeMillis() / 120_000L) % PACE_STEPS.size).toInt()]
-    const val PACE_CHUNK = 1024
+    // build-330: = MTU RFCOMM của màn (990 B). 1024 làm mỗi khối tách 990 + 34 B → tốn gấp đôi lượt nhận (credit) của màn
+    const val PACE_CHUNK = 990
 
     @Synchronized
     private fun sendPaced(bytes: ByteArray): Boolean {
@@ -2626,7 +2637,7 @@ object TftLink {
                 o.flush()
                 off += n
                 if (off < bytes.size) {
-                    val dueMs = off.toLong() * pace / 1024L
+                    val dueMs = off.toLong() * pace / 1024L // vẫn tính theo ms/KB
                     val elapsedMs = (System.nanoTime() - t0) / 1_000_000L
                     if (dueMs > elapsedMs) Thread.sleep(dueMs - elapsedMs)
                 }
@@ -2702,6 +2713,8 @@ object TftLink {
      */
     fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, currentStreet: String, etaMinutes: Int) {
         if (!authed) return
+        if (textOffNow()) { textWasOff = true; return }
+        if (textWasOff) { textWasOff = false; lastSentKey = ""; lastSentName = ""; lastSentEta = -1 }
         // Nhãn nguồn dưới tam giác vị trí trên xe: đã đổi qua lại vài lần qua các bản (tên đường
         // đang đi → câu chỉ dẫn rẽ) — nay theo yêu cầu mới nhất quay về TÊN ĐƯỜNG ĐANG ĐI
         // (currentStreet), vì phần chỉ dẫn rẽ (icon/khoảng cách/tên đường sắp quẹo) đã có chỗ riêng,

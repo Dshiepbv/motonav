@@ -13,6 +13,7 @@ object ConfigIO {
         put("tftPaceMsPerKb", TftLink.PACE_STEPS.joinToString(","))
         put("tftPaceChunkBytes", TftLink.PACE_CHUNK)
         put("tftConnect", "insecure RFCOMM trước, secure sau")
+        put("tftTextAB", "gói chữ tắt/bật luân phiên mỗi ~2 phút (thử nghiệm build 330)")
         put("tftAckWaitMs", TftLink.ACK_WAIT_MS)
         put("tftStallWaitMs", TftLink.STALL_WAIT_MS)
         put("tftResend", if (TftLink.RESEND_AFTER_MS >= 3_600_000L) "tắt" else "${TftLink.RESEND_AFTER_MS} ms")
