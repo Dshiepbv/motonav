@@ -642,6 +642,10 @@ class DriveService : Service(), LocationListener {
     private fun updateLimitAhead() {
         val now = SystemClock.elapsedRealtime()
         if (now < signAheadUntil) return // biển giảm tốc thật phía trước đang đếm mét
+        if (signLim != null) { // đang theo biển thật đã đi qua → không báo "sắp đổi" theo luật ước tính (tránh báo dồn)
+            clearAhead()
+            return
+        }
         if (now - lastAhead < 2000) return
         lastAhead = now
         val r = Live.route
@@ -999,6 +1003,7 @@ class DriveService : Service(), LocationListener {
     private var signAheadId: String? = null
     private var signAheadUntil = 0L
     private var signPassAt = 0L
+    private var signSide = 0.0
 
     /**
      * Biển giới hạn tốc độ vừa đi qua (đúng chiều, bên phải xe) còn hiệu lực: tới khi gặp biển khác,
@@ -1031,12 +1036,18 @@ class DriveService : Service(), LocationListener {
                 TripLog.ev("signPass", "src" to s.src, "kmh" to s.kmh, "end" to s.end, "side" to side, "dir" to s.dir,
                     "hdg" to hdg, "ok" to (dirOk && sideOk), "name" to way?.name)
                 if (!dirOk || !sideOk) continue
-                // Cụm biển cùng cột (ô tô / xe máy ghi riêng, vd Xa lộ HN 50/60/80 trong 3 s) → lấy số NHỎ nhất
+                // Cụm biển cùng cột/bảng (vd D1 40/50/60, Xa lộ HN 50/60/80 trong 3 s) → lấy biển BÊN PHẢI NHẤT
+                // (làn / cột xe máy — quy tắc của Sếp 3/11; số nhỏ nhất thường là của xe tải)
                 val nowMs = SystemClock.elapsedRealtime()
                 val prevLim = signLim
                 val cluster = prevLim != null && !s.end && nowMs - signPassAt < 4000 && Geo.distance(s.lat, s.lon, signLat, signLon) < 40
                 signPassAt = nowMs
-                signLim = if (s.end) null else if (cluster) min(prevLim!!, s.kmh) else s.kmh
+                if (cluster && side <= signSide) {
+                    TripLog.ev("signSkip", "kmh" to s.kmh, "side" to side, "keep" to prevLim, "keepSide" to signSide)
+                    continue
+                }
+                signSide = side
+                signLim = if (s.end) null else s.kmh
                 signName = way?.name
                 signHdg0 = hdg
                 signLat = s.lat
@@ -1049,16 +1060,26 @@ class DriveService : Service(), LocationListener {
             val cur = signLim ?: shownLimit?.kmh
             var best: SpeedSign? = null
             var bestAhead = 1e9
-            if (cur != null) for (s in cands) {
-                if (s.end || s.kmh >= cur) continue
-                val d = Geo.distance(lat, lon, s.lat, s.lon)
-                if (d > 110) continue
-                val rel = Math.toRadians(Geo.signedAngle(hdg, Geo.bearing(lat, lon, s.lat, s.lon)))
-                val ahead = d * kotlin.math.cos(rel)
-                val side = d * kotlin.math.sin(rel)
-                if (ahead <= 0.0 || ahead > 100.0 || side < -6.0 || side > 15.0) continue
-                if (s.dir >= 0 && (if (s.src == "osm") Geo.angleDiff(s.dir, hdg) > 60 else Geo.angleDiff(s.dir, hdg + 180.0) > 45)) continue
-                if (ahead < bestAhead) { bestAhead = ahead; best = s }
+            if (cur != null) {
+                // Biển hợp lệ phía trước (đúng chiều, bên phải); trong một cụm (≤15 m) chỉ giữ biển bên phải nhất
+                val valid = ArrayList<Triple<SpeedSign, Double, Double>>() // sign, ahead, side
+                for (s in cands) {
+                    if (s.end) continue
+                    val d = Geo.distance(lat, lon, s.lat, s.lon)
+                    if (d > 125) continue
+                    val rel = Math.toRadians(Geo.signedAngle(hdg, Geo.bearing(lat, lon, s.lat, s.lon)))
+                    val ahead = d * kotlin.math.cos(rel)
+                    val side = d * kotlin.math.sin(rel)
+                    if (ahead <= 0.0 || ahead > 115.0 || side < -6.0 || side > 15.0) continue
+                    if (s.dir >= 0 && (if (s.src == "osm") Geo.angleDiff(s.dir, hdg) > 60 else Geo.angleDiff(s.dir, hdg + 180.0) > 45)) continue
+                    valid.add(Triple(s, ahead, side))
+                }
+                for ((s, ahead, side) in valid) {
+                    if (s.kmh >= cur || ahead > 100.0) continue
+                    val outRight = valid.any { (o, _, oSide) -> o !== s && oSide > side && Geo.distance(o.lat, o.lon, s.lat, s.lon) < 15 }
+                    if (outRight) continue
+                    if (ahead < bestAhead) { bestAhead = ahead; best = s }
+                }
             }
             if (best != null) {
                 if (signAheadId != best.id) {
