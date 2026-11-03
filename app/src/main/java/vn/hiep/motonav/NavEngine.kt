@@ -56,10 +56,12 @@ class NavEngine(
     // Lần tìm lại gần nhất không ra tuyến nào thoả "không quay đầu": giữ tuyến cũ, đi tiếp thêm một
     // đoạn rồi mới tìm lại (đếm số lần để nới dần điểm ép đi tiếp ra xa hơn).
     @Volatile private var noUturnFails = 0
+    private var onRouteSince = 0L
     @Volatile private var destGen = 0
     @Volatile private var destChanged = false
     private val DEST_SNAP = false
     private val VALHALLA_ONLY = true
+    private val BRIDGE_HINT = false // build-331: Sếp: "lên cầu / dưới cầu" toàn sai, tắt — tính sau
     // build-323: sau khi chốt điểm đến vào cổng/lối vào, tuyến mới dài hơn tuyến đang chạy > 300 m → bỏ, giữ điểm gốc
     @Volatile private var destCheckRemain = -1.0
     private var origDestLat = 0.0
@@ -303,7 +305,7 @@ class NavEngine(
                         // build-242: mỗi lần chỉ thử 1 điểm phía trước (trước 3, log 29/10 tốn ~9 lượt trong 15 s mà
                         // vẫn ra tuyến quay đầu); lần 3 liên tiếp (fails>=2) nhận luôn tuyến nhanh nhất.
                         // build-282: đã thử tuyến ép qua điểm trên đường đang đi (carVia) mà vẫn bị loại → bỏ 2 lượt Goong còn lại (shift/via cùng bị loại như log 31/10).
-                        for (dAhead in if (found != null || carViaTried) emptyList() else if (fails >= 2) emptyList() else dists.take(1)) {
+                        for (dAhead in if (found != null || carViaTried) emptyList() else if (fails >= 1) emptyList() else dists.take(1)) {
                             try {
                                 val ap = if (on != null) RoutePick.walk(on, 40.0 + dAhead) else RoutePick.aheadPoint(Live.osm, lat, lon, heading!!, dAhead)
                                 // build-237: xuất phát hẳn từ điểm phía trước (không chỉ "đi qua") — Goong hay gắn
@@ -331,7 +333,8 @@ class NavEngine(
                         }
                         if (found != null) {
                             list = listOf(found)
-                        } else if (fails >= 2 && rejected.isNotEmpty()) { // build-310: về như 302 (luật 304 làm giữ tuyến cũ 80 s, log 2/11)
+                        } else if (fails >= 1 && rejected.isNotEmpty()) { // build-331: lần tìm lại thứ 2 đã nhận tuyến quay lại (log 3/11 19:07 Ngã tư Hóa An, quẹo nhầm chân cầu)
+                            // // build-310: về như 302 (luật 304 làm giữ tuyến cũ 80 s, log 2/11)
                             // build-229 — quay đầu chỉ bị phạt, không cấm tuyệt đối (như Google/Waze):
                             // đã thử ≥3 lần (~10 s) mà phía trước không có tuyến nào hợp lệ (đường bị
                             // chặn, dải phân cách…) → nhận tuyến NHANH NHẤT trong số đã thử, kể cả quay
@@ -603,7 +606,10 @@ class NavEngine(
             now - lastReroute > (if (urgent) 4_500 else 6_000)
         }
         if (off && noUturnFails > 0 && !routing) Live.routeStatus = "Đi tiếp — đang tìm đường không phải quay đầu…"
-        if (!off && noUturnFails > 0) {
+        // build-331: chỉ xoá đếm "bị chặn quay đầu" khi đã đúng tuyến liên tục ≥15 s — log 19:07–19:09: off/on chập chờn
+        // (cách tuyến 11–14 m, chạy ngược hướng) làm đếm về 0 mãi, tuyến quay lại không bao giờ được nhận.
+        if (off) onRouteSince = 0L else if (onRouteSince == 0L) onRouteSince = now
+        if (!off && noUturnFails > 0 && now - onRouteSince >= 15_000) {
             noUturnFails = 0
             if (!routing) Live.routeStatus = null
         }
@@ -652,7 +658,7 @@ class NavEngine(
         var toTurn = max(0.0, r.cum[mIdx] - progress)
         // build-305: chỗ tách tầng cầu/dưới cầu phía trước, gần hơn chỗ rẽ kế → báo như một bước riêng.
         var bridgeText: String? = null
-        if (next.sign != 4) try {
+        if (BRIDGE_HINT && next.sign != 4) try {
             val bh = BridgeHint.ahead(r, progress, Math.min(500.0, toTurn - 30.0))
             if (bh != null && bh.distM > 0) {
                 var bi = mIdx

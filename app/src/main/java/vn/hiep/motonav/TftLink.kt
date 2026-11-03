@@ -1581,7 +1581,7 @@ object TftLink {
             val remMin = (skEtaMs / 60000L).toInt()
             val arriveCal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
             val etaTxt = String.format("%02d:%02d", arriveCal.get(java.util.Calendar.HOUR_OF_DAY), arriveCal.get(java.util.Calendar.MINUTE))
-            val remainTxt = "$remMin ph · $remTxt"
+            val remainTxt = String.format("%02d:%02d", remMin / 60, remMin % 60) + " · $remTxt" // build-331: giờ:phút còn lại (Sếp)
             // Chữ to hơn chút theo yêu cầu (0.11->0.12) nhưng khung giữ kiểu/đệm như cũ.
             val etaTextPaint = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.12f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val padX2 = h * 0.035f; val padY2 = h * 0.028f
