@@ -557,6 +557,9 @@ class SettingsActivity : Activity() {
                     if (!permsOk) warnOrange else null,
                 ) { openPanel(R.drawable.ic_set_background, "Quyền của app") { fillBackground() } },
                 Tile(R.drawable.ic_set_sendlog, "Gửi nhật ký", "3 chuyến gần nhất") { AppActions.sendTripLogs(this) },
+                Tile(R.drawable.ic_set_update, "Nhập cấu hình", "Từ file .json") {
+                    startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), REQ_CFG_IMPORT)
+                },
                 Tile(R.drawable.ic_set_update, "Cập nhật", "Bản ${Updater.currentVersion(this)}") { openUpdatePanel(auto = true) },
             ),
         )
@@ -1060,6 +1063,11 @@ class SettingsActivity : Activity() {
                         else "Đã nhập $added điểm mới (đọc được ${items.size}, bỏ qua điểm trùng).",
                     )
                 }
+                REQ_CFG_IMPORT -> {
+                    val text = contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+                    val n = ConfigIO.load(this, text)
+                    toast("Đã nhập $n mục cấu hình. Mở lại app để áp dụng.")
+                }
                 REQ_EXPORT -> {
                     val cams = CameraStore.all(this)
                     contentResolver.openOutputStream(uri)?.use { it.write(CameraIO.toCsv(cams).toByteArray(Charsets.UTF_8)) }
@@ -1078,5 +1086,6 @@ class SettingsActivity : Activity() {
         private const val REQ_EXPORT = 52
         private const val REQ_BT_PERM = 53
         private const val REQ_BLE_PERM = 54
+        private const val REQ_CFG_IMPORT = 56
     }
 }

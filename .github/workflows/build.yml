@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, build236-cfg]
     paths-ignore:
       - "tools/**"
       - ".github/workflows/osm-pack.yml"
@@ -62,11 +62,11 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: MotoNav ${{ env.VER }} (bản ${{ github.run_number }})
           files: MotoNav-${{ env.VER }}.apk
-          make_latest: true
+          make_latest: false
 
       # Repo công khai chỉ chứa APK (giống NConnect) – chạy khi đã cài RELEASES_TOKEN
       - name: Publish APK to public releases repo
-        if: env.RELEASES_TOKEN != ''
+        if: false
         uses: softprops/action-gh-release@v2
         with:
           repository: ${{ github.repository_owner }}/motonav-releases
@@ -74,7 +74,7 @@ jobs:
           tag_name: v${{ env.VER }}
           name: MotoNav ${{ env.VER }}
           files: MotoNav-${{ env.VER }}.apk
-          make_latest: true
+          make_latest: false
           body: |
             ⚠️ **MotoNav – phần mềm cá nhân / personal software.** Bản quyền © 2026 Dshiepbv. Mã nguồn không công khai.
             Tải file `MotoNav-${{ env.VER }}.apk` bên dưới và cài lên Android (cài đè lên bản cũ được).
