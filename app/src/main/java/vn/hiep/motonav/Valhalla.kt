@@ -29,7 +29,7 @@ object Valhalla {
             put("locations", locs)
             put("costing", "motorcycle")
             put("costing_options", JSONObject().put("motorcycle", JSONObject().apply {
-                put("use_highways", 0.0)   // VN: xe máy không vào cao tốc
+                put("use_highways", 0.5)   // build-336: 0 phạt cả trunk (QL1/Xa lộ HN) → vòng vào hẻm ở Suối Tiên; cao tốc thật đã có motorcycle=no
                 put("use_primary", 1.0)    // build-335: ưu tiên đường chính tối đa (Hiệp: "dẫn vào đường xấu")
                 put("use_trails", 0.0)
                 put("use_tolls", 0.5)
