@@ -58,6 +58,10 @@ class NavEngine(
     @Volatile private var noUturnFails = 0
     @Volatile private var destGen = 0
     @Volatile private var destChanged = false
+    // build-323: sau khi chốt điểm đến vào cổng/lối vào, tuyến mới dài hơn tuyến đang chạy > 300 m → bỏ, giữ điểm gốc
+    @Volatile private var destCheckRemain = -1.0
+    private var origDestLat = 0.0
+    private var origDestLon = 0.0
 
     fun start(lat: Double, lon: Double, name: String?) {
         prefs.saveTrip(lat, lon, name)
@@ -78,6 +82,9 @@ class NavEngine(
         // đường ngay tới toạ độ gốc trước, có kết quả (lệch > 15 m) thì tìm lại tới điểm mới.
         val gen = ++destGen
         destChanged = false
+        destCheckRemain = -1.0
+        origDestLat = lat
+        origDestLon = lon
         Thread({
             try {
                 val acc = DestAccess.resolve(lat, lon, name)
@@ -336,11 +343,24 @@ class NavEngine(
                     // lại sau khi xe đi thêm ≥150 m.
                     noUturnFails = fails + 1
                     TripLog.ev("routeHold", "fails" to noUturnFails)
+                    if (destCheckRemain >= 0) { destCheckRemain = -1.0; Live.destLat = origDestLat; Live.destLon = origDestLon }
                     return@execute
                 }
                 noUturnFails = 0
                 if (!offerChoice && list.size > 1) list = list.take(1)
                 val r = list.first()
+                val chk = destCheckRemain
+                if (chk >= 0) {
+                    destCheckRemain = -1.0
+                    if (r.total > chk + 300.0) {
+                        // Điểm cổng/lối vào làm tuyến dài thêm → giữ tuyến cũ và điểm đến gốc
+                        Live.destLat = origDestLat
+                        Live.destLon = origDestLon
+                        TripLog.ev("destSnapReject", "newM" to r.total.toInt(), "oldRemainM" to chk.toInt())
+                        return@execute
+                    }
+                    TripLog.ev("destSnapAccept", "newM" to r.total.toInt(), "oldRemainM" to chk.toInt())
+                }
                 if (dual && !reroute) {
                     val pw = synchronized(providerOf) { providerOf[r] } ?: winnerProvider
                     winnerProvider = pw
@@ -409,6 +429,8 @@ class NavEngine(
         }
         if (destChanged && !routing && Live.route != null) {
             destChanged = false
+            val cur = Live.route!!
+            destCheckRemain = (cur.total - Live.routeProgress).coerceAtLeast(0.0)
             requestRoute(lat, lon, heading)
             return
         }
