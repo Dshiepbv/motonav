@@ -59,6 +59,7 @@ class NavEngine(
     @Volatile private var destGen = 0
     @Volatile private var destChanged = false
     private val DEST_SNAP = false
+    private val VALHALLA_ONLY = true
     // build-323: sau khi chốt điểm đến vào cổng/lối vào, tuyến mới dài hơn tuyến đang chạy > 300 m → bỏ, giữ điểm gốc
     @Volatile private var destCheckRemain = -1.0
     private var origDestLat = 0.0
@@ -156,7 +157,7 @@ class NavEngine(
     private fun requestRoute(lat: Double, lon: Double, heading: Double?, offerChoice: Boolean = false, force: Boolean = false) {
         val vmKey = prefs.vietmapKey
         val goongKey = prefs.goongKey
-        if (vmKey.isBlank() && goongKey.isBlank()) {
+        if (!VALHALLA_ONLY && vmKey.isBlank() && goongKey.isBlank()) {
             Live.routeError = "Chưa nhập mã API VietMap hoặc Goong (Cài đặt)"
             Live.changed()
             return
@@ -210,7 +211,11 @@ class NavEngine(
                 // bên kia chỉ gọi khi bên thắng lỗi.
                 // build-313: thêm Valhalla xe máy (máy chủ OSM cộng đồng, miễn phí, không cần mã). Tìm tuyến lúc
                 // bắt đầu gọi MỌI nguồn; tìm lại giữa đường ưu tiên Valhalla (không tốn tiền), lỗi thì bên thắng, rồi bên còn lại.
-                val provAvail = ArrayList<String>().apply { if (goongKey.isNotBlank()) add("goong"); if (vmKey.isNotBlank()) add("vm"); add("vh") }
+                val provAvail = ArrayList<String>().apply {
+                    // build-329: Sếp chạy thử chỉ Valhalla — tạm tắt Goong, VietMap
+                    if (!VALHALLA_ONLY) { if (goongKey.isNotBlank()) add("goong"); if (vmKey.isNotBlank()) add("vm") }
+                    add("vh")
+                }
                 val dual = provAvail.size > 1
                 val rerouteOrder = (listOf("vh", winnerProvider) + provAvail).distinct().filter { it in provAvail }
                 val vhHeading = if (moving) heading else null
@@ -499,11 +504,12 @@ class NavEngine(
         // Chỉ miễn tối đa 90 s mỗi lần, và khi xe cách tuyến < 300 m.
         if (loopRoute !== r) { loopRoute = r; loopUAt = RoutePick.uturnAt(r, 6000.0); loopSince = 0L }
         val nowL = SystemClock.elapsedRealtime()
-        val inLoopZone = loopUAt >= 0 && progress > loopUAt - 400 && progress < loopUAt + 600 && bestD < 300 && speedMps > 1.0
+        // build-329: log 3/11 17:51 Nam Cao — nhịn 43 s tới khi cách tuyến 300 m. Chỉ nhịn khi cách tuyến < 60 m, tối đa 20 s.
+        val inLoopZone = loopUAt >= 0 && progress > loopUAt - 400 && progress < loopUAt + 600 && bestD < 60 && speedMps > 1.0
         var loopHold = false
         if (off0 && inLoopZone) {
             if (loopSince == 0L) loopSince = nowL
-            loopHold = nowL - loopSince < 90_000
+            loopHold = nowL - loopSince < 20_000
         } else if (!off0) loopSince = 0L
         if (loopHold) TripLog.ev("loopHold", "d" to bestD, "p" to progress, "uAt" to loopUAt)
         val off = off0 && !loopHold

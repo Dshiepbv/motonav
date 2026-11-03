@@ -21,7 +21,9 @@ object ConfigIO {
         put("destSnap", false)
         put("carOnlyFilter", RoutePick.CAR_ONLY_FILTER)
         put("uturnRule", "chỉ bỏ tuyến tìm lại quay đầu về đường vừa đi; quay đầu nằm trong tuyến thì giữ")
-        put("speedSign", "biển sát làn phải nhất (làn xe máy), bỏ biển ghép cặp khác giá trị ≤5 m")
+        put("speedSign", "lấy biển gần điểm cách đường xe đi 10 m về bên phải nhất")
+        put("routing", "chỉ Valhalla (Goong, VietMap tạm tắt cho tìm đường; tìm kiếm địa điểm vẫn dùng)")
+        put("loopHold", "nhịn tìm lại khi đi vòng quay đầu: cách tuyến < 60 m, tối đa 20 s")
     }
 
     fun export(ctx: Context): String {

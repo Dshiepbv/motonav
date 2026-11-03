@@ -1004,6 +1004,7 @@ class DriveService : Service(), LocationListener {
     private var signAheadUntil = 0L
     private var signPassAt = 0L
     private var signSide = 0.0
+    private val BOARD_REF_RIGHT = 10.0
 
     /**
      * Biển giới hạn tốc độ vừa đi qua (đúng chiều, bên phải xe) còn hiệu lực: tới khi gặp biển khác,
@@ -1022,12 +1023,13 @@ class DriveService : Service(), LocationListener {
         fun facing(o: SpeedSign) = o.dir < 0 || (if (o.src == "osm") Geo.angleDiff(o.dir, hdg) <= 70 else Geo.angleDiff(o.dir, hdg + 180.0) <= 70)
         val group = cands.filter { o -> !o.end && (o === s || (Geo.distance(o.lat, o.lon, s.lat, s.lon) <= 30 && facing(o))) }
             .filter { o -> val sd = sideOf(o); sd >= -14.0 && sd <= 15.0 }
-        if (group.size <= 1) return s to sideOf(s)
+        // build-329 (luật Sếp 3/11): từ đường xe đang đi cộng 10 m sang phải, biển nào gần điểm đó nhất thì lấy
+        fun score(o: SpeedSign) = -kotlin.math.abs(sideOf(o) - BOARD_REF_RIGHT)
+        if (group.size <= 1) return s to score(s)
         var best = s
         var bestScore = -1e9
         for (o in group) {
-            val paired = group.any { q -> q !== o && q.kmh != o.kmh && Geo.distance(q.lat, q.lon, o.lat, o.lon) <= 5.0 }
-            val sc = sideOf(o) - (if (paired) 5.0 else 0.0)
+            val sc = score(o)
             if (sc > bestScore) { bestScore = sc; best = o }
         }
         return best to bestScore
@@ -1067,7 +1069,7 @@ class DriveService : Service(), LocationListener {
                 val cluster = prevLim != null && !s.end && nowMs - signPassAt < 4000 && Geo.distance(s.lat, s.lon, signLat, signLon) < 40
                 signPassAt = nowMs
                 // build-327: xét cả bảng (các vòng ≤30 m quanh biển vừa qua, cùng hướng mặt) → chọn biển xe máy
-                val (pick, score) = if (s.end) (s to side) else boardPick(s, cands, lat, lon, hdg)
+                val (pick, score) = if (s.end) (s to -kotlin.math.abs(side - BOARD_REF_RIGHT)) else boardPick(s, cands, lat, lon, hdg)
                 if (pick !== s) TripLog.ev("signBoard", "passed" to s.kmh, "pick" to pick.kmh, "score" to score)
                 if (cluster && score <= signSide) {
                     TripLog.ev("signSkip", "kmh" to pick.kmh, "side" to score, "keep" to prevLim, "keepSide" to signSide)
