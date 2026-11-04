@@ -2129,6 +2129,91 @@ object TftLink {
     }
 
     /** 0 = sáng, 1 = tối, 2 = tự động (tối từ 18:00 tới 05:30). Đặt từ DriveService theo Cài đặt. */
+    private var btReceiver: android.content.BroadcastReceiver? = null
+
+    /** Ghi sự kiện Bluetooth (ACL nối/ngắt kèm lý do, bật/tắt adapter) vào nhật ký để tìm nguyên nhân mất kết nối. */
+    private fun registerBtLog(c: Context) {
+        if (btReceiver != null) return
+        try {
+            val r = object : android.content.BroadcastReceiver() {
+                override fun onReceive(ctx: Context, i: android.content.Intent) {
+                    try {
+                        val dev = i.getParcelableExtra<android.bluetooth.BluetoothDevice>(android.bluetooth.BluetoothDevice.EXTRA_DEVICE)
+                        val name = try { dev?.name } catch (_: SecurityException) { null }
+                        TripLog.ev("btEvent", "a" to (i.action ?: "").substringAfterLast('.'), "dev" to (name ?: dev?.address ?: ""),
+                            "reason" to i.getIntExtra("android.bluetooth.device.extra.REASON", -1),
+                            "state" to i.getIntExtra(android.bluetooth.BluetoothAdapter.EXTRA_STATE, -1))
+                    } catch (_: Throwable) {}
+                }
+            }
+            val f = android.content.IntentFilter().apply {
+                addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED)
+                addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED)
+                addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECT_REQUESTED)
+                addAction(android.bluetooth.BluetoothAdapter.ACTION_STATE_CHANGED)
+                addAction(android.bluetooth.BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 33) c.registerReceiver(r, f, Context.RECEIVER_EXPORTED) else c.registerReceiver(r, f)
+            btReceiver = r
+        } catch (_: Throwable) {}
+    }
+
+    private var phoneReceiver: android.content.BroadcastReceiver? = null
+
+    /** build-333: ghi ngay lúc màn điện thoại bật/tắt/mở khóa, đổi tiết kiệm pin / chế độ ngủ — để so với lúc TFT đơ. */
+    private fun registerPhoneLog(c: Context) {
+        if (phoneReceiver != null) return
+        try {
+            val r = object : android.content.BroadcastReceiver() {
+                override fun onReceive(ctx: Context, i: android.content.Intent) {
+                    try { TripLog.ev("phoneEv", "a" to (i.action ?: "").substringAfterLast('.'), "st" to phoneInfo()) } catch (_: Throwable) {}
+                }
+            }
+            val f = android.content.IntentFilter().apply {
+                addAction(android.content.Intent.ACTION_SCREEN_ON)
+                addAction(android.content.Intent.ACTION_SCREEN_OFF)
+                addAction(android.content.Intent.ACTION_USER_PRESENT)
+                addAction(android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+                addAction(android.os.PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 33) c.registerReceiver(r, f, Context.RECEIVER_EXPORTED) else c.registerReceiver(r, f)
+            phoneReceiver = r
+        } catch (_: Throwable) {}
+    }
+
+    /** build-333: trạng thái điện thoại: màn bật/tắt, mức ưu tiên tiến trình MotoNav, nhóm standby, tiết kiệm pin, ngủ (doze), app trên cùng. */
+    private fun phoneInfo(): String = try {
+        val c = appCtx ?: return "?"
+        val sb = StringBuilder()
+        val pm = c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        try { sb.append(if (pm.isInteractive) "scrOn" else "scrOff") } catch (_: Throwable) { sb.append("scr?") }
+        try {
+            val km = c.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+            if (km.isKeyguardLocked) sb.append(" locked")
+        } catch (_: Throwable) {}
+        try {
+            val st = android.app.ActivityManager.RunningAppProcessInfo()
+            android.app.ActivityManager.getMyMemoryState(st)
+            sb.append(" imp=").append(st.importance)
+        } catch (_: Throwable) {}
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                val usm = c.getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+                sb.append(" bucket=").append(usm.appStandbyBucket)
+            }
+        } catch (_: Throwable) {}
+        try { if (pm.isPowerSaveMode) sb.append(" saver") } catch (_: Throwable) {}
+        try { if (pm.isDeviceIdleMode) sb.append(" doze") } catch (_: Throwable) {}
+        try { if (!pm.isIgnoringBatteryOptimizations(c.packageName)) sb.append(" battOpt") } catch (_: Throwable) {}
+        try {
+            val am = c.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            if (android.os.Build.VERSION.SDK_INT >= 28 && am.isBackgroundRestricted) sb.append(" bgRestricted")
+        } catch (_: Throwable) {}
+        try { if (ForegroundApp.hasPermission(c)) sb.append(" top=").append(ForegroundApp.current(c) ?: "?") } catch (_: Throwable) {}
+        sb.toString()
+    } catch (_: Throwable) { "?" }
+
+
     @Volatile var themeMode: Int = 2
     /** Giữ cho DriveService biên dịch được (bản 236 không có chế độ ảnh thử DIAG). */
     @Volatile var diagMode: Int = 0
