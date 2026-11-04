@@ -10,14 +10,10 @@ object ConfigIO {
 
     /** Thông số viết cứng trong code của build này — chỉ để xem, nhập file không đổi được. */
     private fun fixed(): JSONObject = JSONObject().apply {
-        put("tftPaceMsPerKb", TftLink.PACE_STEPS.joinToString(","))
-        put("tftPaceChunkBytes", TftLink.PACE_CHUNK)
-        put("tftConnect", "insecure RFCOMM trước, secure sau")
-        put("tftTextAB", "gói chữ tắt/bật luân phiên mỗi ~2 phút (thử nghiệm build 330)")
+        put("tftLink", "bản 236 gốc: phần gửi ảnh/kết nối giữ nguyên như build 236; hình, luật, tuyến như bản mới")
         put("tftAckWaitMs", TftLink.ACK_WAIT_MS)
         put("tftStallWaitMs", TftLink.STALL_WAIT_MS)
         put("tftResend", if (TftLink.RESEND_AFTER_MS >= 3_600_000L) "tắt" else "${TftLink.RESEND_AFTER_MS} ms")
-        put("tftAutoReset", TftLink.AUTO_RESET)
         put("tftPredictS", TftLink.PRED_S)
         put("destSnap", false)
         put("carOnlyFilter", RoutePick.CAR_ONLY_FILTER)

@@ -218,35 +218,19 @@ object TftLink {
     // xảy ra ngay cả khi GPS/app vẫn chạy bình thường — là xe không ACK kịp (giới hạn phần cứng),
     // không phải do App chờ lâu — nên rút ngắn thêm chỉ giúp bỏ chờ sớm hơn ở MỖI khung lẻ, không
     // chữa được chuỗi dài; vẫn rút theo yêu cầu để nhịp gửi bám sát 1-2s hơn.
-    const val ACK_WAIT_MS = 1000L
+    private const val ACK_WAIT_MS = 1000L
 
     // build-214, theo log 20261027-144231 (2346 khung, 15,2% quá 1s): khung KHÔNG mất — xe chỉ
     // "đứng" 3,5–6s theo nhịp 5/10s rồi ACK dồn cả loạt khung đã cũ. Gửi thêm khung trong lúc xe
     // đứng chỉ chất thêm hàng đợi khung lỗi thời. Nay chỉ còn MỘT khung "đang bay": quá ACK_WAIT_MS
     // thì vẫn chờ tiếp (không gửi khung mới) tới STALL_WAIT_MS, xe hồi là gửi ngay khung mới nhất.
     // 6s vẫn dưới ngưỡng im lặng 10–19s khiến xe báo "Lỗi kết nối".
-    const val STALL_WAIT_MS = 6000L
-    // build-285: thử chờ ACK tới 12 s (trước 6 s) để không gửi khung thứ 2 khi khung 1 chưa ACK (xe hiện vòng xoay khi ≥2 khung
-    // đang bay). Nếu xe ngắt kết nối ngay sau một lần chờ dài (>6,5 s) thì tự về 6 s trong phiên này (log tftWait12Dis).
-    private const val STALL_WAIT_LONG_MS = 12000L
-    @Volatile private var stallWaitMs = STALL_WAIT_MS // 31/10: Sếp loại bỏ thử 12 s (xe tự báo 'Lỗi kết nối' khi im lặng 10–19 s, log 24/10) — giữ 6 s
-    @Volatile private var lastLongWaitAt = 0L
+    private const val STALL_WAIT_MS = 6000L
 
     // Thống kê "đứng hình" — tftStat mỗi 60s: tỉ lệ thời gian xe không nhận khung mới (đây mới là
     // con số người lái thấy, khác với tỉ lệ khung quá 1s trước đây — 1 lần đứng từng bị đếm 4 khung).
     private var statFrom = 0L
     private var statFrames = 0
-    private var statBytes = 0L
-    @Volatile private var statTextTx = 0
-    @Volatile private var lastSentEta = -1
-    // build-330: thử tắt hẳn gói chữ (tên đường / rẽ / ETA) — đổi mỗi 2 cửa sổ tftStat (~2 phút) trong cùng chuyến.
-    // tftStat ghi "text" on/off và tỉ lệ đơ cộng dồn frzTextOn / frzTextOff để so.
-    private const val TEXT_AB = true
-    private val gapByText = LongArray(2)
-    private val spanByText = LongArray(2)
-    private fun textOffNow() = TEXT_AB && (statWindows / 2) % 2 == 1
-    @Volatile private var textWasOff = false
-    @Volatile var diagMode: Int = 0
     private var statSlow = 0
     private var statLost = 0
     private var statStallMs = 0L
@@ -277,7 +261,7 @@ object TftLink {
     @Volatile private var lastStallStart = 0L
     // build-226: khung chưa ACK sau [RESEND_AFTER_MS] thì gửi lại đúng gói đó MỘT lần (cùng số thứ tự)
     // — thử xem màn có "tỉnh" sớm hơn không. resendHit = số lần ACK tới trong 1 s sau khi gửi lại.
-    const val RESEND_AFTER_MS = 3_600_000L // build-229: tắt gửi lại — log 226/228: làm đứng hình tăng 15% → 22–35%
+    private const val RESEND_AFTER_MS = 3_600_000L // build-229: tắt gửi lại — log 226/228: làm đứng hình tăng 15% → 22–35%
     private var statResend = 0
     private var statResendHit = 0
 
@@ -299,175 +283,6 @@ object TftLink {
         }
     }
 
-    // build-287 — NÉ CỬA SỔ XẤU. Log 31/10–1/11 cho thấy khung gửi vào một cửa sổ hẹp (~0,75 s) trong chu kỳ 5 s của màn xe bị
-    // đứng 3–6 s với xác suất 34–48%, ngoài cửa sổ chỉ ~1% (pha đổi theo từng lần nối, trôi chậm). App tự học xác suất "xấu"
-    // theo 40 ô × 0,125 s của chu kỳ 5 s (giảm dần theo thời gian), rồi trước khi gửi chờ qua ô xấu. Cứ 8 khung thả cho 1 khung
-    // đi thử để cập nhật khi pha trôi. Bật 3 phút / tắt 1 phút luân phiên để đo hiệu quả (tftStat "avoid").
-    private const val AV_BINS = 40
-    private const val AV_PERIOD_MS = 5000L
-    private val avTot = DoubleArray(AV_BINS)
-    private val avBad = DoubleArray(AV_BINS)
-    private var avProbe = 0
-    @Volatile private var buildEwmaMs = 250.0
-    @Volatile private var avWaitedTotalMs = 0L
-    @Volatile private var avWaits = 0
-
-    private fun avBin(tMs: Long): Int = (((tMs % AV_PERIOD_MS) + AV_PERIOD_MS) % AV_PERIOD_MS * AV_BINS / AV_PERIOD_MS).toInt()
-
-    private fun avoidEnabled(): Boolean = false // 1/11: thử nghiệm né cửa sổ xấu không giảm đứng hình (on 33,9% vs off 36,0%) — tắt
-
-    private fun avBlocked(tMs: Long): Boolean {
-        val i = avBin(tMs)
-        var blocked = false
-        for (d in -1..1) {
-            val j = (i + d + AV_BINS) % AV_BINS
-            if (avTot[j] >= 4.0 && (avBad[j] + 0.2) / (avTot[j] + 4.0) >= 0.12 && avBad[j] >= 1.5) { blocked = true; break }
-        }
-        return blocked
-    }
-
-    /** Cần chờ bao lâu (ms) để lần gửi dự kiến lúc now+lead rơi ra ngoài ô xấu. 0 = gửi ngay. */
-    private fun avoidWaitMs(now: Long, lead: Long): Long {
-        if (!avoidEnabled()) return 0L
-        if (!avBlocked(now + lead)) return 0L
-        if (++avProbe % 8 == 0) return 0L // khung thử
-        var w = 50L
-        while (w <= 1500L) { if (!avBlocked(now + lead + w)) return w; w += 50L }
-        return 0L
-    }
-
-    private fun avRecord(sentAtMs: Long, bad: Boolean) {
-        val i = avBin(sentAtMs)
-        for (j in 0 until AV_BINS) { avTot[j] *= 0.998; avBad[j] *= 0.998 }
-        avTot[i] += 1.0
-        if (bad) avBad[i] += 1.0
-    }
-
-    private fun avReset() { for (j in 0 until AV_BINS) { avTot[j] = 0.0; avBad[j] = 0.0 }; avProbe = 0 }
-
-    private var btReceiver: android.content.BroadcastReceiver? = null
-
-    /** Ghi sự kiện Bluetooth (ACL nối/ngắt kèm lý do, bật/tắt adapter) vào nhật ký để tìm nguyên nhân mất kết nối. */
-    private fun registerBtLog(c: Context) {
-        if (btReceiver != null) return
-        try {
-            val r = object : android.content.BroadcastReceiver() {
-                override fun onReceive(ctx: Context, i: android.content.Intent) {
-                    try {
-                        val dev = i.getParcelableExtra<android.bluetooth.BluetoothDevice>(android.bluetooth.BluetoothDevice.EXTRA_DEVICE)
-                        val name = try { dev?.name } catch (_: SecurityException) { null }
-                        TripLog.ev("btEvent", "a" to (i.action ?: "").substringAfterLast('.'), "dev" to (name ?: dev?.address ?: ""),
-                            "reason" to i.getIntExtra("android.bluetooth.device.extra.REASON", -1),
-                            "state" to i.getIntExtra(android.bluetooth.BluetoothAdapter.EXTRA_STATE, -1))
-                    } catch (_: Throwable) {}
-                }
-            }
-            val f = android.content.IntentFilter().apply {
-                addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED)
-                addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECTED)
-                addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_DISCONNECT_REQUESTED)
-                addAction(android.bluetooth.BluetoothAdapter.ACTION_STATE_CHANGED)
-                addAction(android.bluetooth.BluetoothDevice.ACTION_BOND_STATE_CHANGED)
-            }
-            if (android.os.Build.VERSION.SDK_INT >= 33) c.registerReceiver(r, f, Context.RECEIVER_EXPORTED) else c.registerReceiver(r, f)
-            btReceiver = r
-        } catch (_: Throwable) {}
-    }
-
-    private var phoneReceiver: android.content.BroadcastReceiver? = null
-
-    /** build-333: ghi ngay lúc màn điện thoại bật/tắt/mở khóa, đổi tiết kiệm pin / chế độ ngủ — để so với lúc TFT đơ. */
-    private fun registerPhoneLog(c: Context) {
-        if (phoneReceiver != null) return
-        try {
-            val r = object : android.content.BroadcastReceiver() {
-                override fun onReceive(ctx: Context, i: android.content.Intent) {
-                    try { TripLog.ev("phoneEv", "a" to (i.action ?: "").substringAfterLast('.'), "st" to phoneInfo()) } catch (_: Throwable) {}
-                }
-            }
-            val f = android.content.IntentFilter().apply {
-                addAction(android.content.Intent.ACTION_SCREEN_ON)
-                addAction(android.content.Intent.ACTION_SCREEN_OFF)
-                addAction(android.content.Intent.ACTION_USER_PRESENT)
-                addAction(android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
-                addAction(android.os.PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
-            }
-            if (android.os.Build.VERSION.SDK_INT >= 33) c.registerReceiver(r, f, Context.RECEIVER_EXPORTED) else c.registerReceiver(r, f)
-            phoneReceiver = r
-        } catch (_: Throwable) {}
-    }
-
-    /** build-333: trạng thái điện thoại: màn bật/tắt, mức ưu tiên tiến trình MotoNav, nhóm standby, tiết kiệm pin, ngủ (doze), app trên cùng. */
-    private fun phoneInfo(): String = try {
-        val c = appCtx ?: return "?"
-        val sb = StringBuilder()
-        val pm = c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-        try { sb.append(if (pm.isInteractive) "scrOn" else "scrOff") } catch (_: Throwable) { sb.append("scr?") }
-        try {
-            val km = c.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
-            if (km.isKeyguardLocked) sb.append(" locked")
-        } catch (_: Throwable) {}
-        try {
-            val st = android.app.ActivityManager.RunningAppProcessInfo()
-            android.app.ActivityManager.getMyMemoryState(st)
-            sb.append(" imp=").append(st.importance)
-        } catch (_: Throwable) {}
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= 28) {
-                val usm = c.getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
-                sb.append(" bucket=").append(usm.appStandbyBucket)
-            }
-        } catch (_: Throwable) {}
-        try { if (pm.isPowerSaveMode) sb.append(" saver") } catch (_: Throwable) {}
-        try { if (pm.isDeviceIdleMode) sb.append(" doze") } catch (_: Throwable) {}
-        try { if (!pm.isIgnoringBatteryOptimizations(c.packageName)) sb.append(" battOpt") } catch (_: Throwable) {}
-        try {
-            val am = c.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-            if (android.os.Build.VERSION.SDK_INT >= 28 && am.isBackgroundRestricted) sb.append(" bgRestricted")
-        } catch (_: Throwable) {}
-        try { if (ForegroundApp.hasPermission(c)) sb.append(" top=").append(ForegroundApp.current(c) ?: "?") } catch (_: Throwable) {}
-        sb.toString()
-    } catch (_: Throwable) { "?" }
-
-    /** Môi trường điện thoại mỗi phút để dò nguyên nhân TFT đứng hình: mạng, tiết kiệm pin, nhiệt pin, số thiết bị BT đã ghép/đang nối. */
-    private fun envInfo(): String = try {
-        val c = appCtx ?: return "?"
-        val sb = StringBuilder()
-        try {
-            val cm = c.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
-            val caps = cm.getNetworkCapabilities(cm.activeNetwork)
-            sb.append(when {
-                caps == null -> "none"
-                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
-                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "cell"
-                else -> "other"
-            })
-        } catch (_: Throwable) { sb.append("net?") }
-        try { sb.append(if ((c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isPowerSaveMode) " saver" else " nosaver") } catch (_: Throwable) {}
-        try {
-            val i = c.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
-            sb.append(" T=").append((i?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1) / 10.0)
-        } catch (_: Throwable) {}
-        try { sb.append(" therm=").append((c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).currentThermalStatus) } catch (_: Throwable) {}
-        try {
-            val a = (c.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
-            sb.append(" bonded=").append(a.bondedDevices.size)
-            val a2 = a.getProfileConnectionState(android.bluetooth.BluetoothProfile.A2DP)
-            val hs = a.getProfileConnectionState(android.bluetooth.BluetoothProfile.HEADSET)
-            sb.append(" a2dp=").append(a2).append(" hfp=").append(hs)
-        } catch (_: Throwable) { sb.append(" bt?") }
-        sb.toString()
-    } catch (_: Throwable) { "?" }
-
-    private fun battPct(): Int = try {
-        val bm = appCtx?.getSystemService(Context.BATTERY_SERVICE) as? android.os.BatteryManager
-        bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-    } catch (_: Throwable) { -1 }
-
-    const val AUTO_RESET = false // build-319: tắt — log 2/11 19:54 làm mới xong chạy 2 luồng gửi song song (đứng 88–96%)
-    @Volatile private var badMinutes = 0
-    @Volatile private var lastResetAt = 0L
-    @Volatile private var sessionStartAt = 0L
     private fun recordFrameStat(ackMs: Long, lost: Boolean) {
         val now = System.currentTimeMillis()
         if (statFrom == 0L) statFrom = now
@@ -490,8 +305,6 @@ object TftLink {
         }
         val span = now - statFrom
         if (span >= 60_000) {
-            val tx = if (textOffNow()) 1 else 0
-            gapByText[tx] += statStallMs; spanByText[tx] += span
             val totSpan = (now - totFrom).coerceAtLeast(1)
             val m = paceMode
             gapByMode[m] += statGapMs; spanByMode[m] += span
@@ -501,25 +314,13 @@ object TftLink {
             try {
                 TripLog.ev("tftStat", "mode" to "ABC"[m].toString(), "frames" to statFrames, "slow" to statSlow, "lost" to statLost,
                     "freezePct" to pct(statStallMs, span), "gapPct" to pct(statGapMs, span),
-                    "icc" to (if (iccStripNow()) "off" else "on"), "avoid" to (if (avoidEnabled()) "on" else "off"), "avWaits" to avWaits, "avWaitMs" to avWaitedTotalMs, "txText" to statTextTx, "diag" to diagMode, "pace" to PACE_MS_PER_KB, "batt" to battPct(), "waitMs" to stallWaitMs, "env" to envInfo(), "phone" to phoneInfo(), "avgKB" to Math.round(statBytes / 102.4 / statFrames.coerceAtLeast(1)) / 10.0, "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
+                    "bikeKmh" to bikeSpeedKmh, "size" to "LS"[sm].toString(),
                     "gapL" to pct(gapBySize[0], spanBySize[0]), "gapS" to pct(gapBySize[1], spanBySize[1]),
                     "totFrames" to totFrames, "totSlowPct" to Math.round(totSlow * 1000.0 / totFrames.coerceAtLeast(1)) / 10.0,
                     "totFreezePct" to pct(totStallMs, totSpan), "totGapPct" to pct(totGapMs, totSpan), "totLost" to totLost,
-                    "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]),
-                    "text" to (if (tx == 1) "off" else "on"), "frzTextOn" to pct(gapByText[0], spanByText[0]), "frzTextOff" to pct(gapByText[1], spanByText[1]))
+                    "gapA" to pct(gapByMode[0], spanByMode[0]), "gapB" to pct(gapByMode[1], spanByMode[1]), "gapC" to pct(gapByMode[2], spanByMode[2]))
             } catch (_: Exception) {}
-            // build-300: Sếp ghi nhận mượt lúc đầu, chạy lâu đứng nhiều dần, tắt/bật xe lại mượt. Log gộp: phút 0–10 của phiên
-            // thường tốt nhất rồi tăng dần (vd 6→5→9→15→21%). Thử "làm mới" kết nối: 2 phút liền đứng ≥20%, phiên ≥5 phút,
-            // cách lần trước ≥5 phút, không gần chỗ rẽ (<300 m) → đóng socket để app tự kết nối + bắt tay lại. Log tftReset.
-            val fp = if (span > 0) statStallMs * 100.0 / span else 0.0
-            badMinutes = if (fp >= 20.0) badMinutes + 1 else 0
-            if (AUTO_RESET && badMinutes >= 2 && sessionStartAt != 0L && now - sessionStartAt > 5 * 60_000L && now - lastResetAt > 5 * 60_000L &&
-                !(skDistanceM in 0..300)) {
-                badMinutes = 0; lastResetAt = now
-                try { TripLog.ev("tftReset", "ageMin" to (now - sessionStartAt) / 60000, "fp" to Math.round(fp)) } catch (_: Exception) {}
-                Thread { try { Thread.sleep(200); activeSocket?.close() } catch (_: Exception) {} }.start()
-            }
-            statFrom = now; statBytes = 0L; statTextTx = 0; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
+            statFrom = now; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
             statResend = 0; statResendHit = 0
             statWindows++
             // Thử nghiệm 221–224 xong (log 27/10, 27 phút): A tốt nhất (gap ≈15%) — B ≈21–25%, C ≈25–30%.
@@ -550,8 +351,6 @@ object TftLink {
      * tiếp, quá 6 giây thì bỏ qua khung này (coi như gửi xong, không chặn khung sau).
      * CHỈ gọi khi [authed] — chưa bắt tay xong thì xe sẽ không hiểu/ACK.
      */
-    @Volatile private var lastWriteMs = 0
-    @Volatile private var lastPace = 0L
     fun sendFrame(jpeg: ByteArray, tag: String? = null): Boolean {
         if (!authed) return false
         val seq = (frameSeq + 1) and 0xFFFF
@@ -567,10 +366,7 @@ object TftLink {
         waitingSeq = seq
         waitingSentAt = sentAt
         val packet = pack(payload, 0, 1)
-        val wr0 = System.nanoTime()
-        val okSend = sendPaced(packet)
-        lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt() // build-293: thời gian ghi ra socket BT
-        if (!okSend) {
+        if (!send(packet)) {
             lastFrameError = "Gửi khung lỗi (mất kết nối)"
             return false
         }
@@ -586,7 +382,7 @@ object TftLink {
             recentFrames.addLast(seq to jpeg)
             while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
         }
-        val deadline = sentAt + stallWaitMs
+        val deadline = sentAt + STALL_WAIT_MS
         var timedOut = false
         var interrupted = false
         var resentAt = 0L
@@ -603,7 +399,7 @@ object TftLink {
                 while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
                     val now = System.currentTimeMillis()
                     if (now >= deadline) {
-                        lastFrameError = "Khung #$seq chưa ACK sau ${stallWaitMs}ms — bỏ chờ, gửi khung mới"
+                        lastFrameError = "Khung #$seq chưa ACK sau ${STALL_WAIT_MS}ms — bỏ chờ, gửi khung mới"
                         timedOut = true
                         break
                     }
@@ -636,24 +432,21 @@ object TftLink {
         // (giãn ra khi ACK chậm) để không dồn thêm khung, còn lại để xe tự xử lý ACK chậm như
         // NConnect gốc vẫn vậy (cùng giới hạn phần cứng, không phải lỗi protocol sửa được từ xa).
         val waited = System.currentTimeMillis() - sentAt
-        if (waited > 6_500L) lastLongWaitAt = System.currentTimeMillis()
         if (timedOut) {
-            lastFrameAckMs = stallWaitMs
+            lastFrameAckMs = STALL_WAIT_MS
         } else {
             lastFrameAckMs = waited
             lastFrameError = null
             frameTxCount++
         }
-        statBytes += jpeg.size
         recordFrameStat(waited, timedOut)
-        if (tag == null) avRecord(sentAt, timedOut || waited > 1500L)
         // Ghi vào nhật ký chuyến đi (dung lượng khung thật gửi đi + thời gian ACK) — để sau này xem
         // lại có thể đối chiếu xem ACK bắt đầu chậm hẳn từ cỡ khung bao nhiêu byte, tìm ra một mức
         // dung lượng "an toàn" thay vì đoán mò bằng chất lượng JPEG.
         try {
             // timedOut giữ nghĩa cũ (quá ACK_WAIT_MS) để so được với log các bản trước; lost = quá
             // STALL_WAIT_MS vẫn không có ACK.
-            TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace, "ackMs" to (if (timedOut) null else lastFrameAckMs),
+            TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "ackMs" to (if (timedOut) null else lastFrameAckMs),
                 "timedOut" to (timedOut || waited > ACK_WAIT_MS), "lost" to (if (timedOut) true else null), "tag" to tag)
         } catch (_: Exception) {
         }
@@ -1921,23 +1714,15 @@ object TftLink {
                         val wait = riskWaitMs(System.currentTimeMillis())
                         if (wait > 0) sleepQuiet(wait)
                     }
-                    run {
-                        val aw = avoidWaitMs(System.currentTimeMillis(), buildEwmaMs.toLong() + 20L)
-                        if (aw > 0) { avWaits++; avWaitedTotalMs += aw; sleepQuiet(aw) }
-                    }
                     try {
                         // Lỗi trong nhánh ảnh bản đồ (kể cả lỗi nặng kiểu NoClassDefFoundError/UnsatisfiedLinkError)
                         // không được làm sập app: tắt nhánh đó rồi vẽ lại bằng vector.
-                        val tb0 = System.currentTimeMillis()
-                        val frame = if (diagMode == 1) buildTestFrame("DIAG " + ((System.currentTimeMillis() / 1000) % 1000)) else try { buildSketchFrame() } catch (t: Throwable) {
+                        val frame = try { buildSketchFrame() } catch (t: Throwable) {
                             if (mapSnapStyle == null) throw t
-                            // build-332: trước tắt 10 phút → TFT về bản vẽ dự phòng (đường mảnh/mất đường, log 3/11 19:37–19:48).
-                            // Giờ chỉ nghỉ 20 s, ghi kèm vết lỗi để tìm chỗ NullPointerException.
                             MapSnap.disable("build: " + t.javaClass.simpleName + " " + (t.message ?: "") + " @ " +
                                 t.stackTrace.take(4).joinToString(" < ") { it.fileName + ":" + it.lineNumber }, 20_000L)
                             buildSketchFrame()
                         }
-                        buildEwmaMs = buildEwmaMs * 0.9 + (System.currentTimeMillis() - tb0) * 0.1
                         sendFrame(frame)
                     } catch (_: Throwable) {
                     }
@@ -2345,6 +2130,8 @@ object TftLink {
 
     /** 0 = sáng, 1 = tối, 2 = tự động (tối từ 18:00 tới 05:30). Đặt từ DriveService theo Cài đặt. */
     @Volatile var themeMode: Int = 2
+    /** Giữ cho DriveService biên dịch được (bản 236 không có chế độ ảnh thử DIAG). */
+    @Volatile var diagMode: Int = 0
     private fun isDark(): Boolean = when (themeMode) {
         0 -> false
         1 -> true
@@ -2457,21 +2244,19 @@ object TftLink {
                         a.cancelDiscovery()
                     } catch (_: Exception) {
                     }
-                    // build-301: thử KHÔNG mã hoá trước (như build 298 — Sếp thấy mượt, 3 phiên 298 hết hẳn lỗi chờ 6 s), hụt mới về secure.
                     val sock = try {
-                        insecureSock = device.createInsecureRfcommSocketToServiceRecord(SERVICE_UUID)
-                        insecureSock.connect()
-                        insecureSock
-                    } catch (_: IOException) {
-                        try {
-                            insecureSock?.close()
-                        } catch (_: Exception) {
-                        }
                         secureSock = device.createRfcommSocketToServiceRecord(SERVICE_UUID)
                         secureSock.connect()
                         secureSock
+                    } catch (_: IOException) {
+                        try {
+                            secureSock?.close()
+                        } catch (_: Exception) {
+                        }
+                        insecureSock = device.createInsecureRfcommSocketToServiceRecord(SERVICE_UUID)
+                        insecureSock.connect()
+                        insecureSock
                     }
-                    try { TripLog.ev("tftSock", "kind" to (if (sock === insecureSock) "insecure" else "secure"), "fails" to failCount) } catch (_: Exception) {}
                     onConnected(sock, sock.inputStream, sock.outputStream)
                 } catch (e: SecurityException) {
                     try { secureSock?.close() } catch (_: Exception) {}
@@ -2504,11 +2289,6 @@ object TftLink {
             }
             return
         }
-        if (stallWaitMs != STALL_WAIT_MS && lastLongWaitAt != 0L && System.currentTimeMillis() - lastLongWaitAt < 30_000L) {
-            stallWaitMs = STALL_WAIT_MS
-            try { TripLog.ev("tftWait12Dis", "sinceLongWaitMs" to (System.currentTimeMillis() - lastLongWaitAt)) } catch (_: Exception) {}
-        }
-        avReset()
         activeSocket = socket
         out = output
         connected = true
@@ -2659,7 +2439,6 @@ object TftLink {
                     }
                     if (step2Done && step3Done && !authed) {
                         authed = true
-                        sessionStartAt = System.currentTimeMillis(); badMinutes = 0
                         sendInitBurst()
                     }
                 }
@@ -2680,54 +2459,10 @@ object TftLink {
         }
     }
 
-    /** build-294: so toàn bộ log 27/10–1/11: 2 phiên MƯỢT (28/10 sáng, build 235/236, đứng 0,2–2%) là 2 phiên duy nhất
-     * khung đi chậm ~13–15 ms/KB (ACK 129–152 ms); mọi phiên bị đứng 11–55% đều đi nhanh ~9 ms/KB. Giả thuyết: dồn dữ liệu
-     * quá nhanh làm bộ đệm màn xe tràn → màn kẹt 3–6 s. Ghi khung theo từng khối 1 KB, giữ nhịp ~PACE_MS_PER_KB. */
-    // build-295: 13 ms/KB (build 294) chưa đủ (đứng ~31%) → quét 10/15/20/25/30 ms/KB, đổi mỗi 2 phút trong cùng chuyến
-    // (iPhone theo tài liệu maxdash ~21 ms/KB). tftStat ghi "pace" của phút đó để so.
-    val PACE_STEPS = longArrayOf(15L) // build-298: quét 10–30 không khác biệt (27–33%), chốt 15
-    private val PACE_MS_PER_KB: Long get() = PACE_STEPS[((System.currentTimeMillis() / 120_000L) % PACE_STEPS.size).toInt()]
-    // build-330: = MTU RFCOMM của màn (990 B). 1024 làm mỗi khối tách 990 + 34 B → tốn gấp đôi lượt nhận (credit) của màn
-    const val PACE_CHUNK = 990
-
-    @Synchronized
-    private fun sendPaced(bytes: ByteArray): Boolean {
-        val o = out ?: return false
-        writeStartedAt = System.currentTimeMillis()
-        val t0 = System.nanoTime()
-        return try {
-            val pace = PACE_MS_PER_KB
-            lastPace = pace
-            var off = 0
-            while (off < bytes.size) {
-                val n = minOf(PACE_CHUNK, bytes.size - off)
-                o.write(bytes, off, n)
-                o.flush()
-                off += n
-                if (off < bytes.size) {
-                    val dueMs = off.toLong() * pace / 1024L // vẫn tính theo ms/KB
-                    val elapsedMs = (System.nanoTime() - t0) / 1_000_000L
-                    if (dueMs > elapsedMs) Thread.sleep(dueMs - elapsedMs)
-                }
-            }
-            true
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt(); false
-        } catch (e: IOException) {
-            lastError = "Gửi lỗi: ${e.message}"
-            try { activeSocket?.close() } catch (_: Exception) {}
-            false
-        } finally {
-            writeStartedAt = 0L
-        }
-    }
-
     @Synchronized
     private fun send(bytes: ByteArray): Boolean {
         val o = out ?: return false
         writeStartedAt = System.currentTimeMillis()
-        // build-296: log mọi gói KHÔNG phải khung ảnh (chữ rẽ/ETA/tên đường/bắt tay) để xem gói nào đi ngay trước lúc màn đứng.
-        if (authed) try { TripLog.ev("tftTx", "len" to bytes.size, "hd" to bytes.copyOfRange(0, minOf(12, bytes.size)).joinToString("") { String.format("%02x", it.toInt() and 0xFF) }) } catch (_: Exception) {}
         return try {
             o.write(bytes)
             o.flush()
@@ -2781,8 +2516,6 @@ object TftLink {
      */
     fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, currentStreet: String, etaMinutes: Int) {
         if (!authed) return
-        if (textOffNow()) { textWasOff = true; return }
-        if (textWasOff) { textWasOff = false; lastSentKey = ""; lastSentName = ""; lastSentEta = -1 }
         // Nhãn nguồn dưới tam giác vị trí trên xe: đã đổi qua lại vài lần qua các bản (tên đường
         // đang đi → câu chỉ dẫn rẽ) — nay theo yêu cầu mới nhất quay về TÊN ĐƯỜNG ĐANG ĐI
         // (currentStreet), vì phần chỉ dẫn rẽ (icon/khoảng cách/tên đường sắp quẹo) đã có chỗ riêng,
@@ -2803,23 +2536,14 @@ object TftLink {
         }
         val icon = IconMap.from(sign, roundabout)
         // Làm tròn khoảng cách theo bậc 5 m để không gửi lại chỉ vì GPS nhích vài centimet.
-        // build-289: bớt gói chữ — xa chỗ rẽ (>300 m) chỉ cập nhật mỗi 50 m, gần chỗ rẽ mỗi 10 m; ETA chỉ gửi khi đổi phút
-        // (trước: mỗi lần khoảng cách nhích 10 m là gửi cả gói rẽ lẫn gói ETA, ~1–2 gói/giây suốt lúc dẫn đường).
-        val distBucket = if (distanceM > 300) 30 + distanceM / 50 else distanceM / 10
-        val key = "$icon|$distBucket|$road"
-        val etaChanged = etaMinutes != lastSentEta
-        if (key == lastSentKey && !etaChanged) return
+        val key = "$icon|${distanceM / 5}|$road|$etaMinutes"
+        if (key == lastSentKey) return
         if (lastSentKey == "off" || lastSentKey.isEmpty()) send(navActivePacket(true))
-        if (key != lastSentKey) {
-            if (send(turnPacket(icon, distanceM.toFloat(), road))) {
-                txCount++
-                lastTxAt = System.currentTimeMillis()
-                statTextTx++
-            }
+        if (send(turnPacket(icon, distanceM.toFloat(), road))) {
+            txCount++
+            lastTxAt = System.currentTimeMillis()
         }
-        if (etaChanged || key != lastSentKey && lastSentKey.let { it == "off" || it.isEmpty() }) {
-            send(etaPacket(etaMinutes)); lastSentEta = etaMinutes; statTextTx++
-        }
+        send(etaPacket(etaMinutes))
         lastSentKey = key
     }
 }
