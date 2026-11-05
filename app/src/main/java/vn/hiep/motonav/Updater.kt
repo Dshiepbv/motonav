@@ -32,6 +32,45 @@ object Updater {
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
+    /** Gọi một endpoint GitHub API. Nếu đang kèm mã mà bị 401/403 (mã sai/hết hạn/sai quyền —
+     *  ĐÂY LÀ NGUYÊN NHÂN GÂY LỖI "401" KHI TẢI GÓI OFFLINE) thì tự thử lại KHÔNG mã một lần:
+     *  kho motonav hiện là kho CÔNG KHAI nên không cần mã vẫn đọc được release. Ném
+     *  RuntimeException với thông báo đã bản địa hoá nếu cả hai lần đều thất bại. */
+    private fun <T> gh(url: String, token0: String, accept: String, parse: (okhttp3.Response) -> T): T {
+        var token = token0
+        while (true) {
+            http.newCall(req(url, token, accept)).execute().use { r ->
+                if (r.isSuccessful) return parse(r)
+                val code = r.code
+                if (token.isNotBlank() && (code == 401 || code == 403)) {
+                    token = "" // mã bị từ chối — kho công khai không cần mã, thử lại lần cuối
+                    return@use
+                }
+                throw RuntimeException(mapGhError(code))
+            }
+        }
+    }
+
+    private fun mapGhError(code: Int) = when (code) {
+        401 -> "Mã GitHub sai hoặc đã hết hạn — kho motonav hiện CÔNG KHAI, hãy XOÁ mã trong Cài đặt để tải trực tiếp"
+        403 -> "GitHub chặn truy cập (hết lượt) — thử lại sau ít phút, hoặc đổi mã GitHub khác"
+        404 -> "Không thấy dữ liệu trên GitHub (nếu kho chuyển riêng tư thì cần mã có quyền đọc)"
+        else -> "GitHub trả lỗi $code"
+    }
+
+    private fun packInfo(token: String): Triple<Long, Long, String> {
+        val o = gh("https://api.github.com/repos/$REPO/releases/tags/osm-data", token, "application/vnd.github+json") { r ->
+            JSONObject(r.body!!.string())
+        }
+        val assets = o.getJSONArray("assets")
+        for (i in 0 until assets.length()) {
+            val x = assets.getJSONObject(i)
+            if (x.getString("name") == "osm-hcm.zip")
+                return Triple(x.getLong("id"), x.optLong("size"), x.optString("updated_at"))
+        }
+        throw RuntimeException("Chưa có file osm-hcm.zip trong release osm-data")
+    }
+
     class Release(val version: String, val build: Int, val assetId: Long, val size: Long, val notes: String)
 
     /** Trạng thái cho hàng "Cập nhật phần mềm" trong Cài đặt — hiện trực tiếp dưới dòng đó (thanh
@@ -66,46 +105,40 @@ object Updater {
         .build()
 
     private fun latest(token: String): Release {
-        http.newCall(req("https://api.github.com/repos/$REPO/releases/latest", token, "application/vnd.github+json")).execute().use { r ->
-            if (r.code == 401) throw RuntimeException("Mã GitHub sai hoặc đã hết hạn")
-            if (r.code == 404) throw RuntimeException("Không thấy bản phát hành (kho riêng tư cần mã GitHub có quyền đọc kho motonav)")
-            if (!r.isSuccessful) throw RuntimeException("GitHub trả lỗi ${r.code}")
-            val o = JSONObject(r.body!!.string())
-            val assets = o.getJSONArray("assets")
-            for (i in 0 until assets.length()) {
-                val a = assets.getJSONObject(i)
-                val name = a.getString("name")
-                val m = Regex("""MotoNav-([\d.]+)\.apk""").find(name) ?: continue
-                val build = Regex("""(\d+)""").find(o.optString("tag_name"))?.value?.toIntOrNull() ?: 0
-                return Release(m.groupValues[1], build, a.getLong("id"), a.optLong("size"), o.optString("body"))
-            }
-            throw RuntimeException("Bản phát hành mới nhất không có file APK")
+        val o = gh("https://api.github.com/repos/$REPO/releases/latest", token, "application/vnd.github+json") { r ->
+            JSONObject(r.body!!.string())
         }
+        val assets = o.getJSONArray("assets")
+        for (i in 0 until assets.length()) {
+            val a = assets.getJSONObject(i)
+            val name = a.getString("name")
+            val m = Regex("""MotoNav-([\d.]+)\.apk""").find(name) ?: continue
+            val build = Regex("""(\d+)""").find(o.optString("tag_name"))?.value?.toIntOrNull() ?: 0
+            return Release(m.groupValues[1], build, a.getLong("id"), a.optLong("size"), o.optString("body"))
+        }
+        throw RuntimeException("Bản phát hành mới nhất không có file APK")
     }
 
     /** Tải gói dữ liệu OSM ngoại tuyến (release "osm-data") vào bộ nhớ riêng của app. */
     fun downloadPack(a: Activity, prefs: Prefs, done: () -> Unit) {
+        // Kho motonav hiện CÔNG KHAI: tải không cần mã; mã chỉ dùng dự phòng nếu kho đổi riêng tư.
         val token = prefs.githubToken
-        if (token.isBlank()) { askToken(a, prefs); return }
         val progress = AlertDialog.Builder(a).setTitle("Đang tải dữ liệu ngoại tuyến").setMessage("Đang kiểm tra…").setCancelable(false).show()
         val ctx = a.applicationContext
         Thread {
             try {
-                val (id, size, updated) = http.newCall(req("https://api.github.com/repos/$REPO/releases/tags/osm-data", token, "application/vnd.github+json")).execute().use { r ->
-                    if (r.code == 404) throw RuntimeException("Gói dữ liệu chưa được tạo trên GitHub (đợi bản chạy hằng tuần)")
-                    if (!r.isSuccessful) throw RuntimeException("GitHub trả lỗi ${r.code}")
-                    val assets = JSONObject(r.body!!.string()).getJSONArray("assets")
-                    var res: Triple<Long, Long, String>? = null
-                    for (i in 0 until assets.length()) {
-                        val x = assets.getJSONObject(i)
-                        if (x.getString("name") == "osm-hcm.zip") res = Triple(x.getLong("id"), x.optLong("size"), x.optString("updated_at"))
+                val (id, size, updated) = try {
+                    packInfo(token)
+                } catch (e: Exception) {
+                    if (e.message?.contains("riêng tư") == true) {
+                        main.post { progress.dismiss(); askToken(a, prefs) }
+                        return@Thread
                     }
-                    res ?: throw RuntimeException("Chưa có file osm-hcm.zip")
+                    throw e
                 }
                 val dst = OfflinePack.file(ctx)
                 val tmp = java.io.File(dst.parentFile, "pack.tmp")
-                http.newCall(req("https://api.github.com/repos/$REPO/releases/assets/$id", token, "application/octet-stream")).execute().use { r ->
-                    if (!r.isSuccessful) throw RuntimeException("Tải lỗi ${r.code}")
+                gh("https://api.github.com/repos/$REPO/releases/assets/$id", token, "application/octet-stream") { r ->
                     val body = r.body!!
                     val total = body.contentLength().takeIf { it > 0 } ?: size
                     tmp.outputStream().use { out ->
@@ -155,24 +188,16 @@ object Updater {
             val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return
             if (!caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) return
             val token = prefs.githubToken
-            val (id, size, updated) = http.newCall(req("https://api.github.com/repos/$REPO/releases/tags/osm-data", token, "application/vnd.github+json")).execute().use { r ->
-                if (!r.isSuccessful) return
-                val assets = JSONObject(r.body!!.string()).getJSONArray("assets")
-                var res: Triple<Long, Long, String>? = null
-                for (i in 0 until assets.length()) {
-                    val x = assets.getJSONObject(i)
-                    if (x.getString("name") == "osm-hcm.zip") res = Triple(x.getLong("id"), x.optLong("size"), x.optString("updated_at"))
-                }
-                res ?: return
-            }
+            val (id, size, updated) = try { packInfo(token) } catch (_: Exception) { return }
             sp.edit().putLong("packCheckAt", now).apply()
             val dst = OfflinePack.file(ctx)
             if (dst.exists() && sp.getString("packUpdated", "") == updated) return
             val tmp = java.io.File(dst.parentFile, "pack.tmp")
-            http.newCall(req("https://api.github.com/repos/$REPO/releases/assets/$id", token, "application/octet-stream")).execute().use { r ->
-                if (!r.isSuccessful) return
-                tmp.outputStream().use { out -> r.body!!.byteStream().use { it.copyTo(out) } }
-            }
+            try {
+                gh("https://api.github.com/repos/$REPO/releases/assets/$id", token, "application/octet-stream") { r ->
+                    tmp.outputStream().use { out -> r.body!!.byteStream().use { it.copyTo(out) } }
+                }
+            } catch (_: Exception) { return }
             if (size > 0 && tmp.length() < size / 2) { tmp.delete(); return }
             OfflinePack.close()
             if (!tmp.renameTo(dst)) { dst.delete(); tmp.renameTo(dst) }
@@ -186,10 +211,6 @@ object Updater {
     /** Nút "Cập nhật phần mềm" trong Cài đặt. */
     fun check(a: Activity, prefs: Prefs) {
         val token = prefs.githubToken
-        if (token.isBlank()) {
-            askToken(a, prefs)
-            return
-        }
         Toast.makeText(a, "Đang kiểm tra bản mới…", Toast.LENGTH_SHORT).show()
         Thread {
             try {
@@ -234,10 +255,6 @@ object Updater {
      * "Cài ứng dụng không rõ nguồn" lúc đầu (chỉ 1 lần, bắt buộc phải có, Android không cho bỏ qua). */
     fun checkInline(a: Activity, prefs: Prefs, onState: (UpdateState) -> Unit) {
         val token = prefs.githubToken
-        if (token.isBlank()) {
-            askToken(a, prefs)
-            return
-        }
         onState(UpdateState.Checking)
         Thread {
             try {
@@ -282,9 +299,7 @@ object Updater {
                 }
                 val id = pi.createSession(params)
                 session = pi.openSession(id)
-                val url = "https://api.github.com/repos/$REPO/releases/assets/${rel.assetId}"
-                http.newCall(req(url, prefs.githubToken, "application/octet-stream")).execute().use { r ->
-                    if (!r.isSuccessful) throw RuntimeException("Tải lỗi ${r.code}")
+                gh("https://api.github.com/repos/$REPO/releases/assets/${rel.assetId}", prefs.githubToken, "application/octet-stream") { r ->
                     val body = r.body!!
                     val total = body.contentLength().takeIf { it > 0 } ?: rel.size
                     session.openWrite("motonav.apk", 0, total).use { out ->
@@ -329,7 +344,8 @@ object Updater {
         AlertDialog.Builder(a)
             .setTitle("Mã GitHub để tải bản cập nhật")
             .setMessage(
-                "Kho MotoNav đang để riêng tư nên cần một mã chỉ-đọc:\n" +
+                "Kho MotoNav hiện CÔNG KHAI — có thể để trống mã và tải trực tiếp.\n\n" +
+                "Nếu kho đổi riêng tư, tạo mã chỉ-đọc:\n" +
                     "GitHub → Settings → Developer settings → Fine-grained tokens → Generate\n" +
                     "• Repository access: Only select → motonav\n" +
                     "• Permissions → Contents: Read-only\n" +
@@ -377,9 +393,7 @@ object Updater {
                 }
                 val id = pi.createSession(params)
                 session = pi.openSession(id)
-                val url = "https://api.github.com/repos/$REPO/releases/assets/${rel.assetId}"
-                http.newCall(req(url, prefs.githubToken, "application/octet-stream")).execute().use { r ->
-                    if (!r.isSuccessful) throw RuntimeException("Tải lỗi ${r.code}")
+                gh("https://api.github.com/repos/$REPO/releases/assets/${rel.assetId}", prefs.githubToken, "application/octet-stream") { r ->
                     val body = r.body!!
                     val total = body.contentLength().takeIf { it > 0 } ?: rel.size
                     // Ghi thẳng vào phiên cài đặt của Android – không tạo file trong bộ nhớ máy
