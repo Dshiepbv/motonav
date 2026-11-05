@@ -235,12 +235,12 @@ object TftLink {
     // PIPELINE V2 — latest-frame-wins: hộp thư 1 khung, luồng ghi riêng.
     const val PIPE_V2 = true
     private const val V2_ACK_WAIT_MS = 1200L
-    private const val V2_MIN_INTERVAL_MS = 700L
+    private const val V2_MIN_INTERVAL_MS = 550L
     private const val V2_KEEPALIVE_MS = 2500L
-    /** Sau hai frame liên tiếp không được ACK, tạm ngừng đẩy ảnh vào FIFO của TFT. */
-    private const val V2_FREEZE_TIMEOUTS = 2
-    /** Trong Freeze-Hold chỉ gửi lại frame cuối mỗi 6 giây để duy trì watchdog. */
-    private const val V2_FREEZE_KEEPALIVE_MS = 6000L
+    /** Chỉ vào Freeze-Hold sau ba frame liên tiếp không được ACK. */
+    private const val V2_FREEZE_TIMEOUTS = 3
+    /** Trong Freeze-Hold, chỉ gửi frame cũ khi không có frame mới trong 1,8 giây. */
+    private const val V2_FREEZE_KEEPALIVE_MS = 1800L
     /** Sau khi TFT tỉnh, bỏ min-interval trong 6 giây để cập nhật ảnh mới theo nhịp ACK. */
     private const val V2_DRAIN_MS = 6000L
     const val V2_FUSE_TEXT = true
@@ -2876,20 +2876,25 @@ object TftLink {
             }
             val now = System.currentTimeMillis()
             if (freezeHold) {
+                // Freeze-Hold vẫn ưu tiên đẩy ảnh mới nhất; chỉ dùng keepalive khi mailbox trống.
                 val fresh = mailbox.getAndSet(null)
+                val frame = fresh ?: lastJpeg
+                val isFresh = fresh != null
                 if (fresh != null) lastJpeg = fresh
-                val lj = lastJpeg
-                if (lj != null && lastAt != 0L && now - lastAt >= V2_FREEZE_KEEPALIVE_MS) {
-                    if (!sendFrameWire(lj, "keepalive")) break
+                if (frame != null && (isFresh || (lastAt != 0L && now - lastAt >= V2_FREEZE_KEEPALIVE_MS))) {
+                    if (!sendFrameWire(frame, if (isFresh) null else "keepalive")) break
                     lastAt = System.currentTimeMillis()
                     v2LastTxAt = lastAt
                     v2Sent++
                     if (!v2PrevTimedOut) {
                         freezeHold = false
+                        consecTo = 0
                         v2WakeNow = false
                         drainUntil = System.currentTimeMillis() + V2_DRAIN_MS
-                        try { TripLog.ev("tftWake", "from" to "keepalive") } catch (_: Exception) {}
+                        try { TripLog.ev("tftWake", "from" to if (isFresh) "frame" else "keepalive") } catch (_: Exception) {}
                     }
+                    val rest = V2_MIN_INTERVAL_MS - (System.currentTimeMillis() - now)
+                    if (rest > 0) sleepQuiet(rest)
                 } else awaitV2Wake(300)
                 continue
             }
