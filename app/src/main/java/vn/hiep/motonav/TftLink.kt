@@ -1905,6 +1905,13 @@ object TftLink {
         // lý JPEG đầu tiên chậm (cold start phần vẽ màn hình của xe) chứ không riêng việc tranh chấp
         // với loạt gói cấu hình.
         sleepQuiet(3000)
+        // 7.28 FREEZE-HOLD: nếu xe mất ACK liên tiếp, ngừng đẩy ảnh vào bộ đệm của xe.
+        // Kiến trúc main hiện tại dùng sketchLoop/sendFrame đồng bộ, chưa có mailbox riêng,
+        // nên giữ nguyên tắc latest-frame-wins bằng cách chỉ gửi keepalive từ frame mới nhất.
+        var freezeHold = false
+        var consecutiveLost = 0
+        var lastKeepaliveAt = 0L
+        var drainUntil = 0L
         while (running.get() && connected) {
             if (authed) {
                 // LUÔN gửi đều đặn kể cả lúc chưa dẫn đường/mất GPS (khung "chờ") — không bao giờ
@@ -1938,7 +1945,39 @@ object TftLink {
                             buildSketchFrame()
                         }
                         buildEwmaMs = buildEwmaMs * 0.9 + (System.currentTimeMillis() - tb0) * 0.1
-                        sendFrame(frame)
+                        val now = System.currentTimeMillis()
+                        if (freezeHold) {
+                            // Trong hold chỉ gửi frame mới nhất mỗi 6s để giữ watchdog của màn xe,
+                            // tránh tiếp tục xếp ảnh cũ vào FIFO trong lúc firmware đang đóng băng.
+                            if (lastKeepaliveAt == 0L || now - lastKeepaliveAt >= 6000L) {
+                                if (!sendFrame(frame, "keepalive")) break
+                                lastKeepaliveAt = System.currentTimeMillis()
+                                val lost = lastFrameAckMs >= stallWaitMs
+                                if (!lost) {
+                                    freezeHold = false
+                                    consecutiveLost = 0
+                                    drainUntil = System.currentTimeMillis() + 6000L
+                                    try { TripLog.ev("tftWake", "from" to "keepalive") } catch (_: Exception) {}
+                                }
+                            }
+                        } else {
+                            if (!sendFrame(frame)) break
+                            val lost = lastFrameAckMs >= stallWaitMs
+                            if (lost) {
+                                consecutiveLost++
+                                if (consecutiveLost >= 2) {
+                                    freezeHold = true
+                                    lastKeepaliveAt = System.currentTimeMillis()
+                                    try { TripLog.ev("tftFreezeHold", "timeouts" to consecutiveLost) } catch (_: Exception) {}
+                                }
+                            } else {
+                                if (consecutiveLost > 0) {
+                                    drainUntil = System.currentTimeMillis() + 6000L
+                                    try { TripLog.ev("tftWake", "from" to "frame") } catch (_: Exception) {}
+                                }
+                                consecutiveLost = 0
+                            }
+                        }
                     } catch (_: Throwable) {
                     }
                 }
@@ -1954,7 +1993,9 @@ object TftLink {
                 // ACK_WAIT_MS), nên khoảng lặng xấu nhất giữa 2 khung giờ chỉ còn ~1,9s (1,5s chờ ACK
                 // + 0,4s nghỉ), thay vì 6,4s trước đây.
                 // Nhịp C: nghỉ dài hơn (900 ms) giữa 2 khung — ít khung hơn, thử xem có ít lần đứng hơn.
-                sleepQuiet(if (paceMode == 2) 900 else 400)
+                if (System.currentTimeMillis() >= drainUntil) {
+                    sleepQuiet(if (paceMode == 2) 900 else 400)
+                }
             } else {
                 sleepQuiet(400)
             }
