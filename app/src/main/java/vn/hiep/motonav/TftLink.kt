@@ -232,6 +232,23 @@ object TftLink {
     @Volatile private var stallWaitMs = STALL_WAIT_MS // 31/10: Sếp loại bỏ thử 12 s (xe tự báo 'Lỗi kết nối' khi im lặng 10–19 s, log 24/10) — giữ 6 s
     @Volatile private var lastLongWaitAt = 0L
 
+    // PIPELINE V2 — latest-frame-wins: hộp thư 1 khung, luồng ghi riêng.
+    const val PIPE_V2 = true
+    private const val V2_ACK_WAIT_MS = 1200L
+    private const val V2_MIN_INTERVAL_MS = 700L
+    private const val V2_KEEPALIVE_MS = 2500L
+    const val V2_FUSE_TEXT = true
+    const val V2_STRICT_CRC = false
+    private val mailbox = java.util.concurrent.atomic.AtomicReference<ByteArray?>(null)
+    private val urgentQ = java.util.concurrent.ConcurrentLinkedQueue<ByteArray>()
+    private val v2Wake = java.util.concurrent.Semaphore(0)
+    @Volatile private var v2Sent = 0
+    @Volatile private var v2Dropped = 0
+    @Volatile private var v2CrcBad = 0
+    @Volatile private var v2Urgent = 0
+    @Volatile private var v2EpochReset = 0
+    @Volatile private var v2LastTxAt = 0L
+
     // Thống kê "đứng hình" — tftStat mỗi 60s: tỉ lệ thời gian xe không nhận khung mới (đây mới là
     // con số người lái thấy, khác với tỉ lệ khung quá 1s trước đây — 1 lần đứng từng bị đếm 4 khung).
     private var statFrom = 0L
@@ -522,6 +539,11 @@ object TftLink {
             statFrom = now; statBytes = 0L; statTextTx = 0; statFrames = 0; statSlow = 0; statLost = 0; statStallMs = 0L; statGapMs = 0L
             statResend = 0; statResendHit = 0
             statWindows++
+            if (PIPE_V2) try {
+                TripLog.ev("tftStatV2", "sent" to v2Sent, "dropped" to v2Dropped, "urgent" to v2Urgent,
+                    "crcBad" to v2CrcBad, "epochReset" to v2EpochReset,
+                    "buildMs" to Math.round(buildEwmaMs), "sinceTxMs" to (if (v2LastTxAt == 0L) -1L else now - v2LastTxAt))
+            } catch (_: Exception) {}
             // Thử nghiệm 221–224 xong (log 27/10, 27 phút): A tốt nhất (gap ≈15%) — B ≈21–25%, C ≈25–30%.
             // Chốt cố định nhịp A, bỏ luân phiên.
             paceMode = 0
@@ -554,6 +576,12 @@ object TftLink {
     @Volatile private var lastPace = 0L
     fun sendFrame(jpeg: ByteArray, tag: String? = null): Boolean {
         if (!authed) return false
+        if (PIPE_V2) {
+            val prev = mailbox.getAndSet(jpeg)
+            if (prev != null) v2Dropped++
+            v2Wake.release()
+            return true
+        }
         val seq = (frameSeq + 1) and 0xFFFF
         frameSeq = seq
         var body = jpeg
@@ -1905,13 +1933,6 @@ object TftLink {
         // lý JPEG đầu tiên chậm (cold start phần vẽ màn hình của xe) chứ không riêng việc tranh chấp
         // với loạt gói cấu hình.
         sleepQuiet(3000)
-        // 7.28 FREEZE-HOLD: nếu xe mất ACK liên tiếp, ngừng đẩy ảnh vào bộ đệm của xe.
-        // Kiến trúc main hiện tại dùng sketchLoop/sendFrame đồng bộ, chưa có mailbox riêng,
-        // nên giữ nguyên tắc latest-frame-wins bằng cách chỉ gửi keepalive từ frame mới nhất.
-        var freezeHold = false
-        var consecutiveLost = 0
-        var lastKeepaliveAt = 0L
-        var drainUntil = 0L
         while (running.get() && connected) {
             if (authed) {
                 // LUÔN gửi đều đặn kể cả lúc chưa dẫn đường/mất GPS (khung "chờ") — không bao giờ
@@ -1945,39 +1966,7 @@ object TftLink {
                             buildSketchFrame()
                         }
                         buildEwmaMs = buildEwmaMs * 0.9 + (System.currentTimeMillis() - tb0) * 0.1
-                        val now = System.currentTimeMillis()
-                        if (freezeHold) {
-                            // Trong hold chỉ gửi frame mới nhất mỗi 6s để giữ watchdog của màn xe,
-                            // tránh tiếp tục xếp ảnh cũ vào FIFO trong lúc firmware đang đóng băng.
-                            if (lastKeepaliveAt == 0L || now - lastKeepaliveAt >= 6000L) {
-                                if (!sendFrame(frame, "keepalive")) break
-                                lastKeepaliveAt = System.currentTimeMillis()
-                                val lost = lastFrameAckMs >= stallWaitMs
-                                if (!lost) {
-                                    freezeHold = false
-                                    consecutiveLost = 0
-                                    drainUntil = System.currentTimeMillis() + 6000L
-                                    try { TripLog.ev("tftWake", "from" to "keepalive") } catch (_: Exception) {}
-                                }
-                            }
-                        } else {
-                            if (!sendFrame(frame)) break
-                            val lost = lastFrameAckMs >= stallWaitMs
-                            if (lost) {
-                                consecutiveLost++
-                                if (consecutiveLost >= 2) {
-                                    freezeHold = true
-                                    lastKeepaliveAt = System.currentTimeMillis()
-                                    try { TripLog.ev("tftFreezeHold", "timeouts" to consecutiveLost) } catch (_: Exception) {}
-                                }
-                            } else {
-                                if (consecutiveLost > 0) {
-                                    drainUntil = System.currentTimeMillis() + 6000L
-                                    try { TripLog.ev("tftWake", "from" to "frame") } catch (_: Exception) {}
-                                }
-                                consecutiveLost = 0
-                            }
-                        }
+                        sendFrame(frame)
                     } catch (_: Throwable) {
                     }
                 }
@@ -1993,9 +1982,7 @@ object TftLink {
                 // ACK_WAIT_MS), nên khoảng lặng xấu nhất giữa 2 khung giờ chỉ còn ~1,9s (1,5s chờ ACK
                 // + 0,4s nghỉ), thay vì 6,4s trước đây.
                 // Nhịp C: nghỉ dài hơn (900 ms) giữa 2 khung — ít khung hơn, thử xem có ít lần đứng hơn.
-                if (System.currentTimeMillis() >= drainUntil) {
-                    sleepQuiet(if (paceMode == 2) 900 else 400)
-                }
+                sleepQuiet(if (paceMode == 2) 900 else 400)
             } else {
                 sleepQuiet(400)
             }
@@ -2328,6 +2315,16 @@ object TftLink {
                 }
                 val total = 16 + plen
                 if (buf.size < total) break
+                val crcIn = readLe32(buf, 12)
+                var cCalc = TftLink.crc(0, 12, -1, buf)
+                cCalc = TftLink.crc(16, total, cCalc, buf)
+                if (cCalc != crcIn) {
+                    TftLink.v2CrcBad++
+                    if (V2_STRICT_CRC) {
+                        buf = buf.copyOfRange(4, buf.size)
+                        continue
+                    }
+                }
                 val cmd = buf[6].toInt() and 0xFF
                 val sub = buf[11].toInt() and 0xFF
                 val payload = buf.copyOfRange(16, total)
@@ -2564,6 +2561,11 @@ object TftLink {
         txCount = 0
         lastTxAt = 0
         frameSeq = 0
+        if (PIPE_V2) {
+            mailbox.set(null)
+            urgentQ.clear()
+            v2Sent = 0; v2Dropped = 0; v2CrcBad = 0; v2Urgent = 0; v2EpochReset = 0; v2LastTxAt = 0L
+        }
         waitingSeq = -1
         last42At = 0L
         frameTxCount = 0
@@ -2586,6 +2588,10 @@ object TftLink {
             sketchLoop()
         }, "tft-sketch").apply { isDaemon = true; start() }
         Thread({ writeWatchdog() }, "tft-writewatch").apply { isDaemon = true; start() }
+        if (PIPE_V2) {
+            Thread({ txLoopV2() }, "tft-tx-v2").apply { isDaemon = true; start() }
+            try { TripLog.ev("tftPipe", "ver" to 2, "ackWaitMs" to V2_ACK_WAIT_MS, "minIntervalMs" to V2_MIN_INTERVAL_MS, "fuseText" to V2_FUSE_TEXT, "strictCrc" to V2_STRICT_CRC) } catch (_: Exception) {}
+        }
     }
 
     /** Đọc gói tin từ xe, chạy máy trạng thái bắt tay 3 bước rồi mới cho phép gửi kênh chữ. */
@@ -2671,7 +2677,10 @@ object TftLink {
                                 try { TripLog.ev("tftAckOdd", "got" to seq, "want" to want, "ms" to ms) } catch (_: Exception) {}
                                 // Xe đếm lại từ đầu (số rất nhỏ trong khi app đã đếm xa) → coi như ACK
                                 // khung đang chờ, để không mất oan hàng loạt khung tới khi số khớp lại.
-                                if (seq <= 3 && want > 20) ackVal = want
+                                if (seq <= 3 && want > 20) {
+                                    ackVal = want
+                                    v2EpochReset++
+                                }
                             }
                             synchronized(ackLock) {
                                 ackedFrame = ackVal
@@ -2763,8 +2772,104 @@ object TftLink {
         }
     }
 
-    @Synchronized
+    /** Ghi một khung ảnh; ACK chỉ được chờ ngắn trong TX worker, không khóa luồng đọc. */
+    private fun sendFrameWire(jpeg: ByteArray, tag: String?): Boolean {
+        val seq = (frameSeq + 1) and 0xFFFF
+        frameSeq = seq
+        var body = jpeg
+        if (body.size <= 2048) body = body.copyOf(2050)
+        val payload = ByteArray(body.size + 3)
+        payload[0] = 3
+        payload[1] = (seq and 0xFF).toByte()
+        payload[2] = ((seq ushr 8) and 0xFF).toByte()
+        System.arraycopy(body, 0, payload, 3, body.size)
+        val sentAt = System.currentTimeMillis()
+        waitingSeq = seq
+        waitingSentAt = sentAt
+        val packet = pack(payload, 0, 1)
+        val wr0 = System.nanoTime()
+        val ok = sendPaced(packet)
+        lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt()
+        if (!ok) {
+            lastFrameError = "Gửi khung lỗi (mất kết nối)"
+            return false
+        }
+        synchronized(recentFrames) {
+            recentFrames.addLast(seq to jpeg)
+            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
+        }
+        var timedOut = false
+        synchronized(ackLock) {
+            while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
+                val left = V2_ACK_WAIT_MS - (System.currentTimeMillis() - sentAt)
+                if (left <= 0) { timedOut = true; break }
+                try {
+                    (ackLock as Object).wait(left)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                }
+            }
+        }
+        val waited = System.currentTimeMillis() - sentAt
+        lastFrameAckMs = if (timedOut) V2_ACK_WAIT_MS else waited
+        if (timedOut) lastFrameError = "Khung #${seq} chưa ACK sau ${V2_ACK_WAIT_MS}ms — bỏ qua, dùng khung mới"
+        else { lastFrameError = null; frameTxCount++ }
+        statBytes += jpeg.size
+        recordFrameStat(waited.coerceAtMost(stallWaitMs), timedOut)
+        if (tag == null) avRecord(sentAt, timedOut || waited > 1500L)
+        try {
+            TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace,
+                "ackMs" to (if (timedOut) null else lastFrameAckMs), "timedOut" to timedOut,
+                "lost" to (if (timedOut) true else null), "tag" to tag, "v" to 2)
+        } catch (_: Exception) {}
+        return true
+    }
+
+    /** TX worker duy nhất: ưu tiên gói điều khiển, sau đó gửi khung mới nhất trong mailbox. */
+    private fun txLoopV2() {
+        var lastJpeg: ByteArray? = null
+        var lastAt = 0L
+        while (running.get() && connected) {
+            val urgent = urgentQ.poll()
+            if (urgent != null) {
+                v2Urgent++
+                val o = out ?: break
+                try { o.write(urgent); o.flush() } catch (_: IOException) { break }
+                continue
+            }
+            val jpeg = mailbox.getAndSet(null)
+            if (jpeg == null) {
+                val previous = lastJpeg
+                if (previous != null && lastAt != 0L && System.currentTimeMillis() - lastAt >= V2_KEEPALIVE_MS) {
+                    if (!sendFrameWire(previous, "keepalive")) break
+                    lastAt = System.currentTimeMillis()
+                    v2Sent++
+                } else sleepQuiet(50)
+                continue
+            }
+            lastJpeg = jpeg
+            val started = System.nanoTime()
+            if (!sendFrameWire(jpeg, null)) break
+            lastAt = System.currentTimeMillis()
+            v2LastTxAt = lastAt
+            v2Sent++
+            val spent = (System.nanoTime() - started) / 1_000_000L
+            val rest = V2_MIN_INTERVAL_MS - spent
+            if (rest > 0) sleepQuiet(rest)
+        }
+    }
+
     private fun send(bytes: ByteArray): Boolean {
+        if (PIPE_V2) {
+            urgentQ.add(bytes)
+            return true
+        }
+        return sendLocked(bytes)
+    }
+
+    @Synchronized
+    private fun sendLocked(bytes: ByteArray): Boolean {
         val o = out ?: return false
         writeStartedAt = System.currentTimeMillis()
         // build-296: log mọi gói KHÔNG phải khung ảnh (chữ rẽ/ETA/tên đường/bắt tay) để xem gói nào đi ngay trước lúc màn đứng.
@@ -2851,6 +2956,11 @@ object TftLink {
         val etaChanged = etaMinutes != lastSentEta
         if (key == lastSentKey && !etaChanged) return
         if (lastSentKey == "off" || lastSentKey.isEmpty()) send(navActivePacket(true))
+        if (PIPE_V2 && V2_FUSE_TEXT) {
+            lastSentKey = key
+            lastSentEta = etaMinutes
+            return
+        }
         if (key != lastSentKey) {
             if (send(turnPacket(icon, distanceM.toFloat(), road))) {
                 txCount++
