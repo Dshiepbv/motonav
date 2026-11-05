@@ -131,11 +131,11 @@ class TripLogProvider : ContentProvider() {
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor? {
         val f = fileOf(uri) ?: return null
         val c = MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE))
-        c.addRow(arrayOf<Any>("MotoNav-" + f.name, f.length()))
+        c.addRow(arrayOf<Any>(f.name, f.length()))
         return c
     }
 
-    override fun getType(uri: Uri) = "application/gzip"
+    override fun getType(uri: Uri) = "text/plain"
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?) = 0
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?) = 0
