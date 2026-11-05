@@ -36,12 +36,9 @@ object AppActions {
             .show()
     }
 
-    /** Mở Google Maps (MotoNav hiện ô nổi tốc độ + cảnh báo trên đó). */
+    /** Mở Google Maps (MotoNav hiện ô tốc độ + cảnh báo nổi trên đó). */
     fun openGoogleMaps(a: Activity, prefs: Prefs) {
-        // Bấm "Mở Google Maps" nghĩa là muốn có ô nổi → luôn bật
         if (!prefs.overlay) prefs.overlay = true
-
-        // 1. Quyền hiện trên ứng dụng khác (bắt buộc)
         if (!Settings.canDrawOverlays(a)) {
             AlertDialog.Builder(a)
                 .setTitle("Cần quyền hiện ô nổi")
@@ -56,8 +53,6 @@ object AppActions {
                 .show()
             return
         }
-
-        // 2. Quyền biết app nào đang mở (để tự bật/tắt ô nổi) – hỏi cho tới khi cấp hoặc chọn "Không cần"
         val sp = a.getSharedPreferences("motonav", Context.MODE_PRIVATE)
         if (!ForegroundApp.hasPermission(a) && !sp.getBoolean("skipUsage", false)) {
             AlertDialog.Builder(a)
@@ -106,37 +101,54 @@ object AppActions {
         }
     }
 
-    /** Gửi 3 nhật ký chuyến gần nhất (đã nén) qua Zalo / Drive / Gmail — dùng chung cho menu ☰ màn
-     * chính và đầu trang Cài đặt. */
+    /**
+     * Xuất tối đa 3 chuyến gần nhất thành một file TXT UTF-8 thuần.
+     * Nội dung giữ nguyên JSON Lines để máy và người có thể đọc/phân tích KPI;
+     * mỗi chuyến vẫn có event start/stop làm ranh giới, không làm mất event hay timestamp.
+     */
     fun sendTripLogs(a: Activity) {
-        // Ghi kèm 10 khung ảnh gần nhất đã gửi lên màn TFT (nếu đang có chuyến) để xem lại đúng hình
-        // xe nhận được.
         try { TftLink.dumpRecentFrames() } catch (_: Exception) {}
         val files = TripLog.files(a).take(3)
         if (files.isEmpty()) {
             Toast.makeText(a, "Chưa có nhật ký nào", Toast.LENGTH_SHORT).show()
             return
         }
-        // build-292: gộp 3 nhật ký thành MỘT file .gz (nối các khối gzip, cũ trước mới sau — gzip hợp lệ),
-        // để gửi 1 file thay vì 3. Lỗi thì gửi riêng như cũ.
-        val one = try {
+
+        val export = try {
             val dir = files[0].parentFile!!
-            dir.listFiles { x -> x.name.startsWith("log-") }?.forEach { it.delete() }
-            val out = java.io.File(dir, "log-" + files[0].name.removeSuffix(".jsonl.gz") + ".gz")
-            out.outputStream().use { os -> for (x in files.reversed()) x.inputStream().use { it.copyTo(os) } }
+            dir.listFiles { f -> f.name.startsWith("MotoNav-log-") && f.name.endsWith(".txt") }
+                ?.forEach { it.delete() }
+            val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US)
+                .format(java.util.Date())
+            val out = java.io.File(dir, "MotoNav-log-$stamp.txt")
+            try {
+                out.outputStream().bufferedWriter(Charsets.UTF_8).use { writer ->
+                    // files đang mới trước; xuất cũ trước mới sau để timeline liên tục.
+                    for (source in files.reversed()) {
+                        java.util.zip.GZIPInputStream(source.inputStream().buffered()).bufferedReader(Charsets.UTF_8).useLines { lines ->
+                            lines.forEach { line ->
+                                writer.append(line)
+                                writer.newLine()
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                out.delete()
+                throw e
+            }
             out
-        } catch (_: Exception) { null }
-        val send = if (one != null) Intent(Intent.ACTION_SEND).apply {
-            type = "application/gzip"
-            putExtra(Intent.EXTRA_STREAM, TripLogProvider.uri(a, one))
-            putExtra(Intent.EXTRA_SUBJECT, "Nhật ký MotoNav")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        } else Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-            type = "application/gzip"
-            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(files.map { TripLogProvider.uri(a, it) }))
-            putExtra(Intent.EXTRA_SUBJECT, "Nhật ký MotoNav")
+        } catch (_: Exception) {
+            Toast.makeText(a, "Không thể tạo file TXT nhật ký", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, TripLogProvider.uri(a, export))
+            putExtra(Intent.EXTRA_SUBJECT, "Nhật ký MotoNav (TXT)")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        a.startActivity(Intent.createChooser(send, "Gửi nhật ký"))
+        a.startActivity(Intent.createChooser(send, "Gửi nhật ký TXT"))
     }
 }
