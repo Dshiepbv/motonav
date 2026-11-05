@@ -248,6 +248,15 @@ object TftLink {
     private val mailbox = java.util.concurrent.atomic.AtomicReference<ByteArray?>(null)
     private val urgentQ = java.util.concurrent.ConcurrentLinkedQueue<ByteArray>()
     private val v2Wake = java.util.concurrent.Semaphore(0)
+    private val v2WakePending = AtomicBoolean(false)
+    /** Semaphore chỉ là tín hiệu đánh thức, không phải hàng đợi frame: gộp nhiều wake thành một. */
+    private fun signalV2Wake() {
+        if (v2WakePending.compareAndSet(false, true)) v2Wake.release()
+    }
+    private fun awaitV2Wake(timeoutMs: Long) {
+        try { v2Wake.tryAcquire(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) }
+        finally { v2WakePending.set(false) }
+    }
     @Volatile private var v2Sent = 0
     @Volatile private var v2Dropped = 0
     @Volatile private var v2CrcBad = 0
@@ -589,7 +598,7 @@ object TftLink {
         if (PIPE_V2) {
             val prev = mailbox.getAndSet(jpeg)
             if (prev != null) v2Dropped++
-            v2Wake.release()
+            signalV2Wake()
             return true
         }
         val seq = (frameSeq + 1) and 0xFFFF
@@ -2575,6 +2584,8 @@ object TftLink {
         if (PIPE_V2) {
             mailbox.set(null)
             urgentQ.clear()
+            v2Wake.drainPermits()
+            v2WakePending.set(false)
             v2Sent = 0; v2Dropped = 0; v2CrcBad = 0; v2Urgent = 0; v2EpochReset = 0; v2LastTxAt = 0L
             v2PrevTimedOut = false
             v2WakeNow = false
@@ -2860,7 +2871,7 @@ object TftLink {
                 v2Urgent++
                 val o = out ?: break
                 try { o.write(urgent); o.flush() } catch (_: IOException) { break }
-                v2Wake.release()
+                signalV2Wake()
                 continue
             }
             val now = System.currentTimeMillis()
@@ -2879,7 +2890,7 @@ object TftLink {
                         drainUntil = System.currentTimeMillis() + V2_DRAIN_MS
                         try { TripLog.ev("tftWake", "from" to "keepalive") } catch (_: Exception) {}
                     }
-                } else v2Wake.tryAcquire(300, java.util.concurrent.TimeUnit.MILLISECONDS)
+                } else awaitV2Wake(300)
                 continue
             }
             val jpeg = mailbox.getAndSet(null)
@@ -2891,7 +2902,7 @@ object TftLink {
                     v2LastTxAt = lastAt
                     v2Sent++
                     v2WakeNow = false
-                } else v2Wake.tryAcquire(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+                } else awaitV2Wake(200)
                 continue
             }
             lastJpeg = jpeg
@@ -2924,7 +2935,7 @@ object TftLink {
         if (PIPE_V2) {
             while (urgentQ.size >= 64) urgentQ.poll()
             urgentQ.add(bytes)
-            v2Wake.release()
+            signalV2Wake()
             return true
         }
         return sendLocked(bytes)
