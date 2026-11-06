@@ -2965,6 +2965,8 @@ object TftLink {
                     try {
                         TripLog.ev("tftAckPending", "seq" to seq, "pendingMs" to elapsed,
                             "relMs" to (sentElapsed + V2_ACK_WAIT_MS - sessionStartElapsedMs))
+                        TripLog.ev("tftAckTimeout", "seq" to seq, "pendingMs" to elapsed,
+                            "stage" to "soft", "policy" to "single-flight")
                     } catch (_: Exception) {}
                     recordPhaseStall(sentElapsed + V2_ACK_WAIT_MS, seq)
                 }
@@ -2993,7 +2995,7 @@ object TftLink {
             v2HardTimeouts++
             lastFrameError = "Khung #$seq chưa ACK sau $V2_MAX_ACK_WAIT_MS ms — chỉ giữ frame mới nhất"
             try { TripLog.ev("tftAckTimeout", "seq" to seq, "pendingMs" to waited,
-                "relMs" to (sentElapsed - sessionStartElapsedMs), "policy" to "single-flight") } catch (_: Exception) {}
+                "relMs" to (sentElapsed - sessionStartElapsedMs), "stage" to "hard", "policy" to "single-flight") } catch (_: Exception) {}
         } else if (acked) {
             v2Acked++
             lastFrameError = null
@@ -3067,6 +3069,7 @@ object TftLink {
                             freezeHold = true
                             try {
                                 TripLog.ev("tftFreezeHold", "timeouts" to consecTimeouts)
+                                TripLog.ev("tftStall", "timeouts" to consecTimeouts, "source" to "consecutive_ack_timeouts")
                                 // Proxy từ pipeline ACK; không khẳng định đây là trạng thái spinner vật lý trên TFT.
                                 TripLog.ev("tftLoadingStart", "source" to "ack_timeout_proxy",
                                     "visualConfirmed" to false, "timeouts" to consecTimeouts)
@@ -3116,6 +3119,7 @@ object TftLink {
                     freezeHold = true
                     try {
                         TripLog.ev("tftFreezeHold", "timeouts" to consecTimeouts)
+                        TripLog.ev("tftStall", "timeouts" to consecTimeouts, "source" to "consecutive_ack_timeouts")
                         // Proxy từ pipeline ACK; không khẳng định đây là trạng thái spinner vật lý trên TFT.
                         TripLog.ev("tftLoadingStart", "source" to "ack_timeout_proxy",
                             "visualConfirmed" to false, "timeouts" to consecTimeouts)
