@@ -406,6 +406,9 @@ class NavEngine(
                     Live.route = r
                     routeSucceeded = true
                     Live.routeVersion++
+                    TripLog.ev("routeUpdate", "reason" to if (reroute) "reroute" else if (offerChoice) "initial_or_alternative" else "retry",
+                        "routeVersion" to Live.routeVersion, "distanceM" to r.distance, "timeMs" to r.timeMs,
+                        "stepCount" to r.steps.size)
                     TripLog.route(r, if (reroute) "reroute" else if (offerChoice) "start" else "retry")
                     if (!(offerChoice && list.size == 1 && Live.routeError != null)) Live.routeError = null
                     seg = 0
