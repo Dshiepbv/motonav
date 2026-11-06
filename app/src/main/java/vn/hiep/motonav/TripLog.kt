@@ -62,7 +62,12 @@ object TripLog {
     @Synchronized
     fun stop() {
         ev("stop")
-        if (diagCaptureOpen) finishDiagCapture("trip_stop")
+        if (diagCaptureOpen) {
+            writeMarker("diagCaptureEnd", "id" to diagCaptureId, "reason" to "trip_stop",
+                "visualConfirmed" to false)
+            diagCaptureOpen = false
+            diagPostRollUntil = 0L
+        }
         try { w?.close() } catch (_: Exception) {}
         w = null
         val raw = file
@@ -143,8 +148,8 @@ object TripLog {
             val renderMs = (values["durationMs"] as? Number)?.toLong() ?: 0L
             val encodeMs = (values["durationMs"] as? Number)?.toLong() ?: 0L
             when {
-                type == "tftAckPending" ->
-                    startDiagCapture("tft_ack_pending", waitForAck = true)
+                type == "tftAckPending" || type == "tftStall" ->
+                    startDiagCapture(if (type == "tftAckPending") "tft_ack_pending" else "tft_stall", waitForAck = true)
                 type == "roadSegmentChanged" ->
                     startDiagCapture("road_segment_changed", waitForAck = false)
                 type == "mlyErr" ->
