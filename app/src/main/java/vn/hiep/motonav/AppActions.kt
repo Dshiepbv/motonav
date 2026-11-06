@@ -115,40 +115,59 @@ object AppActions {
         }
 
         val export = try {
-            val dir = files[0].parentFile!!
-            dir.listFiles { f -> f.name.startsWith("MotoNav-log-") && f.name.endsWith(".txt") }
-                ?.forEach { it.delete() }
+            val dir = files[0].parentFile ?: a.filesDir
             val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US)
                 .format(java.util.Date())
             val out = java.io.File(dir, "MotoNav-log-$stamp.txt")
+            val temp = java.io.File(dir, "MotoNav-log-$stamp.txt.tmp")
             try {
-                out.outputStream().bufferedWriter(Charsets.UTF_8).use { writer ->
-                    // files đang mới trước; xuất cũ trước mới sau để timeline liên tục.
+                temp.outputStream().bufferedWriter(Charsets.UTF_8).use { writer ->
+                    // files mới trước; xuất cũ trước mới sau để timeline liên tục.
                     for (source in files.reversed()) {
-                        java.util.zip.GZIPInputStream(source.inputStream().buffered()).bufferedReader(Charsets.UTF_8).useLines { lines ->
-                            lines.forEach { line ->
-                                writer.append(line)
-                                writer.newLine()
+                        val active = TripLog.isActive(source)
+                        try {
+                            java.util.zip.GZIPInputStream(source.inputStream().buffered()).bufferedReader(Charsets.UTF_8).use { reader ->
+                                while (true) {
+                                    val line = reader.readLine() ?: break
+                                    writer.append(line)
+                                    writer.newLine()
+                                }
                             }
+                        } catch (e: java.io.EOFException) {
+                            // File đang ghi chưa có GZIP trailer; phần dữ liệu đã flush vẫn hợp lệ.
+                            if (!active) throw e
+                        } catch (e: java.util.zip.ZipException) {
+                            // Một số Android báo thiếu trailer dưới dạng ZipException.
+                            if (!active) throw e
                         }
                     }
                 }
+                if (!temp.renameTo(out)) {
+                    temp.copyTo(out, overwrite = true)
+                    temp.delete()
+                }
             } catch (e: Exception) {
+                temp.delete()
                 out.delete()
                 throw e
             }
             out
-        } catch (_: Exception) {
-            Toast.makeText(a, "Không thể tạo file TXT nhật ký", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            android.util.Log.e("MotoNavTripLog", "TXT export failed", e)
+            Toast.makeText(a, "Không thể tạo TXT: ${e.javaClass.simpleName}", Toast.LENGTH_LONG).show()
             return
         }
 
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_STREAM, TripLogProvider.uri(a, export))
-            putExtra(Intent.EXTRA_SUBJECT, "Nhật ký MotoNav (TXT)")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_STREAM, TripLogProvider.uri(a, export))
+                putExtra(Intent.EXTRA_SUBJECT, "Nhật ký MotoNav (TXT)")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            a.startActivity(Intent.createChooser(send, "Gửi nhật ký TXT"))
+        } catch (e: Exception) {
+            android.util.Log.e("MotoNavTripLog", "TXT share failed", e)
+            Toast.makeText(a, "Đã tạo TXT nhưng không mở được chia sẻ", Toast.LENGTH_LONG).show()
         }
-        a.startActivity(Intent.createChooser(send, "Gửi nhật ký TXT"))
-    }
-}
+    }}
