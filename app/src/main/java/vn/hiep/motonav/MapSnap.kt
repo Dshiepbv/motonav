@@ -83,6 +83,17 @@ object MapSnap {
         main.post {
             try {
                 MapLibre.getInstance(ctx.applicationContext)
+                if (appCtxForCache == null) {
+                    appCtxForCache = ctx.applicationContext
+                    // build-365: giữ nhiều mảnh bản đồ đã tải (300 MB) để đường quen vẫn có nền khi mạng/DNS lỗi.
+                    try {
+                        org.maplibre.android.offline.OfflineManager.getInstance(ctx.applicationContext)
+                            .setMaximumAmbientCacheSize(300L * 1024 * 1024, object : org.maplibre.android.offline.OfflineManager.FileSourceCallback {
+                                override fun onSuccess() {}
+                                override fun onError(message: String) { try { TripLog.ev("mapSnap", "cacheSizeErr" to message) } catch (_: Throwable) {} }
+                            })
+                    } catch (_: Throwable) {}
+                }
                 val cam = CameraPosition.Builder().target(LatLng(lat, lon)).zoom(zoom).bearing(bearing).tilt(tilt).build()
                 var s = snapshotter
                 val styleKey = styleUrl + (if (tweakedMap[dark] != null) "#t" else "") + (if (dark) "d" else "l")
@@ -135,11 +146,26 @@ object MapSnap {
     private val styleHttp = okhttp3.OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
 
+    // build-365: lưu sẵn file style (Sếp: "lưu sẵn file để không phụ thuộc mạng"). Log 6/11 17:42–20:17: điện thoại
+    // không tra được tên miền tiles.openfreemap.org (DNS) → không có style → TFT tụt về bản vẽ vector (mất zoom/đường x3).
+    // Giờ: có file thì dựng style ngay từ file; tải mạng chỉ để làm mới file (thành công 1 lần/lần chạy app là đủ).
+    @Volatile private var styleFromNet = false
+    @Volatile var appCtxForCache: Context? = null
+    private fun styleFile(): java.io.File? = appCtxForCache?.let { java.io.File(it.filesDir, "mapsnap_style_positron.json") }
+
     private fun tweakedStyle(url: String, dark: Boolean): String? {
         if (!url.contains("openfreemap")) return null
-        tweakedMap[dark]?.let { return it }
+        if (tweakedMap[dark] == null) {
+            try {
+                val f = styleFile()
+                if (f != null && f.exists() && f.length() > 1000) {
+                    buildTweaked(f.readText())
+                    TripLog.ev("mapSnap", "styleFromFile" to f.length())
+                }
+            } catch (t: Throwable) { try { TripLog.ev("mapSnap", "styleFileErr" to (t.message ?: t.javaClass.simpleName)) } catch (_: Throwable) {} }
+        }
         val nowT = SystemClock.elapsedRealtime()
-        if (!tweaking && nowT - tweakTryAt > 60_000L) {
+        if (!styleFromNet && !tweaking && nowT - tweakTryAt > 60_000L) {
             tweaking = true; tweakTryAt = nowT
             Thread({
                 try {
@@ -147,9 +173,23 @@ object MapSnap {
                         if (r.isSuccessful) r.body?.string() else null
                     }
                     if (body != null) {
+                        buildTweaked(body)
+                        styleFromNet = true
+                        try { styleFile()?.let { f -> val tmp = java.io.File(f.path + ".tmp"); tmp.writeText(body); tmp.renameTo(f) } } catch (_: Throwable) {}
+                    }
+                } catch (t: Throwable) {
+                    try { TripLog.ev("mapSnap", "styleNetErr" to (t.message ?: t.javaClass.simpleName)) } catch (_: Throwable) {}
+                } finally { tweaking = false }
+            }, "mapsnap-style").apply { isDaemon = true; start() }
+        }
+        return tweakedMap[dark]
+    }
+
+    private fun buildTweaked(body: String) {
+                    run {
                         // build-278: dựng sẵn CẢ HAI nền sáng/tối từ một lần tải — trước đây bật sang nền kia phải chờ ≥60 s,
                         // trong lúc đó dùng style gốc (đường trắng trên nền sáng → không thấy đường).
-                        for (dkv in booleanArrayOf(dark, !dark)) {
+                        for (dkv in booleanArrayOf(false, true)) {
                         val dark = dkv
                         val j = org.json.JSONObject(body)
                         val allLayers = j.getJSONArray("layers")
@@ -196,11 +236,6 @@ object MapSnap {
                         tweakedMap[dark] = j.toString()
                         }
                     }
-                } catch (_: Throwable) {
-                } finally { tweaking = false }
-            }, "mapsnap-style").apply { isDaemon = true; start() }
-        }
-        return null
     }
 
 
