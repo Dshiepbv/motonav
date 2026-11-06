@@ -371,7 +371,68 @@ object TftLink {
     }
 
     /** Học cụm stall theo thời gian tương đối từ lúc bắt tay xong; chỉ quan sát, không tự ý chặn TX. */
+    // ---- build-366: HỌC NHỊP 5 s RỒI NÉ CHỦ ĐỘNG MỌI MỐC (Sếp 6/11) ----
+    // Log 6/11 (3 phiên, 7 400 khung): lần kẹt bắt đầu theo lưới 5,000 s của đồng hồ điện thoại, pha riêng mỗi phiên.
+    // Khung bắt đầu gửi trong [pha −450 ms, pha +550 ms] kẹt 19–40%, ngoài khoảng đó 0–3%. Gói tốc độ 0x41 của xe
+    // cũng trễ ~0,7 s đúng lúc đó (xe bận ~0,7–0,9 s mỗi 5 s); khung rơi vào lúc bận phải đợi tới mốc 5 s sau → kẹt ~5 s.
+    // Cơ chế: học pha từ các lần kẹt đầu phiên (≥3 lần cùng pha), sau đó KHÔNG bắt đầu gửi khung trong cửa sổ đó ở MỌI mốc.
+    const val TICK_PERIOD_MS = 5000L
+    const val TICK_BEFORE_MS = 450L
+    const val TICK_AFTER_MS = 550L
+    private val tickStalls = ArrayList<Long>()
+    @Volatile private var tickPhaseMs = -1L
+    @Volatile private var tickR = 0.0
+    @Volatile private var tickAvoids = 0
+    @Volatile private var tickAvoidMs = 0L
+    @Volatile private var tickLearnedAt = 0L
+    @Volatile private var last41At = 0L
+
+    private fun tickReset() {
+        synchronized(tickStalls) { tickStalls.clear() }
+        tickPhaseMs = -1L; tickR = 0.0; tickAvoids = 0; tickAvoidMs = 0L; tickLearnedAt = 0L
+    }
+
+    /** Ghi thời điểm BẮT ĐẦU gửi (giờ đồng hồ) của một khung bị kẹt (chờ ACK ≥ 1,2 s) rồi học lại pha. */
+    private fun tickRecordStall(sendWallMs: Long) {
+        synchronized(tickStalls) {
+            tickStalls.add(sendWallMs)
+            while (tickStalls.size > 16) tickStalls.removeAt(0)
+            if (tickStalls.size < 3) return
+            var cx = 0.0; var sy = 0.0
+            for (t in tickStalls) {
+                val a = 2.0 * Math.PI * (Math.floorMod(t, TICK_PERIOD_MS)).toDouble() / TICK_PERIOD_MS
+                cx += Math.cos(a); sy += Math.sin(a)
+            }
+            val r = Math.hypot(cx, sy) / tickStalls.size
+            val ph = ((Math.atan2(sy, cx) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI) * TICK_PERIOD_MS
+            val old = tickPhaseMs
+            tickR = r
+            if (r >= 0.6) {
+                tickPhaseMs = ph.toLong()
+                if (old < 0L) tickLearnedAt = System.currentTimeMillis()
+                if (old < 0L || Math.abs(Math.floorMod(ph.toLong() - old + 2500L, TICK_PERIOD_MS) - 2500L) > 150L) {
+                    try { TripLog.ev("tftTick", "phaseMs" to ph.toLong(), "r" to Math.round(r * 100) / 100.0, "n" to tickStalls.size,
+                        "first" to (old < 0L)) } catch (_: Exception) {}
+                }
+            }
+        }
+    }
+
+    /** Lệch (ms) của thời điểm [wallMs] so với mốc gần nhất (−2500..+2500), hoặc null khi chưa học được pha. */
+    private fun tickOffset(wallMs: Long): Long? {
+        val ph = tickPhaseMs
+        if (ph < 0L) return null
+        return Math.floorMod(wallMs - ph + 2500L, TICK_PERIOD_MS) - 2500L
+    }
+
+    /** Nếu bây giờ nằm trong cửa sổ bận quanh mốc → số ms cần chờ để qua hẳn cửa sổ; ngược lại 0. */
+    private fun tickWaitMs(nowWall: Long): Long {
+        val off = tickOffset(nowWall) ?: return 0L
+        return if (off >= -TICK_BEFORE_MS && off < TICK_AFTER_MS) TICK_AFTER_MS - off else 0L
+    }
+
     private fun resetPhaseLearning() {
+        tickReset()
         phaseLastStallRelMs = -1L
         phaseLastClusterRelMs = -1L
         phaseOriginRelMs = -1L
@@ -638,7 +699,10 @@ object TftLink {
                     "avgFrameAgeMs" to (if (v2Sent > 0) v2FrameAgeTotalMs / v2Sent else 0L),
                     "maxFrameAgeMs" to v2FrameAgeMaxMs, "phasePeriodMs" to avPeriodMs,
                     "phaseStable" to phaseStableIntervals, "buildMs" to Math.round(buildEwmaMs),
-                    "sinceTxMs" to (if (v2LastTxAt == 0L) -1L else now - v2LastTxAt))
+                    "sinceTxMs" to (if (v2LastTxAt == 0L) -1L else now - v2LastTxAt),
+                    "tickPhaseMs" to tickPhaseMs, "tickR" to Math.round(tickR * 100) / 100.0,
+                    "tickAvoids" to tickAvoids, "tickAvoidMs" to tickAvoidMs,
+                    "tickLearnedSec" to (if (tickLearnedAt == 0L) -1L else (tickLearnedAt - sessionStartAt) / 1000))
             } catch (_: Exception) {}
             // Thử nghiệm 221–224 xong (log 27/10, 27 phút): A tốt nhất (gap ≈15%) — B ≈21–25%, C ≈25–30%.
             // Chốt cố định nhịp A, bỏ luân phiên.
@@ -2745,7 +2809,16 @@ object TftLink {
                         } catch (_: Exception) {
                         }
                     }
-                    if (cmd == 0x41 && payload.size >= 2) bikeSpeedKmh = payload[1].toInt() and 0xFF
+                    if (cmd == 0x41 && payload.size >= 2) {
+                        bikeSpeedKmh = payload[1].toInt() and 0xFF
+                        // build-366: đo xe bận ĐỘC LẬP với ACK — gói tốc độ bình thường cách 1,0–1,1 s; ≥1,6 s là xe đang bận.
+                        val n41 = System.currentTimeMillis()
+                        val g41 = if (last41At == 0L) 0L else n41 - last41At
+                        last41At = n41
+                        if (g41 in 1600L..20000L) try {
+                            TripLog.ev("tft41Gap", "gapMs" to g41, "startOff" to tickOffset(n41 - g41), "waitingAck" to (waitingSeq >= 0))
+                        } catch (_: Exception) {}
+                    }
                     when (cmd) {
                         0x42 -> { // 1/3: xe gửi serial → trả khả năng hỗ trợ
                             // Xe có thể gửi lại cmd này nhiều lần (loan báo định kỳ) kể cả sau khi đã
@@ -3015,6 +3088,8 @@ object TftLink {
         statBytes += jpeg.size
         recordFrameStat(waited, hardTimeout)
         if (tag == null) avRecord(sentAt, hardTimeout || waited > 1500L)
+        val tickOff = tickOffset(sentAt)
+        if (softTimeoutLogged || hardTimeout) tickRecordStall(sentAt)
         val relSend = if (sessionStartElapsedMs > 0L) sentElapsed - sessionStartElapsedMs else -1L
         val relAck = if (acked && sessionStartElapsedMs > 0L) sentElapsed + waited - sessionStartElapsedMs else -1L
         try {
@@ -3022,7 +3097,8 @@ object TftLink {
                 "pace" to lastPace, "ackMs" to (if (acked) waited else null),
                 "waitMs" to waited, "softTimeout" to softTimeoutLogged, "hardTimeout" to hardTimeout,
                 "timedOut" to (softTimeoutLogged || hardTimeout), "lost" to (if (hardTimeout) true else null),
-                "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "ackRelMs" to relAck, "tag" to tag, "v" to 2)
+                "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "ackRelMs" to relAck, "tag" to tag, "v" to 2,
+                "tickOff" to tickOff)
         } catch (_: Exception) {}
         return true
     }
@@ -3061,7 +3137,7 @@ object TftLink {
                         "lastFrameAgeMs" to (if (lastSendStartElapsed > 0L) nowElapsed - lastSendStartElapsed else -1L)) } catch (_: Exception) {}
                 }
                 val previous = lastJpeg
-                if (previous != null && lastAt != 0L && nowWall - lastAt >= V2_KEEPALIVE_MS) {
+                if (previous != null && lastAt != 0L && nowWall - lastAt >= V2_KEEPALIVE_MS && tickWaitMs(nowWall) == 0L) {
                     val age = if (lastSendStartElapsed > 0L) nowElapsed - lastSendStartElapsed else 0L
                     if (!sendFrameWire(previous, "keepalive", age)) break
                     lastAt = System.currentTimeMillis()
@@ -3105,11 +3181,12 @@ object TftLink {
             if (lastSendStartElapsed > 0L && sendStart - lastSendStartElapsed < 400L) v2BurstEvents++
             lastSendStartElapsed = sendStart
 
-            val avoidWait = avoidWaitMs(System.currentTimeMillis(), 0L)
-            if (avoidWait > 0L) {
-                avWaits++
-                avWaitedTotalMs += avoidWait
-                sleepQuiet(avoidWait)
+            // build-366: né cửa sổ bận quanh MỌI mốc 5 s đã học (thay cách né theo thống kê cũ chưa từng kích hoạt).
+            val tickWait = tickWaitMs(System.currentTimeMillis())
+            if (tickWait > 0L) {
+                tickAvoids++
+                tickAvoidMs += tickWait
+                sleepQuiet(tickWait)
             }
 
             if (!sendFrameWire(queued.jpeg, null, frameAgeMs)) break
