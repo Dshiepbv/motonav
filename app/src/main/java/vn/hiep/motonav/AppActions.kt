@@ -170,4 +170,5 @@ object AppActions {
             android.util.Log.e("MotoNavTripLog", "TXT share failed", e)
             Toast.makeText(a, "Đã tạo TXT nhưng không mở được chia sẻ", Toast.LENGTH_LONG).show()
         }
-    }}
+    }
+}
