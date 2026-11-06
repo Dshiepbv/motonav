@@ -98,6 +98,10 @@ object TripLog {
             "steps" to r.steps.joinToString("|") { "${it.sign}:${it.from}:${it.street}" })
     }
 
+    /** True nếu đây là file chuyến đang được ghi (GZIP chưa được đóng trailer). */
+    @Synchronized
+    fun isActive(f: File): Boolean = file?.canonicalPath == f.canonicalPath && w != null
+
     /** Các file nhật ký, mới nhất trước. */
     fun files(ctx: Context): List<File> {
         synchronized(this) { try { w?.flush() } catch (_: Exception) {} }
