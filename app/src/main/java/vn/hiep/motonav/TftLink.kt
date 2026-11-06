@@ -390,6 +390,9 @@ object TftLink {
      * Né ngắn: chỉ giữ ảnh khi tổng khoảng nghỉ từ ACK trước tới lúc gửi ≤ [TICK_MAX_IDLE_MS] (366 nghỉ 1,1–1,3 s → xoay). */
     const val TICK_MAX_IDLE_MS = 850L
     @Volatile private var tickHeldNow = false
+    @Volatile private var lastJpegQ = 14
+    private val jpegQMap = java.util.Collections.synchronizedMap(java.util.WeakHashMap<ByteArray, Int>())
+    private fun jpegQOf(b: ByteArray): Int? = jpegQMap[b]
     private fun tickModeShort(nowWall: Long): Boolean = (nowWall / 60_000L) % 2L == 1L
     private val tickStalls = ArrayList<Long>()
     @Volatile private var tickPhaseMs = -1L
@@ -1968,7 +1971,13 @@ object TftLink {
         // Nền ảnh bản đồ (OSM/Goong) cần chất lượng cao hơn nét vector, nếu không bị mờ/vỡ khối.
         // Build 0.349: JPEG 26 cố định theo kiểm thử thực tế; ưu tiên đo ACK/scheduler,
         // không tự hạ chất lượng vì chưa thấy tương quan giữa size và hiện tượng lag.
-        bmp.compress(Bitmap.CompressFormat.JPEG, 26, out)
+        // build-370: về lại 14 như 298–302 (Sếp: hồi đó vòng xoay hiện rồi mất ngay; log: kẹt trung vị 1,95 s vs 5,1 s ở bản 26).
+        // A/B phút lẻ "L": ảnh dựng sát mốc 5 s (−800..+400 ms) nén nhẹ hẳn (8) — không né, mà đổi thứ gửi đúng lúc mốc.
+        val nowWq = System.currentTimeMillis()
+        val offQ = tickOffset(nowWq)
+        val jq = if (tickModeShort(nowWq) && offQ != null && offQ >= -800L && offQ <= 400L) 8 else 14
+        lastJpegQ = jq
+        bmp.compress(Bitmap.CompressFormat.JPEG, jq, out)
         if (sizeMode == 1 && out.size() > SMALL_TARGET_BYTES) {
             // Ảnh nhỏ: hạ quality từng bước tới khi ≤ SMALL_TARGET_BYTES (hoặc quality 4).
             var q = 11
@@ -1983,9 +1992,11 @@ object TftLink {
         val raw = out.toByteArray()
         try {
             TripLog.ev("jpegEncode", "durationMs" to (android.os.SystemClock.elapsedRealtime() - jpegEncodeStarted),
-                "jpegSizeBytes" to raw.size, "quality" to 26, "sizeMode" to sizeMode)
+                "jpegSizeBytes" to raw.size, "quality" to jq, "sizeMode" to sizeMode)
         } catch (_: Exception) {}
-        return if (iccStripNow()) stripIcc(raw) else raw
+        val fin = if (iccStripNow()) stripIcc(raw) else raw
+        jpegQMap[fin] = jq
+        return fin
     }
 
     /** Ghim nổi: đầu nhọn chạm (x, y), vòng tròn bán kính r phía trên, biểu tượng trắng bên trong. kind 0 = cây xăng, 1 = camera. */
@@ -2997,7 +3008,7 @@ object TftLink {
                         badMinutes = 0
                         resetPhaseLearning()
                         try { TripLog.ev("tftSession", "phase" to "reset", "origin" to "post-handshake",
-                            "jpegQuality" to 26, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
+                            "jpegQuality" to 14, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
                         sendInitBurst()
                     }
                 }
@@ -3156,7 +3167,7 @@ object TftLink {
                 "waitMs" to waited, "softTimeout" to softTimeoutLogged, "hardTimeout" to hardTimeout,
                 "timedOut" to (softTimeoutLogged || hardTimeout), "lost" to (if (hardTimeout) true else null),
                 "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "ackRelMs" to relAck, "tag" to tag, "v" to 2,
-                "tickOff" to tickOff, "tickMode" to (if (tickModeShort(sentAt)) "S" else "N"), "held" to tickHeldNow)
+                "tickOff" to tickOff, "tickMode" to (if (tickModeShort(sentAt)) "L" else "N"), "held" to tickHeldNow, "q" to jpegQOf(jpeg))
         } catch (_: Exception) {}
         return true
     }
@@ -3248,7 +3259,7 @@ object TftLink {
             var toSend = queued
             val nowW = System.currentTimeMillis()
             val idleSoFar = if (lastAt != 0L) nowW - lastAt else Long.MAX_VALUE
-            if (tickWait > 0L && tickModeShort(nowW) && idleSoFar != Long.MAX_VALUE && idleSoFar + tickWait <= TICK_MAX_IDLE_MS) {
+            if (TICK_HOLD && tickWait > 0L && tickModeShort(nowW) && idleSoFar != Long.MAX_VALUE && idleSoFar + tickWait <= TICK_MAX_IDLE_MS) {
                 tickAvoids++
                 tickAvoidMs += tickWait
                 tickHeldNow = true
