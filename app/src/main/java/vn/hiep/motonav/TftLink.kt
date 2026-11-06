@@ -244,6 +244,8 @@ object TftLink {
     private const val V2_KEEPALIVE_MS = 450L
     /** build-367: TẮT việc giữ ảnh né mốc 5 s (366 gây đói ảnh → xoay liên tục). Bộ học pha vẫn chạy để ghi log. */
     private const val TICK_HOLD = false
+    /** build-368: chưa dẫn đường mà có GPS → TFT hiện bản đồ quanh xe thay cho logo. */
+    const val FREE_MAP = true
     private const val V2_FREEZE_TIMEOUTS = 3
     const val V2_FUSE_TEXT = true
     const val V2_STRICT_CRC = false
@@ -1022,7 +1024,51 @@ object TftLink {
         // đổi theo mức nghiêng camera 3D (skTiltT), xem bên dưới.
         var anchorY = h * 0.72f
         val dk = isDark()
-        if (route == null || route.lats.size < 2) {
+        if ((route == null || route.lats.size < 2) && FREE_MAP && (skLat != 0.0 || skLon != 0.0)) {
+            // build-368 (Sếp): chế độ chờ = bản đồ quanh xe (không dẫn đường) để đo gửi ảnh độc lập với dẫn đường.
+            // Cùng nguồn ảnh MapSnap/vector như khi dẫn đường, heading-up, không có tuyến đỏ/ô ETA.
+            val v = skSpeedKmh
+            val spdMul = if (v in 0..47) 0.25 else if (v in 48..61) 0.5 else 1.0
+            val maxAhead = (1800.0 * spdMul / VIEW_SCALE).coerceIn(400.0, 3600.0)
+            val headingNow = if (skHeadingDeg >= 0) { skLastGoodHeadingDeg = skHeadingDeg; skHeadingDeg } else skLastGoodHeadingDeg
+            val cosH = Math.cos(Math.toRadians(headingNow)); val sinH = Math.sin(Math.toRadians(headingNow))
+            val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(13.8, 17.8)
+            val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
+            val st = mapSnapStyle; val cx = appCtx
+            val snap = if (st != null && cx != null) {
+                val aheadM = ((h + MapSnap.EXTRA_H) / 2.0 - 0.72 * h).coerceAtLeast(0.0) * mPerPx
+                val tLat = skLat + cosH * aheadM / 110540.0
+                val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
+                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 0.0, w, h)
+            } else null
+            if (snap != null) {
+                c.drawBitmap(snap.bitmap, 0f, 0f, null)
+                val pt = snap.pixelForLatLng(org.maplibre.android.geometry.LatLng(skLat, skLon))
+                if (!pt.x.isNaN() && !pt.y.isNaN() && pt.y > h * 0.3f && pt.y < h * 0.95f) { carX = pt.x; anchorY = pt.y }
+            } else {
+                c.drawColor(if (dk) Color.rgb(23, 26, 33) else Color.rgb(247, 247, 249))
+                val ways = skWays
+                if (ways != null) {
+                    val proj = LocalProjection(skLat, skLon)
+                    val pxPerM = (1.0 / mPerPx).toFloat()
+                    val lp = Paint().apply { color = if (dk) Color.rgb(150, 155, 165) else Color.rgb(120, 125, 135); style = Paint.Style.STROKE
+                        strokeWidth = h * 0.012f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+                    val lim = maxAhead * 1.2
+                    for (wy in ways) {
+                        if (wy.lats.size < 2) continue
+                        val path = android.graphics.Path(); var started = false
+                        for (k in wy.lats.indices) {
+                            val dx = proj.x(wy.lons[k]); val dy = proj.y(wy.lats[k])
+                            if (Math.abs(dx) > lim || Math.abs(dy) > lim) { started = false; continue }
+                            val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
+                            val sx = anchorX + (rx * pxPerM).toFloat(); val sy = anchorY - (ry * pxPerM).toFloat()
+                            if (!started) { path.moveTo(sx, sy); started = true } else path.lineTo(sx, sy)
+                        }
+                        c.drawPath(path, lp)
+                    }
+                }
+            }
+        } else if (route == null || route.lats.size < 2) {
             // Khung "chờ" — gửi đều đặn khi chưa có tuyến (chưa dẫn đường/mất GPS/vừa tới nơi) để
             // xe không coi là mất kết nối vì im lặng quá lâu.
             // Logo NMAX NAVI ở giữa màn (bản nền tối: nét tối đảo sang trắng, giữ màu đỏ — chỉ
