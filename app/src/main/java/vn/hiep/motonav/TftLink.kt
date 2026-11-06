@@ -383,8 +383,14 @@ object TftLink {
     // cũng trễ ~0,7 s đúng lúc đó (xe bận ~0,7–0,9 s mỗi 5 s); khung rơi vào lúc bận phải đợi tới mốc 5 s sau → kẹt ~5 s.
     // Cơ chế: học pha từ các lần kẹt đầu phiên (≥3 lần cùng pha), sau đó KHÔNG bắt đầu gửi khung trong cửa sổ đó ở MỌI mốc.
     const val TICK_PERIOD_MS = 5000L
-    const val TICK_BEFORE_MS = 450L
-    const val TICK_AFTER_MS = 550L
+    // build-369: log 368 (không dẫn đường) → chỉ ảnh BẮT ĐẦU gửi trong ±400 ms quanh mốc bị kẹt (39%), ngoài 0%.
+    const val TICK_BEFORE_MS = 400L
+    const val TICK_AFTER_MS = 400L
+    /** build-369: A/B luân phiên mỗi phút (theo phút đồng hồ): phút chẵn = gửi thường "N", phút lẻ = né ngắn "S".
+     * Né ngắn: chỉ giữ ảnh khi tổng khoảng nghỉ từ ACK trước tới lúc gửi ≤ [TICK_MAX_IDLE_MS] (366 nghỉ 1,1–1,3 s → xoay). */
+    const val TICK_MAX_IDLE_MS = 850L
+    @Volatile private var tickHeldNow = false
+    private fun tickModeShort(nowWall: Long): Boolean = (nowWall / 60_000L) % 2L == 1L
     private val tickStalls = ArrayList<Long>()
     @Volatile private var tickPhaseMs = -1L
     @Volatile private var tickR = 0.0
@@ -3141,7 +3147,7 @@ object TftLink {
         recordFrameStat(waited, hardTimeout)
         if (tag == null) avRecord(sentAt, hardTimeout || waited > 1500L)
         val tickOff = tickOffset(sentAt)
-        if (softTimeoutLogged || hardTimeout) tickRecordStall(sentAt)
+        if ((softTimeoutLogged || hardTimeout) && !tickHeldNow) tickRecordStall(sentAt)
         val relSend = if (sessionStartElapsedMs > 0L) sentElapsed - sessionStartElapsedMs else -1L
         val relAck = if (acked && sessionStartElapsedMs > 0L) sentElapsed + waited - sessionStartElapsedMs else -1L
         try {
@@ -3150,7 +3156,7 @@ object TftLink {
                 "waitMs" to waited, "softTimeout" to softTimeoutLogged, "hardTimeout" to hardTimeout,
                 "timedOut" to (softTimeoutLogged || hardTimeout), "lost" to (if (hardTimeout) true else null),
                 "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "ackRelMs" to relAck, "tag" to tag, "v" to 2,
-                "tickOff" to tickOff)
+                "tickOff" to tickOff, "tickMode" to (if (tickModeShort(sentAt)) "S" else "N"), "held" to tickHeldNow)
         } catch (_: Exception) {}
         return true
     }
@@ -3238,13 +3244,22 @@ object TftLink {
             // build-366: né cửa sổ bận quanh MỌI mốc 5 s đã học (thay cách né theo thống kê cũ chưa từng kích hoạt).
             val tickWait = tickWaitMs(System.currentTimeMillis())
             if (tickWait > 0L) tickInWin++
-            if (TICK_HOLD && tickWait > 0L) {
+            tickHeldNow = false
+            var toSend = queued
+            val nowW = System.currentTimeMillis()
+            val idleSoFar = if (lastAt != 0L) nowW - lastAt else Long.MAX_VALUE
+            if (tickWait > 0L && tickModeShort(nowW) && idleSoFar != Long.MAX_VALUE && idleSoFar + tickWait <= TICK_MAX_IDLE_MS) {
                 tickAvoids++
                 tickAvoidMs += tickWait
+                tickHeldNow = true
                 sleepQuiet(tickWait)
+                // giữ xong lấy ảnh MỚI NHẤT trong mailbox nếu có (Sếp: qua mốc là có ảnh ăn luôn)
+                val newer = mailbox.getAndSet(null)
+                if (newer != null) { lastJpeg = newer.jpeg; toSend = newer }
             }
 
-            if (!sendFrameWire(queued.jpeg, null, frameAgeMs)) break
+            val ageNow = (android.os.SystemClock.elapsedRealtime() - toSend.createdAtElapsedMs).coerceAtLeast(0L)
+            if (!sendFrameWire(toSend.jpeg, null, if (toSend === queued) frameAgeMs else ageNow)) break
             lastAt = System.currentTimeMillis()
             v2LastTxAt = lastAt
             v2Sent++
