@@ -31,6 +31,13 @@ object TripLog {
     private var lastFlush = 0L
     private var lines = 0
 
+    // Diagnostic capture: the full trip log is continuous, so the 30 s pre-roll is already
+    // present before the marker. Markers delimit candidate events and the 15 s post-roll.
+    private var diagCaptureOpen = false
+    private var diagCaptureId = 0
+    private var diagPostRollUntil = 0L
+    private var diagLogStartElapsed = 0L
+
     private fun dir(ctx: Context) = File(ctx.filesDir, "trips").apply { mkdirs() }
 
     @Synchronized
@@ -43,6 +50,10 @@ object TripLog {
         w = BufferedWriter(OutputStreamWriter(FileOutputStream(f), Charsets.UTF_8))
         lastFlush = 0L
         lines = 0
+        diagCaptureOpen = false
+        diagCaptureId = 0
+        diagPostRollUntil = 0L
+        diagLogStartElapsed = android.os.SystemClock.elapsedRealtime()
         val pi = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0) } catch (_: Exception) { null }
         ev("start", "app" to (pi?.versionName ?: "?"), "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
             "android" to android.os.Build.VERSION.SDK_INT)
@@ -51,6 +62,7 @@ object TripLog {
     @Synchronized
     fun stop() {
         ev("stop")
+        if (diagCaptureOpen) finishDiagCapture("trip_stop")
         try { w?.close() } catch (_: Exception) {}
         w = null
         val raw = file
@@ -74,23 +86,91 @@ object TripLog {
         }
     }
 
-    /** Ghi một sự kiện. */
+    private fun writeMarker(type: String, vararg kv: Pair<String, Any?>) {
+        val out = w ?: return
+        val o = JSONObject()
+        o.put("t", System.currentTimeMillis())
+        o.put("te", android.os.SystemClock.elapsedRealtime())
+        o.put("e", type)
+        for ((k, v) in kv) if (v != null) o.put(k, if (v is Double) round(v) else v)
+        out.write(o.toString())
+        out.newLine()
+        lines++
+    }
+
+    private fun startDiagCapture(trigger: String, waitForAck: Boolean) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!diagCaptureOpen) {
+            diagCaptureOpen = true
+            diagCaptureId++
+            writeMarker("diagCaptureStart",
+                "id" to diagCaptureId,
+                "trigger" to trigger,
+                "preRollMs" to 30_000,
+                "preRollAvailableMs" to (now - diagLogStartElapsed).coerceIn(0L, 30_000L),
+                "postRollMs" to 15_000,
+                "visualConfirmed" to false)
+        } else {
+            writeMarker("diagCaptureTrigger", "id" to diagCaptureId, "trigger" to trigger)
+        }
+        diagPostRollUntil = if (waitForAck) 0L else now + 15_000L
+    }
+
+    private fun finishDiagCapture(reason: String) {
+        if (!diagCaptureOpen) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        writeMarker("diagCaptureRecovery", "id" to diagCaptureId, "reason" to reason, "postRollMs" to 15_000)
+        diagPostRollUntil = now + 15_000L
+    }
+
+    /** Ghi một sự kiện và tự khoanh vùng các khoảng nghi ngờ loading. */
     @Synchronized
     fun ev(type: String, vararg kv: Pair<String, Any?>) {
         val out = w ?: return
         try {
+            val nowElapsed = android.os.SystemClock.elapsedRealtime()
+            val values = kv.toMap()
             val o = JSONObject()
             o.put("t", System.currentTimeMillis())
-            o.put("te", android.os.SystemClock.elapsedRealtime())
+            o.put("te", nowElapsed)
             o.put("e", type)
             for ((k, v) in kv) if (v != null) o.put(k, if (v is Double) round(v) else v)
             out.write(o.toString())
             out.newLine()
             lines++
+
+            // Trigger only diagnostic capture; it does not alter routing, rendering or TX behavior.
+            val renderMs = (values["durationMs"] as? Number)?.toLong() ?: 0L
+            val encodeMs = (values["durationMs"] as? Number)?.toLong() ?: 0L
+            when {
+                type == "tftAckPending" ->
+                    startDiagCapture("tft_ack_pending", waitForAck = true)
+                type == "roadSegmentChanged" ->
+                    startDiagCapture("road_segment_changed", waitForAck = false)
+                type == "mlyErr" ->
+                    startDiagCapture("map_tile_error", waitForAck = false)
+                type == "render" && renderMs >= 120L ->
+                    startDiagCapture("slow_map_render", waitForAck = false)
+                type == "jpegEncode" && encodeMs >= 80L ->
+                    startDiagCapture("slow_jpeg_encode", waitForAck = false)
+                type == "tftFrame" && values["softTimeout"] == true && values["ackMs"] != null ->
+                    finishDiagCapture("ack_recovered")
+                type == "tftFrame" && values["hardTimeout"] == true ->
+                    finishDiagCapture("ack_hard_timeout")
+            }
+
+            if (diagCaptureOpen && diagPostRollUntil > 0L && nowElapsed >= diagPostRollUntil) {
+                writeMarker("diagCaptureEnd", "id" to diagCaptureId, "reason" to "post_roll_complete",
+                    "visualConfirmed" to false)
+                diagCaptureOpen = false
+                diagPostRollUntil = 0L
+            }
+
             val now = System.currentTimeMillis()
             if (now - lastFlush > 10_000 || type == "note" ||
                 type in setOf("rerouteStart", "routeUpdateComplete", "roadSegmentChanged",
-                    "tftLoadingStart", "tftLoadingEnd", "loadingStart", "loadingEnd")) {
+                    "tftLoadingStart", "tftLoadingEnd", "loadingStart", "loadingEnd",
+                    "diagCaptureStart", "diagCaptureRecovery", "diagCaptureEnd")) {
                 lastFlush = now
                 out.flush()
             }
