@@ -81,13 +81,16 @@ object TripLog {
         try {
             val o = JSONObject()
             o.put("t", System.currentTimeMillis())
+            o.put("te", android.os.SystemClock.elapsedRealtime())
             o.put("e", type)
             for ((k, v) in kv) if (v != null) o.put(k, if (v is Double) round(v) else v)
             out.write(o.toString())
             out.newLine()
             lines++
             val now = System.currentTimeMillis()
-            if (now - lastFlush > 10_000 || type == "note") {
+            if (now - lastFlush > 10_000 || type == "note" ||
+                type in setOf("rerouteStart", "routeUpdateComplete", "roadSegmentChanged",
+                    "tftLoadingStart", "tftLoadingEnd", "loadingStart", "loadingEnd")) {
                 lastFlush = now
                 out.flush()
             }
@@ -98,6 +101,15 @@ object TripLog {
     private fun round(v: Double): Double = if (kotlin.math.abs(v) > 90) Math.round(v * 1e6) / 1e6 else Math.round(v * 1e7) / 1e7
 
     fun fix(l: Location) {
+        // Event tên rõ nghĩa cho diagnostic trace; giữ "fix" để tương thích bộ phân tích log cũ.
+        ev(
+            "locationUpdate",
+            "lat" to l.latitude, "lng" to l.longitude,
+            "accuracy" to (if (l.hasAccuracy()) l.accuracy.toDouble() else null),
+            "speedMps" to (if (l.hasSpeed()) l.speed.toDouble() else null),
+            "bearing" to (if (l.hasBearing()) l.bearing.toDouble() else null),
+            "provider" to l.provider,
+        )
         ev(
             "fix",
             "lat" to l.latitude, "lon" to l.longitude,
