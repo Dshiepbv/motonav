@@ -124,22 +124,7 @@ object AppActions {
                 temp.outputStream().bufferedWriter(Charsets.UTF_8).use { writer ->
                     // files mới trước; xuất cũ trước mới sau để timeline liên tục.
                     for (source in files.reversed()) {
-                        val active = TripLog.isActive(source)
-                        try {
-                            java.util.zip.GZIPInputStream(source.inputStream().buffered()).bufferedReader(Charsets.UTF_8).use { reader ->
-                                while (true) {
-                                    val line = reader.readLine() ?: break
-                                    writer.append(line)
-                                    writer.newLine()
-                                }
-                            }
-                        } catch (e: java.io.EOFException) {
-                            // File đang ghi chưa có GZIP trailer; phần dữ liệu đã flush vẫn hợp lệ.
-                            if (!active) throw e
-                        } catch (e: java.util.zip.ZipException) {
-                            // Một số Android báo thiếu trailer dưới dạng ZipException.
-                            if (!active) throw e
-                        }
+                        TripLog.appendToExport(source, writer)
                     }
                 }
                 if (!temp.renameTo(out)) {
