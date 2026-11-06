@@ -239,7 +239,11 @@ object TftLink {
     /** Chỉ kết thúc một giao dịch sau tối đa 8,5 s; trong lúc chờ không phát frame khác. */
     private const val V2_MAX_ACK_WAIT_MS = 8500L
     private const val V2_MIN_INTERVAL_MS = 550L
-    private const val V2_KEEPALIVE_MS = 2500L
+    /** build-367: TFT tự xoay khi ~0,5–1 s không có ảnh mới (log 366: nghỉ >1,2 s → 8/8 trễ; nhả ngay sau
+     * cửa sổ né → 48% trễ). Nên giữ TFT luôn có ảnh: sau ACK mà mailbox chưa có ảnh mới thì gửi lại ảnh cũ. */
+    private const val V2_KEEPALIVE_MS = 450L
+    /** build-367: TẮT việc giữ ảnh né mốc 5 s (366 gây đói ảnh → xoay liên tục). Bộ học pha vẫn chạy để ghi log. */
+    private const val TICK_HOLD = false
     private const val V2_FREEZE_TIMEOUTS = 3
     const val V2_FUSE_TEXT = true
     const val V2_STRICT_CRC = false
@@ -383,13 +387,15 @@ object TftLink {
     @Volatile private var tickPhaseMs = -1L
     @Volatile private var tickR = 0.0
     @Volatile private var tickAvoids = 0
+    @Volatile private var tickInWin = 0
+    @Volatile private var v2Keepalives = 0
     @Volatile private var tickAvoidMs = 0L
     @Volatile private var tickLearnedAt = 0L
     @Volatile private var last41At = 0L
 
     private fun tickReset() {
         synchronized(tickStalls) { tickStalls.clear() }
-        tickPhaseMs = -1L; tickR = 0.0; tickAvoids = 0; tickAvoidMs = 0L; tickLearnedAt = 0L
+        tickPhaseMs = -1L; tickR = 0.0; tickAvoids = 0; tickAvoidMs = 0L; tickInWin = 0; v2Keepalives = 0; tickLearnedAt = 0L
     }
 
     /** Ghi thời điểm BẮT ĐẦU gửi (giờ đồng hồ) của một khung bị kẹt (chờ ACK ≥ 1,2 s) rồi học lại pha. */
@@ -701,7 +707,7 @@ object TftLink {
                     "phaseStable" to phaseStableIntervals, "buildMs" to Math.round(buildEwmaMs),
                     "sinceTxMs" to (if (v2LastTxAt == 0L) -1L else now - v2LastTxAt),
                     "tickPhaseMs" to tickPhaseMs, "tickR" to Math.round(tickR * 100) / 100.0,
-                    "tickAvoids" to tickAvoids, "tickAvoidMs" to tickAvoidMs,
+                    "tickAvoids" to tickAvoids, "tickAvoidMs" to tickAvoidMs, "tickInWin" to tickInWin, "keepalives" to v2Keepalives, "tickHold" to TICK_HOLD,
                     "tickLearnedSec" to (if (tickLearnedAt == 0L) -1L else (tickLearnedAt - sessionStartAt) / 1000))
             } catch (_: Exception) {}
             // Thử nghiệm 221–224 xong (log 27/10, 27 phút): A tốt nhất (gap ≈15%) — B ≈21–25%, C ≈25–30%.
@@ -3137,9 +3143,10 @@ object TftLink {
                         "lastFrameAgeMs" to (if (lastSendStartElapsed > 0L) nowElapsed - lastSendStartElapsed else -1L)) } catch (_: Exception) {}
                 }
                 val previous = lastJpeg
-                if (previous != null && lastAt != 0L && nowWall - lastAt >= V2_KEEPALIVE_MS && tickWaitMs(nowWall) == 0L) {
+                if (previous != null && lastAt != 0L && nowWall - lastAt >= V2_KEEPALIVE_MS && (!TICK_HOLD || tickWaitMs(nowWall) == 0L)) {
                     val age = if (lastSendStartElapsed > 0L) nowElapsed - lastSendStartElapsed else 0L
                     if (!sendFrameWire(previous, "keepalive", age)) break
+                    v2Keepalives++
                     lastAt = System.currentTimeMillis()
                     v2LastTxAt = lastAt
                     v2Sent++
@@ -3164,7 +3171,8 @@ object TftLink {
                         consecTimeouts = 0
                     }
                 } else {
-                    awaitV2Wake(200)
+                    val left = if (lastAt != 0L) V2_KEEPALIVE_MS - (nowWall - lastAt) else 200L
+                    awaitV2Wake(left.coerceIn(20L, 200L))
                 }
                 continue
             }
@@ -3183,7 +3191,8 @@ object TftLink {
 
             // build-366: né cửa sổ bận quanh MỌI mốc 5 s đã học (thay cách né theo thống kê cũ chưa từng kích hoạt).
             val tickWait = tickWaitMs(System.currentTimeMillis())
-            if (tickWait > 0L) {
+            if (tickWait > 0L) tickInWin++
+            if (TICK_HOLD && tickWait > 0L) {
                 tickAvoids++
                 tickAvoidMs += tickWait
                 sleepQuiet(tickWait)
