@@ -13,6 +13,7 @@ import org.json.JSONObject
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -36,10 +37,11 @@ object TripLog {
     fun start(ctx: Context) {
         if (w != null) return
         cleanup(ctx)
-        val name = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) + ".jsonl.gz"
+        val name = SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date()) + ".jsonl"
         val f = File(dir(ctx), name)
         file = f
-        w = BufferedWriter(OutputStreamWriter(GZIPOutputStream(FileOutputStream(f), 8192, true), Charsets.UTF_8))
+        w = BufferedWriter(OutputStreamWriter(FileOutputStream(f), Charsets.UTF_8))
+        lastFlush = 0L
         lines = 0
         val pi = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0) } catch (_: Exception) { null }
         ev("start", "app" to (pi?.versionName ?: "?"), "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
@@ -51,6 +53,25 @@ object TripLog {
         ev("stop")
         try { w?.close() } catch (_: Exception) {}
         w = null
+        val raw = file
+        if (raw != null && raw.name.endsWith(".jsonl") && raw.exists()) {
+            val compressed = File(raw.parentFile, raw.name + ".gz")
+            val temp = File(raw.parentFile, compressed.name + ".tmp")
+            try {
+                GZIPOutputStream(FileOutputStream(temp)).use { gzip ->
+                    raw.inputStream().buffered().use { input -> input.copyTo(gzip) }
+                }
+                if (!temp.renameTo(compressed)) {
+                    temp.copyTo(compressed, overwrite = true)
+                    temp.delete()
+                }
+                raw.delete()
+                file = compressed
+            } catch (_: Exception) {
+                temp.delete()
+                // Giữ file JSONL gốc nếu nén thất bại; dữ liệu vẫn xuất được.
+            }
+        }
     }
 
     /** Ghi một sự kiện. */
@@ -98,18 +119,55 @@ object TripLog {
             "steps" to r.steps.joinToString("|") { "${it.sign}:${it.from}:${it.street}" })
     }
 
-    /** True nếu đây là file chuyến đang được ghi (GZIP chưa được đóng trailer). */
+    /**
+     * Chép một log vào file TXT. Giữ khóa trong lúc flush/đọc để log đang chạy không bị
+     * ghi đồng thời; log mới dùng JSONL thuần, log cũ vẫn giải nén GZIP.
+     */
     @Synchronized
-    fun isActive(f: File): Boolean = file?.canonicalPath == f.canonicalPath && w != null
+    fun appendToExport(source: File, writer: BufferedWriter) {
+        try { if (file?.canonicalPath == source.canonicalPath) w?.flush() } catch (_: Exception) {}
+        if (source.name.endsWith(".jsonl.gz")) {
+            try {
+                java.util.zip.GZIPInputStream(source.inputStream().buffered()).bufferedReader(Charsets.UTF_8).use { reader ->
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        writer.append(line)
+                        writer.newLine()
+                    }
+                }
+            } catch (e: java.io.EOFException) {
+                writer.append(JSONObject().put("e", "export_warning").put("source", source.name)
+                    .put("message", "Legacy GZIP log ended before its trailer; decoded records before EOF were retained.").toString())
+                writer.newLine()
+            } catch (e: java.util.zip.ZipException) {
+                writer.append(JSONObject().put("e", "export_warning").put("source", source.name)
+                    .put("message", "Legacy GZIP log was incomplete or damaged; decoded records before the error were retained.").toString())
+                writer.newLine()
+            }
+        } else {
+            source.bufferedReader(Charsets.UTF_8).use { reader ->
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    writer.append(line)
+                    writer.newLine()
+                }
+            }
+        }
+    }
 
     /** Các file nhật ký, mới nhất trước. */
+    @Synchronized
     fun files(ctx: Context): List<File> {
-        synchronized(this) { try { w?.flush() } catch (_: Exception) {} }
-        return dir(ctx).listFiles { f -> f.name.endsWith(".jsonl.gz") }?.sortedByDescending { it.name } ?: emptyList()
+        try { w?.flush() } catch (_: Exception) {}
+        return dir(ctx).listFiles { f ->
+            f.name.endsWith(".jsonl") || f.name.endsWith(".jsonl.gz")
+        }?.sortedByDescending { it.name } ?: emptyList()
     }
 
     private fun cleanup(ctx: Context) {
-        val list = dir(ctx).listFiles { f -> f.name.endsWith(".jsonl.gz") }?.sortedByDescending { it.name } ?: return
+        val list = dir(ctx).listFiles { f ->
+            f.name.endsWith(".jsonl") || f.name.endsWith(".jsonl.gz")
+        }?.sortedByDescending { it.name } ?: return
         val old = System.currentTimeMillis() - 7 * 24 * 3600_000L
         list.forEachIndexed { i, f -> if (i >= 10 || f.lastModified() < old) f.delete() }
     }
