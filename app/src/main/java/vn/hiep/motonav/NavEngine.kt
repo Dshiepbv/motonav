@@ -29,6 +29,8 @@ class NavEngine(
     private var rrLon = 0.0
     private val rerouteTimes = ArrayList<Long>()
     @Volatile private var routing = false
+    private var lastTraceRoute: Route? = null
+    private var lastTraceStepIndex = -1
     private var lastReroute = 0L
     private val spoken = HashSet<String>()
     // Mốc thời gian bắt đầu "gần như đứng yên, gần đích" — dự phòng tự kết thúc chuyến khi đường
@@ -77,6 +79,8 @@ class NavEngine(
         Live.route = null
         Live.routeError = null
         seg = 0
+        lastTraceRoute = null
+        lastTraceStepIndex = -1
         nearDestSince = 0L
         spoken.clear()
         if (Live.gpsOk) requestRoute(Live.lat, Live.lon, if (Live.heading >= 0) Live.heading else null, offerChoice = true)
@@ -177,6 +181,14 @@ class NavEngine(
         val dLat = Live.destLat
         val dLon = Live.destLon
         val reroute = Live.route != null && !offerChoice
+        val requestStartElapsed = SystemClock.elapsedRealtime()
+        var routeSucceeded = false
+        TripLog.ev(
+            if (reroute) "rerouteStart" else "routeRequestStart",
+            "reason" to if (reroute) "off_route" else if (offerChoice) "initial_or_alternative" else "retry",
+            "lat" to lat, "lng" to lon, "heading" to heading,
+            "routeVersion" to Live.routeVersion,
+        )
         // Theo yêu cầu "ưu tiên Goong, bỏ hẳn VietMap nếu Goong ok": có mã Goong là dùng THẲNG
         // Goong, không còn âm thầm rơi về VietMap khi Goong lỗi nữa — lỗi thật sẽ hiện rõ lên màn
         // hình (routeError) để biết ngay Goong có ổn hay chưa, thay vì VietMap "che" mất vấn đề mà
@@ -392,6 +404,7 @@ class NavEngine(
                     Live.choicesVersion++
                     if (!reroute && tripStartAt == 0L) { tripStartAt = SystemClock.elapsedRealtime(); tripPredMs = r.timeMs }
                     Live.route = r
+                    routeSucceeded = true
                     Live.routeVersion++
                     TripLog.route(r, if (reroute) "reroute" else if (offerChoice) "start" else "retry")
                     if (!(offerChoice && list.size == 1 && Live.routeError != null)) Live.routeError = null
@@ -403,6 +416,14 @@ class NavEngine(
                 Live.routeError = e.message ?: "Lỗi tìm đường"
                 TripLog.ev("routeErr", "msg" to (e.message ?: e.javaClass.simpleName).take(120))
             } finally {
+                TripLog.ev(
+                    "routeUpdateComplete",
+                    "reroute" to reroute,
+                    "success" to routeSucceeded,
+                    "durationMs" to (SystemClock.elapsedRealtime() - requestStartElapsed),
+                    "routeVersion" to Live.routeVersion,
+                    "error" to if (routeSucceeded) null else Live.routeError,
+                )
                 routing = false
                 Live.routeStatus = null
                 Live.changed()
@@ -654,6 +675,26 @@ class NavEngine(
             nextIdx = r.steps.size - 1
         }
         if (next == null) return
+        val previousTraceRoute = lastTraceRoute
+        val previousTraceStep = lastTraceStepIndex
+        if (previousTraceRoute !== r || previousTraceStep != nextIdx) {
+            val oldStep = previousTraceRoute?.steps?.getOrNull(previousTraceStep)
+            TripLog.ev(
+                "roadSegmentChanged",
+                "old" to oldStep?.street,
+                "new" to next.street,
+                "oldStepIndex" to previousTraceStep,
+                "newStepIndex" to nextIdx,
+                "oldSign" to oldStep?.sign,
+                "newSign" to next.sign,
+                "routeChanged" to (previousTraceRoute !== r),
+                "routeSeg" to bestI,
+                "routeProgressM" to progress,
+                "lat" to lat, "lng" to lon,
+            )
+            lastTraceRoute = r
+            lastTraceStepIndex = nextIdx
+        }
         var mIdx = min(next.from, n - 1)
         var toTurn = max(0.0, r.cum[mIdx] - progress)
         // build-305: chỗ tách tầng cầu/dưới cầu phía trước, gần hơn chỗ rẽ kế → báo như một bước riêng.
@@ -735,6 +776,14 @@ class NavEngine(
         Live.navDistance = fmtDist(toTurn)
         Live.navInstruction = phrase
         Live.navExtra = null
+        TripLog.ev(
+            "navigationUpdate",
+            "lat" to lat, "lng" to lon, "accuracy" to acc,
+            "speedMps" to speedMps, "heading" to heading,
+            "routeSeg" to bestI, "routeProgressM" to progress,
+            "stepIndex" to nextIdx, "nextStreet" to next.street,
+            "distanceToTurnM" to toTurn, "offRoute" to off,
+        )
 
         // Đọc chỉ dẫn (đang lệch tuyến thì không đọc chỉ dẫn của tuyến cũ, tránh bảo quay lại)
         if (next.sign != 0 && !off) {
