@@ -238,7 +238,8 @@ object TftLink {
     private const val V2_ACK_WAIT_MS = 1200L
     /** Chỉ kết thúc một giao dịch sau tối đa 8,5 s; trong lúc chờ không phát frame khác. */
     private const val V2_MAX_ACK_WAIT_MS = 8500L
-    private const val V2_MIN_INTERVAL_MS = 550L
+    private const val V2_MIN_INTERVAL_MS = 300L
+    private const val V2_P302_REST_MS = 400L
     /** build-367: TFT tự xoay khi ~0,5–1 s không có ảnh mới (log 366: nghỉ >1,2 s → 8/8 trễ; nhả ngay sau
      * cửa sổ né → 48% trễ). Nên giữ TFT luôn có ảnh: sau ACK mà mailbox chưa có ảnh mới thì gửi lại ảnh cũ. */
     private const val V2_KEEPALIVE_MS = 450L
@@ -1975,7 +1976,7 @@ object TftLink {
         // A/B phút lẻ "L": ảnh dựng sát mốc 5 s (−800..+400 ms) nén nhẹ hẳn (8) — không né, mà đổi thứ gửi đúng lúc mốc.
         val nowWq = System.currentTimeMillis()
         val offQ = tickOffset(nowWq)
-        val jq = if (tickModeShort(nowWq) && offQ != null && offQ >= -800L && offQ <= 400L) 8 else 14
+        val jq = 14 // build-371: bỏ nén 8 sát mốc (370: không giúp, ảnh xấu)
         lastJpegQ = jq
         bmp.compress(Bitmap.CompressFormat.JPEG, jq, out)
         if (sizeMode == 1 && out.size() > SMALL_TARGET_BYTES) {
@@ -2231,7 +2232,7 @@ object TftLink {
                 // ACK_WAIT_MS), nên khoảng lặng xấu nhất giữa 2 khung giờ chỉ còn ~1,9s (1,5s chờ ACK
                 // + 0,4s nghỉ), thay vì 6,4s trước đây.
                 // Nhịp C: nghỉ dài hơn (900 ms) giữa 2 khung — ít khung hơn, thử xem có ít lần đứng hơn.
-                sleepQuiet(if (paceMode == 2) 900 else 400)
+                sleepQuiet(if (PIPE_V2) 200 else if (paceMode == 2) 900 else 400) // build-371: V2 dựng ảnh ~mỗi 0,25 s để đủ ảnh cho nhịp gửi 300 ms
             } else {
                 sleepQuiet(400)
             }
@@ -3008,7 +3009,7 @@ object TftLink {
                         badMinutes = 0
                         resetPhaseLearning()
                         try { TripLog.ev("tftSession", "phase" to "reset", "origin" to "post-handshake",
-                            "jpegQuality" to 14, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
+                            "jpegQuality" to 14, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
                         sendInitBurst()
                     }
                 }
@@ -3167,7 +3168,7 @@ object TftLink {
                 "waitMs" to waited, "softTimeout" to softTimeoutLogged, "hardTimeout" to hardTimeout,
                 "timedOut" to (softTimeoutLogged || hardTimeout), "lost" to (if (hardTimeout) true else null),
                 "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "ackRelMs" to relAck, "tag" to tag, "v" to 2,
-                "tickOff" to tickOff, "tickMode" to (if (tickModeShort(sentAt)) "L" else "N"), "held" to tickHeldNow, "q" to jpegQOf(jpeg))
+                "tickOff" to tickOff, "tickMode" to (if (tickModeShort(sentAt)) "P" else "N"), "held" to tickHeldNow, "q" to jpegQOf(jpeg))
         } catch (_: Exception) {}
         return true
     }
@@ -3297,8 +3298,10 @@ object TftLink {
             }
 
             // Luôn giữ khoảng cách tối thiểu; không có chế độ drain bỏ qua pacing sau ACK muộn.
+            // build-371 (Sếp): A/B theo phút — phút lẻ "P" = nhịp 302 (ACK xong nghỉ cố định 400 ms rồi lấy ảnh mới nhất),
+            // phút chẵn "N" = nhịp mailbox 300 ms tính từ lúc bắt đầu gửi (trước 550).
             val spent = android.os.SystemClock.elapsedRealtime() - sendStart
-            val rest = V2_MIN_INTERVAL_MS - spent
+            val rest = if (tickModeShort(System.currentTimeMillis())) V2_P302_REST_MS else V2_MIN_INTERVAL_MS - spent
             if (rest > 0L) sleepQuiet(rest)
         }
     }
