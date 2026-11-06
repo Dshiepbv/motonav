@@ -847,6 +847,8 @@ object TftLink {
     // Zoom thủ công bằng nút vật lý trên xe (51 lên = xa hơn, 52 xuống = gần hơn), cộng dồn vào
     // công thức maxAhead theo tốc độ. -3..+3, 0 = mặc định.
     @Volatile private var skZoomStep: Int = 0
+    /** build-364: tỉ lệ thu nhỏ khung nhìn TFT (1.0 = như cũ; 0.7 = nhìn xa hơn ~1.43 lần). */
+    const val VIEW_SCALE = 0.7
     // Mức zoom theo tốc độ (0=xa/>=40, 1=vừa/20-39, 2=gần/<20) — nhớ lại mức trước đó và chỉ đổi
     // khi tốc độ vượt hẳn qua ngưỡng (có biên trễ ~2-3km/h mỗi bên) để đứng yên/chạy chậm quanh
     // mốc 20km/h không làm bản đồ zoom ra zoom vào liên tục do nhiễu tốc độ GPS.
@@ -1047,7 +1049,9 @@ object TftLink {
                 1 -> 0.5
                 else -> 1.0
             }
-            val baseMaxAhead = (1800.0 * zoomMul * spdMul).coerceIn(400.0, 3600.0)
+            // build-364: Sếp "lấy lại zoom cũ nhưng bé đi còn 0.7 để nhìn đường xa hơn" — mọi mức zoom
+            // (tốc độ + nút) nhân tỉ lệ 0.7, tức tầm nhìn xa hơn 1/0.7 ≈ 1.43 lần.
+            val baseMaxAhead = (1800.0 * zoomMul * spdMul / VIEW_SCALE).coerceIn(400.0, 3600.0)
             // Theo yêu cầu (27/10): bỏ quy tắc nới khung theo khoảng cách tới chỗ rẽ (turnDist+150) —
             // chỗ rẽ xa vài km làm khung nới tới 3600 m, đường gần xe bị nén ngắn tũn. Tầm nhìn chỉ
             // theo mức zoom tốc độ + nút zoom; đoạn xa hơn vẫn được vẽ (nén) nhờ [drawAhead].
@@ -1073,7 +1077,7 @@ object TftLink {
             val snapShot: org.maplibre.android.snapshotter.MapSnapshot? = run {
                 val st = mapSnapStyle; val cx = appCtx
                 if (st == null || cx == null) return@run null
-                val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(14.5, 17.8)
+                val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(13.8, 17.8)
                 val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
                 val aheadM = (0.22 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.15
                 val tLat = skLat + cosH * aheadM / 110540.0

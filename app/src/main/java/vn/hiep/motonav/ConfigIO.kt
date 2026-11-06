@@ -19,6 +19,7 @@ object ConfigIO {
         put("tftResend", if (TftLink.RESEND_AFTER_MS >= 3_600_000L) "tắt" else "${TftLink.RESEND_AFTER_MS} ms")
         put("tftAutoReset", TftLink.AUTO_RESET)
         put("tftPredictS", TftLink.PRED_S)
+        put("tftViewScale", TftLink.VIEW_SCALE)
         put("destSnap", false)
         put("carOnlyFilter", RoutePick.CAR_ONLY_FILTER)
         put("uturnRule", "chỉ bỏ tuyến tìm lại quay đầu về đường vừa đi; quay đầu nằm trong tuyến thì giữ")
