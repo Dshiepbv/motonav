@@ -1831,6 +1831,7 @@ object TftLink {
             }
         }
         val out = ByteArrayOutputStream()
+        val jpegEncodeStarted = android.os.SystemClock.elapsedRealtime()
         // Hạ tiếp (17→14) theo log thực tế chuyến 115807 (0.205): vẫn ~20% khung timeout ACK dù đã
         // hạ xuống 17 trước đó, TB ~9,7KB. Nhưng đối chiếu kỹ: timeout KHÔNG tăng tuyến tính rõ theo
         // cỡ khung (có đoạn 9,0KB mà 0% timeout, có đoạn 9,9KB mà 41% timeout) — mà đi THEO CHUỖI dài
@@ -1854,6 +1855,10 @@ object TftLink {
         }
         bmp.recycle()
         val raw = out.toByteArray()
+        try {
+            TripLog.ev("jpegEncode", "durationMs" to (android.os.SystemClock.elapsedRealtime() - jpegEncodeStarted),
+                "jpegSizeBytes" to raw.size, "quality" to 26, "sizeMode" to sizeMode)
+        } catch (_: Exception) {}
         return if (iccStripNow()) stripIcc(raw) else raw
     }
 
@@ -2056,6 +2061,7 @@ object TftLink {
                     try {
                         // Lỗi trong nhánh ảnh bản đồ (kể cả lỗi nặng kiểu NoClassDefFoundError/UnsatisfiedLinkError)
                         // không được làm sập app: tắt nhánh đó rồi vẽ lại bằng vector.
+                        val renderStartedElapsed = android.os.SystemClock.elapsedRealtime()
                         val tb0 = System.currentTimeMillis()
                         val frame = if (diagMode == 1) buildTestFrame("DIAG " + ((System.currentTimeMillis() / 1000) % 1000)) else try { buildSketchFrame() } catch (t: Throwable) {
                             if (mapSnapStyle == null) throw t
@@ -2065,7 +2071,13 @@ object TftLink {
                                 t.stackTrace.take(4).joinToString(" < ") { it.fileName + ":" + it.lineNumber }, 20_000L)
                             buildSketchFrame()
                         }
+                        val renderDurationMs = android.os.SystemClock.elapsedRealtime() - renderStartedElapsed
                         buildEwmaMs = buildEwmaMs * 0.9 + (System.currentTimeMillis() - tb0) * 0.1
+                        try {
+                            TripLog.ev("render", "durationMs" to renderDurationMs, "jpegSizeBytes" to frame.size,
+                                "routeVersion" to Live.routeVersion, "routeSeg" to Live.routeSeg,
+                                "mapSnapEnabled" to (mapSnapStyle != null))
+                        } catch (_: Exception) {}
                         sendFrame(frame)
                     } catch (_: Throwable) {
                     }
@@ -3053,10 +3065,18 @@ object TftLink {
                         consecTimeouts++
                         if (consecTimeouts >= V2_FREEZE_TIMEOUTS && !freezeHold) {
                             freezeHold = true
-                            try { TripLog.ev("tftFreezeHold", "timeouts" to consecTimeouts) } catch (_: Exception) {}
+                            try {
+                                TripLog.ev("tftFreezeHold", "timeouts" to consecTimeouts)
+                                // Proxy từ pipeline ACK; không khẳng định đây là trạng thái spinner vật lý trên TFT.
+                                TripLog.ev("tftLoadingStart", "source" to "ack_timeout_proxy",
+                                    "visualConfirmed" to false, "timeouts" to consecTimeouts)
+                            } catch (_: Exception) {}
                         }
                     } else {
-                        if (freezeHold) try { TripLog.ev("tftWake", "from" to "keepalive") } catch (_: Exception) {}
+                        if (freezeHold) try {
+                            TripLog.ev("tftWake", "from" to "keepalive")
+                            TripLog.ev("tftLoadingEnd", "source" to "ack_recovered_proxy", "visualConfirmed" to false)
+                        } catch (_: Exception) {}
                         freezeHold = false
                         consecTimeouts = 0
                     }
@@ -3094,10 +3114,18 @@ object TftLink {
                 consecTimeouts++
                 if (consecTimeouts >= V2_FREEZE_TIMEOUTS && !freezeHold) {
                     freezeHold = true
-                    try { TripLog.ev("tftFreezeHold", "timeouts" to consecTimeouts) } catch (_: Exception) {}
+                    try {
+                        TripLog.ev("tftFreezeHold", "timeouts" to consecTimeouts)
+                        // Proxy từ pipeline ACK; không khẳng định đây là trạng thái spinner vật lý trên TFT.
+                        TripLog.ev("tftLoadingStart", "source" to "ack_timeout_proxy",
+                            "visualConfirmed" to false, "timeouts" to consecTimeouts)
+                    } catch (_: Exception) {}
                 }
             } else {
-                if (freezeHold) try { TripLog.ev("tftWake", "from" to "ack") } catch (_: Exception) {}
+                if (freezeHold) try {
+                    TripLog.ev("tftWake", "from" to "ack")
+                    TripLog.ev("tftLoadingEnd", "source" to "ack_recovered_proxy", "visualConfirmed" to false)
+                } catch (_: Exception) {}
                 freezeHold = false
                 consecTimeouts = 0
             }
