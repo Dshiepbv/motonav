@@ -399,6 +399,9 @@ object TftLink {
     private val jpegQMap = java.util.Collections.synchronizedMap(java.util.WeakHashMap<ByteArray, Int>())
     private fun jpegQOf(b: ByteArray): Int? = jpegQMap[b]
     private fun tickModeShort(nowWall: Long): Boolean = (nowWall / 60_000L) % 2L == 1L
+    /** build-373 (Sếp): A/B theo phút đồng hồ — phút lẻ = nền TRƠN (không ảnh bản đồ, không mảng nước/cây, chỉ nét đường),
+     * phút chẵn = nền ảnh bản đồ như cũ. tftFrame "bg" = "plain"/"map". */
+    fun bgPlainNow(nowWall: Long = System.currentTimeMillis()): Boolean = (nowWall / 60_000L) % 2L == 1L
     private val tickStalls = ArrayList<Long>()
     @Volatile private var tickPhaseMs = -1L
     @Volatile private var tickR = 0.0
@@ -1049,7 +1052,7 @@ object TftLink {
             val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(13.8, 17.8)
             val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
             val st = mapSnapStyle; val cx = appCtx
-            val snap = if (st != null && cx != null) {
+            val snap = if (st != null && cx != null && !bgPlainNow()) {
                 val aheadM = ((h + MapSnap.EXTRA_H) / 2.0 - 0.72 * h).coerceAtLeast(0.0) * mPerPx
                 val tLat = skLat + cosH * aheadM / 110540.0
                 val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
@@ -1206,7 +1209,7 @@ object TftLink {
             // chồng lên (tuyến đỏ, nhãn, tam giác xe) quy đổi qua đúng ảnh đó. Lỗi/quá hạn → null → vector cũ.
             val snapShot: org.maplibre.android.snapshotter.MapSnapshot? = run {
                 val st = mapSnapStyle; val cx = appCtx
-                if (st == null || cx == null) return@run null
+                if (st == null || cx == null || bgPlainNow()) return@run null
                 val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(13.8, 17.8)
                 val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
                 val aheadM = (0.22 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.15
@@ -1326,7 +1329,7 @@ object TftLink {
                     return@run
                 }
                 c.drawColor(if (dk) Color.rgb(23, 26, 33) else Color.rgb(247, 247, 249))
-                val areas = Live.areas
+                val areas = if (bgPlainNow()) null else Live.areas // build-373: phút nền trơn — không tô mảng nước/cây
                 if (areas != null) {
                     val lim = drawAhead * 1.1
                     val fillW = Paint().apply { color = Color.rgb(120, 190, 240); style = Paint.Style.FILL; isAntiAlias = true }
@@ -3197,7 +3200,7 @@ object TftLink {
                 "waitMs" to waited, "softTimeout" to softTimeoutLogged, "hardTimeout" to hardTimeout,
                 "timedOut" to (softTimeoutLogged || hardTimeout), "lost" to (if (hardTimeout) true else null),
                 "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "ackRelMs" to relAck, "tag" to tag, "v" to 2,
-                "tickOff" to tickOff, "tickMode" to "P", "held" to tickHeldNow, "q" to jpegQOf(jpeg))
+                "tickOff" to tickOff, "tickMode" to "P", "bg" to (if (bgPlainNow(sentAt)) "plain" else "map"), "held" to tickHeldNow, "q" to jpegQOf(jpeg))
         } catch (_: Exception) {}
         return true
     }
