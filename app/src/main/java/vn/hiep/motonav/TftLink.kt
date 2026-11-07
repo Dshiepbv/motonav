@@ -3431,10 +3431,12 @@ object TftLink {
         if (wantName != lastSentName) {
             send(namePacket(wantName))
             lastSentName = wantName
+            try { TripLog.ev("tftNameTx", "len" to wantName.length) } catch (_: Exception) {}
         }
         if (!active) {
             if (lastSentKey != "off") {
                 send(navActivePacket(false))
+                try { TripLog.ev("tftNavMode", "on" to false) } catch (_: Exception) {}
                 lastSentKey = "off"
             }
             return
@@ -3447,7 +3449,10 @@ object TftLink {
         val key = "$icon|$distBucket|$road"
         val etaChanged = etaMinutes != lastSentEta
         if (key == lastSentKey && !etaChanged) return
-        if (lastSentKey == "off" || lastSentKey.isEmpty()) send(navActivePacket(true))
+        if (lastSentKey == "off" || lastSentKey.isEmpty()) {
+            send(navActivePacket(true))
+            try { TripLog.ev("tftNavMode", "on" to true) } catch (_: Exception) {}
+        }
         if (PIPE_V2 && V2_FUSE_TEXT) {
             lastSentKey = key
             lastSentEta = etaMinutes

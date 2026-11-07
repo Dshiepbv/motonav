@@ -320,8 +320,11 @@ class DriveService : Service(), LocationListener {
                     else -> null
                 }
                 val navOn = Live.ownNav && Live.navActive && !Live.offRoute
+                // build-374: gói chế độ dẫn đường (cmd 2) KHÔNG bật/tắt theo lệch tuyến nữa — mỗi lần đổi tuyến trước đây gửi
+                // cmd 2 = 0 rồi = 1 (log 6–7/11: kẹt bắt đầu trong 3 s sau khi về tuyến ~2 lần ngẫu nhiên; Sếp: đổi tuyến là xoay).
+                val navLink = Live.ownNav && Live.navActive
                 TftLink.update(
-                    active = navOn,
+                    active = navLink,
                     sign = Live.maneuverSign,
                     roundabout = Live.maneuverSign == 6,
                     distanceM = if (Live.navMeters >= 0) Live.navMeters else 0,
