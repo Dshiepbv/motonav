@@ -2241,7 +2241,7 @@ object TftLink {
                 // ACK_WAIT_MS), nên khoảng lặng xấu nhất giữa 2 khung giờ chỉ còn ~1,9s (1,5s chờ ACK
                 // + 0,4s nghỉ), thay vì 6,4s trước đây.
                 // Nhịp C: nghỉ dài hơn (900 ms) giữa 2 khung — ít khung hơn, thử xem có ít lần đứng hơn.
-                sleepQuiet(if (PIPE_V2) 200 else if (paceMode == 2) 900 else 400) // build-371: V2 dựng ảnh ~mỗi 0,25 s để đủ ảnh cho nhịp gửi 300 ms
+                sleepQuiet(if (PIPE_V2) 80 else if (paceMode == 2) 900 else 400) // build-371: V2 dựng ảnh ~mỗi 0,25 s để đủ ảnh cho nhịp gửi 300 ms
             } else {
                 sleepQuiet(400)
             }
@@ -3347,7 +3347,8 @@ object TftLink {
             // phút chẵn "N" = nhịp mailbox 300 ms tính từ lúc bắt đầu gửi (trước 550).
             val spent = android.os.SystemClock.elapsedRealtime() - sendStart
             // build-372: chốt nhịp 302 (log 7/11: P 30,7% vs 300 ms 40,1%).
-            val rest = V2_P302_REST_MS
+            // build-376 (Sếp): bỏ thời gian chết — nghỉ sau ACK chỉ bằng thời gian ACK vừa rồi (50–400 ms), không cố định 400 ms.
+            val rest = (if (lastFrameAckMs > 0) lastFrameAckMs else V2_P302_REST_MS).coerceIn(50L, V2_P302_REST_MS)
             if (rest > 0L) sleepQuiet(rest)
         }
     }
