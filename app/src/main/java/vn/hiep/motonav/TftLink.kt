@@ -401,7 +401,9 @@ object TftLink {
     private fun tickModeShort(nowWall: Long): Boolean = (nowWall / 60_000L) % 2L == 1L
     /** build-373 (Sếp): A/B theo phút đồng hồ — phút lẻ = nền TRƠN (không ảnh bản đồ, không mảng nước/cây, chỉ nét đường),
      * phút chẵn = nền ảnh bản đồ như cũ. tftFrame "bg" = "plain"/"map". */
-    fun bgPlainNow(nowWall: Long = System.currentTimeMillis()): Boolean = (nowWall / 60_000L) % 2L == 1L
+    fun bgPlainNow(@Suppress("UNUSED_PARAMETER") nowWall: Long = System.currentTimeMillis()): Boolean = true // build-375: chốt nền trơn (log 374: 18,3% vs 31,0%)
+    /** build-375: nét đường nền trơn dày như đường trên ảnh bản đồ cũ (Sếp: giữ kích thước đường + zoom). */
+    private const val PLAIN_ROAD_MUL = 2.0f
     private val tickStalls = ArrayList<Long>()
     @Volatile private var tickPhaseMs = -1L
     @Volatile private var tickR = 0.0
@@ -1069,7 +1071,7 @@ object TftLink {
                     val proj = LocalProjection(skLat, skLon)
                     val pxPerM = (1.0 / mPerPx).toFloat()
                     val lp = Paint().apply { color = if (dk) Color.rgb(150, 155, 165) else Color.rgb(120, 125, 135); style = Paint.Style.STROKE
-                        strokeWidth = h * 0.012f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+                        strokeWidth = h * 0.012f * PLAIN_ROAD_MUL; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
                     val lim = maxAhead * 1.2
                     for (wy in ways) {
                         if (wy.lats.size < 2) continue
@@ -1429,10 +1431,10 @@ object TftLink {
                 // Theo yêu cầu: TẤT CẢ nhánh đường đều màu trắng (màu xám trước đây khó thấy giữa
                 // ban ngày, trời nắng) — chỉ còn phân biệt bằng ĐỘ DÀY tương ứng với bề rộng thực tế
                 // ngoài đời (quốc lộ/trục chính rộng nhất -> hẻm/đường nội bộ hẹp nhất).
-                val branchPaintMajor = Paint().apply { color = if (dk) Color.rgb(150, 157, 170) else Color.rgb(168, 173, 184); style = Paint.Style.STROKE; strokeWidth = 6.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintMid = Paint().apply { color = if (dk) Color.rgb(156, 163, 176) else Color.rgb(172, 177, 188); style = Paint.Style.STROKE; strokeWidth = 4.8f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintMinor = Paint().apply { color = if (dk) Color.rgb(160, 167, 180) else Color.rgb(178, 183, 194); style = Paint.Style.STROKE; strokeWidth = 3.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                val branchPaintTiny = Paint().apply { color = if (dk) Color.rgb(164, 171, 184) else Color.rgb(184, 189, 199); style = Paint.Style.STROKE; strokeWidth = 2.4f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMajor = Paint().apply { color = if (dk) Color.rgb(150, 157, 170) else Color.rgb(168, 173, 184); style = Paint.Style.STROKE; strokeWidth = 6.5f * PLAIN_ROAD_MUL; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMid = Paint().apply { color = if (dk) Color.rgb(156, 163, 176) else Color.rgb(172, 177, 188); style = Paint.Style.STROKE; strokeWidth = 4.8f * PLAIN_ROAD_MUL; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintMinor = Paint().apply { color = if (dk) Color.rgb(160, 167, 180) else Color.rgb(178, 183, 194); style = Paint.Style.STROKE; strokeWidth = 3.4f * PLAIN_ROAD_MUL; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                val branchPaintTiny = Paint().apply { color = if (dk) Color.rgb(164, 171, 184) else Color.rgb(184, 189, 199); style = Paint.Style.STROKE; strokeWidth = 2.4f * PLAIN_ROAD_MUL; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 fun branchPaintFor(highway: String): Paint = when (highway) {
                     "motorway", "trunk", "primary", "motorway_link", "trunk_link", "primary_link" -> branchPaintMajor
                     "secondary", "tertiary", "secondary_link", "tertiary_link" -> branchPaintMid
