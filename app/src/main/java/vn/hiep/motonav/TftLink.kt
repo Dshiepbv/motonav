@@ -193,6 +193,10 @@ object TftLink {
     // nhịp đến từ phía xe, nghi do app trả lời lại gói bắt tay mỗi lần xe "chào" 0x42 định kỳ):
     // theo dõi khung đang chờ ACK để log ACK lệch số thứ tự/đến trễ, và thời điểm 0x42 gần nhất.
     @Volatile private var waitingSeq: Int = -1
+    /** build-372: màn xe đã gửi 56 (tạm dừng) — không gửi ảnh cho tới 55 `01 00` (hoặc quá [PAUSE_MAX_MS] thì tự chạy lại). */
+    @Volatile private var dashPaused = false
+    @Volatile private var dashPausedAt = 0L
+    private const val PAUSE_MAX_MS = 20_000L
     @Volatile private var waitingSentAt: Long = 0L
     @Volatile private var last42At: Long = 0L
 
@@ -237,7 +241,7 @@ object TftLink {
     /** Ngưỡng cảnh báo ACK trễ; không kết thúc giao dịch tại ngưỡng này. */
     private const val V2_ACK_WAIT_MS = 1200L
     /** Chỉ kết thúc một giao dịch sau tối đa 8,5 s; trong lúc chờ không phát frame khác. */
-    private const val V2_MAX_ACK_WAIT_MS = 8500L
+    private const val V2_MAX_ACK_WAIT_MS = 4500L // build-372: 8500 → 4500 (log 7/11: rớt kết nối vài giây sau mỗi lần chờ 8,5 s)
     private const val V2_MIN_INTERVAL_MS = 300L
     private const val V2_P302_REST_MS = 400L
     /** build-367: TFT tự xoay khi ~0,5–1 s không có ảnh mới (log 366: nghỉ >1,2 s → 8/8 trễ; nhả ngay sau
@@ -2986,6 +2990,30 @@ object TftLink {
                         // chạy): trước đây KHÔNG xử lý các cmd này — dò theo NConnect thêm vào đây,
                         // dù chỉ log/gọi callback (không chắc có phải nguyên nhân gây mất kết nối lúc
                         // bấm nút hay không, cần xem lại sau khi lên bản mới).
+                        // build-372: theo tài liệu công khai maxdash (đo trên NMAX): 56 (0x38) payload ≠ 03/04 = màn xe báo TẠM DỪNG
+                        // (rời màn bản đồ / sắp tắt máy / màn quá tải) → ngừng gửi ảnh + trả 20 (pause ACK, rỗng).
+                        // 55 (0x37) `01 00` = hiện lại (bấm Home / về bản đồ) → gửi lại bộ khởi tạo rồi gửi ảnh tiếp.
+                        // Log 7/11: sau khi màn tự cập nhật firmware BT, xe gửi 56 và rớt kết nối vài giây sau vì app vẫn gửi ảnh.
+                        56 -> {
+                            val v = if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else -1
+                            if (v != 3 && v != 4) {
+                                dashPaused = true
+                                dashPausedAt = System.currentTimeMillis()
+                                send(pack(ByteArray(0), 20, 0))
+                                try { TripLog.ev("tftPause", "v" to v) } catch (_: Exception) {}
+                            }
+                        }
+                        55 -> {
+                            val v = if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else -1
+                            if (v == 1) {
+                                val was = dashPaused
+                                dashPaused = false
+                                sendInitBurst()
+                                try { TripLog.ev("tftResume", "wasPaused" to was,
+                                    "pausedMs" to (if (was) System.currentTimeMillis() - dashPausedAt else 0L)) } catch (_: Exception) {}
+                                signalV2Wake()
+                            }
+                        }
                         48 -> { // menu đồng hồ: chọn mục (zoom +/- cũng gửi qua đây ở một số bản) — chỉ log
                             TripLog.ev("tftBtn", "cmd" to "48 menu")
                         }
@@ -3008,6 +3036,7 @@ object TftLink {
                         sessionStartElapsedMs = android.os.SystemClock.elapsedRealtime()
                         badMinutes = 0
                         resetPhaseLearning()
+                        dashPaused = false
                         try { TripLog.ev("tftSession", "phase" to "reset", "origin" to "post-handshake",
                             "jpegQuality" to 14, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
                         sendInitBurst()
@@ -3168,7 +3197,7 @@ object TftLink {
                 "waitMs" to waited, "softTimeout" to softTimeoutLogged, "hardTimeout" to hardTimeout,
                 "timedOut" to (softTimeoutLogged || hardTimeout), "lost" to (if (hardTimeout) true else null),
                 "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "ackRelMs" to relAck, "tag" to tag, "v" to 2,
-                "tickOff" to tickOff, "tickMode" to (if (tickModeShort(sentAt)) "P" else "N"), "held" to tickHeldNow, "q" to jpegQOf(jpeg))
+                "tickOff" to tickOff, "tickMode" to "P", "held" to tickHeldNow, "q" to jpegQOf(jpeg))
         } catch (_: Exception) {}
         return true
     }
@@ -3193,6 +3222,17 @@ object TftLink {
                 continue
             }
 
+            if (dashPaused) {
+                if (System.currentTimeMillis() - dashPausedAt > PAUSE_MAX_MS) {
+                    dashPaused = false
+                    try { TripLog.ev("tftResume", "wasPaused" to true, "auto" to true, "pausedMs" to PAUSE_MAX_MS) } catch (_: Exception) {}
+                    sendInitBurst()
+                } else {
+                    awaitV2Wake(200)
+                    lastAt = System.currentTimeMillis() // không tính thời gian tạm dừng vào keepalive
+                    continue
+                }
+            }
             val nowWall = System.currentTimeMillis()
             val nowElapsed = android.os.SystemClock.elapsedRealtime()
             val queued = mailbox.getAndSet(null)
@@ -3301,7 +3341,8 @@ object TftLink {
             // build-371 (Sếp): A/B theo phút — phút lẻ "P" = nhịp 302 (ACK xong nghỉ cố định 400 ms rồi lấy ảnh mới nhất),
             // phút chẵn "N" = nhịp mailbox 300 ms tính từ lúc bắt đầu gửi (trước 550).
             val spent = android.os.SystemClock.elapsedRealtime() - sendStart
-            val rest = if (tickModeShort(System.currentTimeMillis())) V2_P302_REST_MS else V2_MIN_INTERVAL_MS - spent
+            // build-372: chốt nhịp 302 (log 7/11: P 30,7% vs 300 ms 40,1%).
+            val rest = V2_P302_REST_MS
             if (rest > 0L) sleepQuiet(rest)
         }
     }
