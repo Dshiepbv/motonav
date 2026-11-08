@@ -3344,25 +3344,24 @@ object TftLink {
         return true
     }
 
-    // build-381 (Sếp, mã giả 8/11): tối đa 1 khung đang bay. Bay ≥400 ms → THAY bằng ảnh mới nhất (1 lần);
-    // ≥800 ms → gửi lại 1 lần; không tăng số khung đang bay. ACK khớp khung đang bay → gửi NGAY ảnh mới nhất (hoặc lastJpeg).
-    // Không có khung bay: có ảnh mới thì gửi, không thì keepalive lastJpeg mỗi 400 ms.
-    // An toàn (từ bảng 400/800 trước): bay ≥3,75 s chưa ACK → giữ đứng, gửi lại ảnh mới nhất mỗi 400 ms.
+    // build-383 (Sếp 8/11): giữ nhịp 400/800/keepalive nhưng TUYỆT ĐỐI 1 khung trên dây (maxdash: ≥2 khung chưa ACK → dash xoay).
+    // - Đang chờ ACK: tới mốc 400 / 800 ms chỉ "review" — lấy ảnh mới nhất làm ảnh chờ, KHÔNG gửi.
+    // - ACK về: gửi ảnh chờ mới nhất, nhưng không sớm hơn 400 ms kể từ lúc gửi khung trước (nhịp 400).
+    // - Không có khung bay & không có ảnh mới: keepalive lastJpeg mỗi 400 ms.
+    // - An toàn: chờ quá F4_SAFETY_MS (dash bỏ hẳn khung) → gửi lại 1 bản ảnh mới nhất rồi lại chờ.
+    private const val F4_SAFETY_MS = 9000L
     private fun txLoopFast400() {
         var lastJpeg: ByteArray? = null
+        var pending: QueuedFrame? = null
         var lastSendAt = 0L
         var sentAt = 0L
         var inFlight = false
-        var didStep400 = false
-        var didResend = false
+        var didReview400 = false
+        var didReview800 = false
         var ackSeen = anyAckCount
         var freezeHold = false
         f4Series.clear()
-        fun pick(now: Long): Pair<ByteArray, Long>? {
-            val q = mailbox.getAndSet(null)
-            if (q != null) { lastJpeg = q.jpeg; return q.jpeg to (now - q.createdAtElapsedMs).coerceAtLeast(0L) }
-            return lastJpeg?.let { it to -1L }
-        }
+        fun review() { val q = mailbox.getAndSet(null); if (q != null) pending = q }
         while (running.get() && connected) {
             val urgent = urgentQ.poll()
             if (urgent != null) {
@@ -3379,8 +3378,6 @@ object TftLink {
                 } else { awaitV2Wake(200); continue }
             }
             val now = android.os.SystemClock.elapsedRealtime()
-            var tag: String? = null
-            var newSeries = false
             val ackNow = anyAckCount
             if (ackNow != ackSeen) {
                 ackSeen = ackNow
@@ -3390,38 +3387,39 @@ object TftLink {
                         TripLog.ev("tftLoadingEnd", "source" to "ack_recovered_proxy", "visualConfirmed" to false)
                     } catch (_: Exception) {}
                     freezeHold = false
-                    inFlight = false; didStep400 = false; didResend = false
-                    tag = "afterAck"; newSeries = true
+                    inFlight = false; didReview400 = false; didReview800 = false
                 }
             }
-            if (tag == null) {
-                if (!inFlight) {
-                    if (mailbox.get() != null) { tag = "next"; newSeries = true }
-                    else if (lastJpeg != null && now - lastSendAt >= F4_STEP_MS) { tag = "keepalive"; newSeries = true }
-                } else {
-                    val el = now - sentAt
-                    if (el >= F4_HARD_MS) {
-                        if (!freezeHold) {
-                            freezeHold = true
-                            try {
-                                TripLog.ev("tftFreezeHold", "stuckMs" to el)
-                                TripLog.ev("tftLoadingStart", "source" to "ack_timeout_proxy", "visualConfirmed" to false)
-                            } catch (_: Exception) {}
-                        }
-                        if (now - lastSendAt >= F4_STEP_MS) tag = "hold"
-                    } else if (el >= F4_RESEND_MS && !didResend) { tag = "resend800"; didResend = true; didStep400 = true }
-                    else if (el >= F4_STEP_MS && !didStep400) { tag = "step400"; didStep400 = true }
+            var tag: String? = null
+            if (inFlight) {
+                val el = now - sentAt
+                if (el >= F4_STEP_MS && !didReview400) { didReview400 = true; review() }
+                if (el >= F4_RESEND_MS && !didReview800) { didReview800 = true; review() }
+                if (el >= F4_HARD_MS && !freezeHold) {
+                    freezeHold = true
+                    try {
+                        TripLog.ev("tftFreezeHold", "stuckMs" to el)
+                        TripLog.ev("tftLoadingStart", "source" to "ack_timeout_proxy", "visualConfirmed" to false)
+                    } catch (_: Exception) {}
                 }
+                if (el >= F4_SAFETY_MS && now - lastSendAt >= F4_SAFETY_MS) tag = "safety"
+            } else if (lastSendAt == 0L || now - lastSendAt >= F4_STEP_MS) {
+                review()
+                tag = if (pending != null) "next" else if (lastJpeg != null) "keepalive" else null
             }
             if (tag == null) {
                 synchronized(ackLock) { if (anyAckCount == ackSeen) try { (ackLock as Object).wait(20L) } catch (_: InterruptedException) { return } }
                 continue
             }
-            val pk = pick(now) ?: run { awaitV2Wake(50); null } ?: continue
-            if (newSeries) { f4Series.clear(); sentAt = now; inFlight = true }
-            val nextSeq = (frameSeq + 1) and 0xFFFF
-            f4Series.add(nextSeq)
-            if (!writeFrameOnly(pk.first, if (pk.second < 0) tag + "Last" else tag, pk.second.coerceAtLeast(0L), f4Series.size)) break
+            if (tag == "safety") review()
+            val p0 = pending
+            val jpeg: ByteArray
+            var age = -1L
+            if (p0 != null) { jpeg = p0.jpeg; age = (now - p0.createdAtElapsedMs).coerceAtLeast(0L); pending = null; lastJpeg = jpeg }
+            else jpeg = lastJpeg ?: continue
+            if (!inFlight) { f4Series.clear(); sentAt = now; inFlight = true }
+            f4Series.add((frameSeq + 1) and 0xFFFF)
+            if (!writeFrameOnly(jpeg, if (age < 0 && tag == "next") "nextLast" else tag, age.coerceAtLeast(0L), f4Series.size)) break
             lastSendAt = android.os.SystemClock.elapsedRealtime()
             v2LastTxAt = System.currentTimeMillis()
         }
