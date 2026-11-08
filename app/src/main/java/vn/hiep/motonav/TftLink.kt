@@ -244,6 +244,15 @@ object TftLink {
     private const val V2_MAX_ACK_WAIT_MS = 4500L // build-372: 8500 → 4500 (log 7/11: rớt kết nối vài giây sau mỗi lần chờ 8,5 s)
     private const val V2_MIN_INTERVAL_MS = 300L
     private const val V2_P302_REST_MS = 400L
+    // build-380 (Sếp): nhịp "400/800" — không chờ ACK mới gửi tiếp. T=0 gửi; 400 ms: gửi ảnh mới (hoặc lastJpeg);
+    // 800 ms chưa ACK: gửi lại đúng 1 lần ảnh mới nhất; tới ~3,75 s vẫn chưa ACK: giữ đứng, chỉ keepalive mỗi 400 ms.
+    // ACK về (bất kỳ khung nào): coi xong, nếu đang trễ thì gửi ngay 1 khung mới nhất, reset bộ đếm.
+    const val FAST400 = true
+    private const val F4_STEP_MS = 400L
+    private const val F4_RESEND_MS = 800L
+    private const val F4_HARD_MS = 3750L
+    @Volatile private var anyAckCount = 0L
+    private val f4Sent = java.util.concurrent.ConcurrentHashMap<Int, Long>()
     /** build-367: TFT tự xoay khi ~0,5–1 s không có ảnh mới (log 366: nghỉ >1,2 s → 8/8 trễ; nhả ngay sau
      * cửa sổ né → 48% trễ). Nên giữ TFT luôn có ảnh: sau ACK mà mailbox chưa có ảnh mới thì gửi lại ảnh cũ. */
     private const val V2_KEEPALIVE_MS = 450L
@@ -1851,7 +1860,7 @@ object TftLink {
                         if (d < md) { md = d; mi = k }
                     }
                     if (mi >= 0) {
-                        val lead = 25.0; val tail = 25.0
+                        val lead = 60.0; val tail = 60.0 // build-380 (Sếp): mỗi bên 60 m
                         fun pt(k: Int): DoubleArray = shifted(k)
                         // lùi về trước điểm quẹo
                         val back = ArrayList<DoubleArray>()
@@ -3069,7 +3078,12 @@ object TftLink {
                                 android.os.SystemClock.elapsedRealtime() - sessionStartElapsedMs else -1L
                             try { TripLog.ev("tftAck", "got" to seq, "want" to want, "accepted" to accepted,
                                 "class" to ackClass, "ageMs" to ackAge, "relMs" to rel) } catch (_: Exception) {}
+                            if (FAST400) {
+                                val st0 = f4Sent.remove(seq)
+                                if (st0 != null) try { TripLog.ev("tftAck4", "seq" to seq, "ackMs" to (android.os.SystemClock.elapsedRealtime() - st0)) } catch (_: Exception) {}
+                            }
                             synchronized(ackLock) {
+                                anyAckCount++
                                 if (accepted && (ackedFrame < 0 || ackCovers(ackVal, ackedFrame))) {
                                     ackedFrame = ackVal
                                 }
@@ -3292,8 +3306,119 @@ object TftLink {
         return true
     }
 
+    /** build-380: ghi 1 khung lên dây, KHÔNG chờ ACK (nhịp 400/800). Trả false nếu mất kết nối. */
+    private fun writeFrameOnly(jpeg: ByteArray, tag: String, frameAgeMs: Long, unacked: Int): Boolean {
+        val seq = (frameSeq + 1) and 0xFFFF
+        frameSeq = seq
+        var body = jpeg
+        if (body.size <= 2048) body = body.copyOf(2050)
+        val payload = ByteArray(body.size + 3)
+        payload[0] = 3
+        payload[1] = (seq and 0xFF).toByte()
+        payload[2] = ((seq ushr 8) and 0xFF).toByte()
+        System.arraycopy(body, 0, payload, 3, body.size)
+        val sentElapsed = android.os.SystemClock.elapsedRealtime()
+        waitingSeq = seq
+        waitingSentAt = System.currentTimeMillis()
+        f4Sent[seq] = sentElapsed
+        if (f4Sent.size > 64) { val cut = sentElapsed - 30_000L; f4Sent.entries.removeIf { it.value < cut } }
+        val wr0 = System.nanoTime()
+        val ok = sendPaced(pack(payload, 0, 1))
+        lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt()
+        if (!ok) { lastFrameError = "Gửi khung lỗi (mất kết nối)"; return false }
+        synchronized(recentFrames) {
+            recentFrames.addLast(seq to jpeg)
+            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
+        }
+        statBytes += jpeg.size
+        v2Sent++
+        frameTxCount++
+        val relSend = if (sessionStartElapsedMs > 0L) sentElapsed - sessionStartElapsedMs else -1L
+        try {
+            TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace,
+                "tag" to tag, "unacked" to unacked, "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "v" to 4,
+                "bg" to (if (bgPlainNow()) "plain" else "map"), "q" to jpegQOf(jpeg))
+        } catch (_: Exception) {}
+        return true
+    }
+
+    private fun txLoopFast400() {
+        var lastJpeg: ByteArray? = null
+        var lastSendAt = 0L          // elapsed lúc gửi khung gần nhất
+        var seriesStart = 0L         // elapsed lúc gửi khung đầu tiên chưa được ACK (0 = không có)
+        var unacked = 0              // số khung đã gửi từ ACK gần nhất
+        var ackSeen = anyAckCount
+        var freezeHold = false
+        while (running.get() && connected) {
+            val urgent = urgentQ.poll()
+            if (urgent != null) {
+                v2Urgent++
+                val o = out ?: break
+                try { o.write(urgent); o.flush() } catch (_: IOException) { break }
+                continue
+            }
+            if (dashPaused) {
+                if (System.currentTimeMillis() - dashPausedAt > PAUSE_MAX_MS) {
+                    dashPaused = false
+                    try { TripLog.ev("tftResume", "wasPaused" to true, "auto" to true, "pausedMs" to PAUSE_MAX_MS) } catch (_: Exception) {}
+                    sendInitBurst()
+                } else { awaitV2Wake(200); continue }
+            }
+            val now = android.os.SystemClock.elapsedRealtime()
+            var sendNow = false
+            var tag = "next"
+            val ackNow = anyAckCount
+            if (ackNow != ackSeen) {
+                ackSeen = ackNow
+                val late = unacked >= 2 || (seriesStart > 0L && now - seriesStart >= F4_STEP_MS)
+                if (freezeHold) try {
+                    TripLog.ev("tftWake", "from" to "ack4", "stuckMs" to (now - seriesStart))
+                    TripLog.ev("tftLoadingEnd", "source" to "ack_recovered_proxy", "visualConfirmed" to false)
+                } catch (_: Exception) {}
+                freezeHold = false
+                unacked = 0; seriesStart = 0L
+                if (late) { sendNow = true; tag = "afterAck" }
+            }
+            if (!sendNow && lastJpeg == null && mailbox.get() != null) sendNow = true
+            if (!sendNow && lastSendAt > 0L) {
+                val sinceSend = now - lastSendAt
+                val sinceSeries = if (seriesStart > 0L) now - seriesStart else 0L
+                when {
+                    unacked == 0 -> if (sinceSend >= F4_STEP_MS) { sendNow = true; tag = "next" }
+                    unacked == 1 -> if (sinceSend >= F4_STEP_MS) { sendNow = true; tag = "step400" }
+                    unacked == 2 -> if (sinceSeries >= F4_RESEND_MS) { sendNow = true; tag = "resend800" }
+                    else -> if (sinceSeries >= F4_HARD_MS) {
+                        if (!freezeHold) {
+                            freezeHold = true
+                            try {
+                                TripLog.ev("tftFreezeHold", "timeouts" to unacked, "stuckMs" to sinceSeries)
+                                TripLog.ev("tftLoadingStart", "source" to "ack_timeout_proxy", "visualConfirmed" to false, "timeouts" to unacked)
+                            } catch (_: Exception) {}
+                        }
+                        if (sinceSend >= F4_STEP_MS) { sendNow = true; tag = "keepalive" }
+                    }
+                }
+            }
+            if (!sendNow) {
+                synchronized(ackLock) { if (anyAckCount == ackSeen) try { (ackLock as Object).wait(20L) } catch (_: InterruptedException) { return } }
+                continue
+            }
+            val q = mailbox.getAndSet(null)
+            val jpeg: ByteArray
+            var age = 0L
+            if (q != null) { jpeg = q.jpeg; lastJpeg = q.jpeg; age = (now - q.createdAtElapsedMs).coerceAtLeast(0L) }
+            else { jpeg = lastJpeg ?: continue; if (tag == "next" || tag == "step400") tag += "Last" }
+            if (unacked == 0) seriesStart = android.os.SystemClock.elapsedRealtime()
+            if (!writeFrameOnly(jpeg, tag, age, unacked)) break
+            unacked++
+            lastSendAt = android.os.SystemClock.elapsedRealtime()
+            v2LastTxAt = System.currentTimeMillis()
+        }
+    }
+
     /** TX worker duy nhất: ưu tiên gói điều khiển, sau đó gửi khung mới nhất trong mailbox. */
     private fun txLoopV2() {
+        if (FAST400) { txLoopFast400(); return }
         var lastJpeg: ByteArray? = null
         var lastAt = 0L
         var consecTimeouts = 0
