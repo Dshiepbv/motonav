@@ -3309,7 +3309,7 @@ object TftLink {
     }
 
     /** build-380: ghi 1 khung lên dây, KHÔNG chờ ACK (nhịp 400/800). Trả false nếu mất kết nối. */
-    private fun writeFrameOnly(jpeg: ByteArray, tag: String, frameAgeMs: Long, unacked: Int): Boolean {
+    private fun writeFrameOnly(jpeg: ByteArray, tag: String, frameAgeMs: Long, copy: Int): Boolean {
         val seq = (frameSeq + 1) and 0xFFFF
         frameSeq = seq
         var body = jpeg
@@ -3338,7 +3338,7 @@ object TftLink {
         val relSend = if (sessionStartElapsedMs > 0L) sentElapsed - sessionStartElapsedMs else -1L
         try {
             TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace,
-                "tag" to tag, "unacked" to unacked, "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "v" to 4,
+                "tag" to tag, "unacked" to 1, "copy" to copy, "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "v" to 4,
                 "bg" to (if (bgPlainNow()) "plain" else "map"), "q" to jpegQOf(jpeg))
         } catch (_: Exception) {}
         return true
