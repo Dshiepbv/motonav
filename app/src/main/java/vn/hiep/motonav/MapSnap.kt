@@ -47,15 +47,15 @@ object MapSnap {
     const val WIDTH_SCALE = 3.0
 
     fun render(ctx: Context, styleUrl: String, dark: Boolean, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,
-               w: Int, h: Int, timeoutMs: Long = 1500): MapSnapshot? {
-        return try { renderInner(ctx, styleUrl, dark, lat, lon, bearing, zoom, tilt, w, h + EXTRA_H, timeoutMs) } catch (t: Throwable) {
+               w: Int, h: Int, timeoutMs: Long = 1500, plain: Boolean = false): MapSnapshot? {
+        return try { renderInner(ctx, styleUrl, dark, lat, lon, bearing, zoom, tilt, w, h + EXTRA_H, timeoutMs, plain) } catch (t: Throwable) {
             disable(t.javaClass.simpleName + ": " + (t.message ?: ""))
             null
         }
     }
 
     private fun renderInner(ctx: Context, styleUrl: String, dark: Boolean, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,
-                            w: Int, h: Int, timeoutMs: Long): MapSnapshot? {
+                            w: Int, h: Int, timeoutMs: Long, plain: Boolean): MapSnapshot? {
         val now = SystemClock.elapsedRealtime()
         if (now < disabledUntil || now < pauseUntil || inFlight) return null
         if (!crashHooked) {
@@ -96,10 +96,11 @@ object MapSnap {
                 }
                 val cam = CameraPosition.Builder().target(LatLng(lat, lon)).zoom(zoom).bearing(bearing).tilt(tilt).build()
                 var s = snapshotter
-                val styleKey = styleUrl + (if (tweakedMap[dark] != null) "#t" else "") + (if (dark) "d" else "l")
+                val tk = tKey(dark, plain)
+                val styleKey = styleUrl + (if (tweakedMap[tk] != null) "#t" else "") + (if (dark) "d" else "l") + (if (plain) "p" else "")
                 if (s == null || curStyle != styleKey || curW != w || curH != h) {
                     try { s?.cancel() } catch (_: Throwable) {}
-                    val sj = tweakedStyle(styleUrl, dark)
+                    val sj = tweakedStyle(styleUrl, dark, plain)
                     val opts = MapSnapshotter.Options(w, h)
                         .withStyleBuilder(if (sj != null) Style.Builder().fromJson(sj) else Style.Builder().fromUri(styleUrl))
                         .withCameraPosition(cam)
@@ -140,7 +141,9 @@ object MapSnap {
 
 
     // ---- Chỉnh màu style OpenFreeMap cho màn TFT: đường xám, mảng xanh lá/xanh dương rõ, chữ đen viền trắng ----
-    private val tweakedMap = java.util.concurrent.ConcurrentHashMap<Boolean, String>()
+    private val tweakedMap = java.util.concurrent.ConcurrentHashMap<String, String>()
+    // build-377: nền trơn = CÙNG style bản đồ (đúng tỉ lệ, bề rộng, zoom như nền map) nhưng bỏ mảng nước/cây/khu đất.
+    private fun tKey(dark: Boolean, plain: Boolean) = (if (dark) "d" else "l") + (if (plain) "p" else "m")
     @Volatile private var tweakTryAt = 0L
     @Volatile private var tweaking = false
     private val styleHttp = okhttp3.OkHttpClient.Builder()
@@ -153,9 +156,9 @@ object MapSnap {
     @Volatile var appCtxForCache: Context? = null
     private fun styleFile(): java.io.File? = appCtxForCache?.let { java.io.File(it.filesDir, "mapsnap_style_positron.json") }
 
-    private fun tweakedStyle(url: String, dark: Boolean): String? {
+    private fun tweakedStyle(url: String, dark: Boolean, plain: Boolean): String? {
         if (!url.contains("openfreemap")) return null
-        if (tweakedMap[dark] == null) {
+        if (tweakedMap[tKey(dark, plain)] == null) {
             try {
                 val f = styleFile()
                 if (f != null && f.exists() && f.length() > 1000) {
@@ -182,20 +185,25 @@ object MapSnap {
                 } finally { tweaking = false }
             }, "mapsnap-style").apply { isDaemon = true; start() }
         }
-        return tweakedMap[dark]
+        return tweakedMap[tKey(dark, plain)]
     }
 
     private fun buildTweaked(body: String) {
                     run {
                         // build-278: dựng sẵn CẢ HAI nền sáng/tối từ một lần tải — trước đây bật sang nền kia phải chờ ≥60 s,
                         // trong lúc đó dùng style gốc (đường trắng trên nền sáng → không thấy đường).
-                        for (dkv in booleanArrayOf(false, true)) {
+                        for (dkv in booleanArrayOf(false, true)) for (plain in booleanArrayOf(false, true)) {
                         val dark = dkv
                         val j = org.json.JSONObject(body)
                         val allLayers = j.getJSONArray("layers")
                         // Bỏ toàn bộ lớp chữ/biểu tượng của nền: tên đường do app tự vẽ lên khung đặc (dễ đọc hơn trên TFT).
                         val kept = org.json.JSONArray()
-                        for (li in 0 until allLayers.length()) { val ly = allLayers.getJSONObject(li); if (ly.optString("type") != "symbol" && !ly.optString("id").lowercase().contains("building")) kept.put(ly) } // build-302: bỏ lớp toà nhà (Sếp: không cần)
+                        for (li in 0 until allLayers.length()) { val ly = allLayers.getJSONObject(li); val lid = ly.optString("id").lowercase(); val lt = ly.optString("type")
+                            if (lt == "symbol" || lid.contains("building")) continue
+                            if (plain && (lt == "fill" || lt == "fill-extrusion" || lt == "raster" || lt == "hillshade" ||
+                                    (lt == "line" && (lid.contains("waterway") || lid.contains("river") || lid.contains("canal") ||
+                                        lid.contains("rail") || lid.contains("boundary") || lid.contains("aeroway"))))) continue
+                            kept.put(ly) } // build-302: bỏ lớp toà nhà (Sếp: không cần)
                         j.put("layers", kept)
                         val layers = j.getJSONArray("layers")
                         var changed = 0
@@ -233,7 +241,7 @@ object MapSnap {
                             for (li in 0 until layers.length()) { val ly = layers.getJSONObject(li); if (ly.optString("type") == "line") ids.append(ly.optString("id")).append(',') }
                             TripLog.ev("mapSnap", "lineLayers" to ids.toString().take(900))
                         } catch (_: Throwable) {}
-                        tweakedMap[dark] = j.toString()
+                        tweakedMap[tKey(dark, plain)] = j.toString()
                         }
                     }
     }

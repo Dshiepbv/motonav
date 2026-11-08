@@ -1054,11 +1054,11 @@ object TftLink {
             val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(13.8, 17.8)
             val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
             val st = mapSnapStyle; val cx = appCtx
-            val snap = if (st != null && cx != null && !bgPlainNow()) {
+            val snap = if (st != null && cx != null) {
                 val aheadM = ((h + MapSnap.EXTRA_H) / 2.0 - 0.72 * h).coerceAtLeast(0.0) * mPerPx
                 val tLat = skLat + cosH * aheadM / 110540.0
                 val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 0.0, w, h)
+                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 0.0, w, h, plain = bgPlainNow())
             } else null
             if (snap != null) {
                 c.drawBitmap(snap.bitmap, 0f, 0f, null)
@@ -1211,13 +1211,13 @@ object TftLink {
             // chồng lên (tuyến đỏ, nhãn, tam giác xe) quy đổi qua đúng ảnh đó. Lỗi/quá hạn → null → vector cũ.
             val snapShot: org.maplibre.android.snapshotter.MapSnapshot? = run {
                 val st = mapSnapStyle; val cx = appCtx
-                if (st == null || cx == null || bgPlainNow()) return@run null
+                if (st == null || cx == null) return@run null // build-377: nền trơn vẫn chụp ảnh map (bỏ lớp nước/cây) để đường đúng tỉ lệ
                 val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(13.8, 17.8)
                 val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
                 val aheadM = (0.22 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.15
                 val tLat = skLat + cosH * aheadM / 110540.0
                 val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 45.0, w, h)
+                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 45.0, w, h, plain = bgPlainNow())
             }
             // rx/ry (mét thật, đã xoay theo hướng xe) -> toạ độ pixel, nén bán kính theo căn bậc hai
             // (mũ 0.55) quanh vị trí xe: gần xe gần như không nén (dễ thấy rẽ), xa xe nén mạnh hơn.
