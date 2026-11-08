@@ -1806,29 +1806,114 @@ object TftLink {
             // Tuyến chính đỏ tươi — vẽ SAU CÙNG trong phần bản đồ (sau nhánh đường + nhãn) để không gì
             // che được. Thêm viền đen dày bên dưới: JPEG chất lượng thấp (4:2:0) làm nhạt màu đỏ ở
             // chỗ nét đỏ chạm sát nét trắng; nền đen đồng nhất quanh nét giữ màu đỏ rõ hơn.
-            val casingPaint = Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 14f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-            val linePaint = Paint().apply { color = Color.rgb(255, 0, 0); style = Paint.Style.STROKE; strokeWidth = 9.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-            // Nét đỏ cong mềm (theo yêu cầu "uốn cong mềm mại, đừng xù xì"): dựng lại đường từ các
-            // điểm màn hình — bỏ điểm sát nhau (< 3 px, gây răng cưa), rồi nối bằng đường cong bậc 2
-            // qua trung điểm từng cặp điểm (góc gấp thành cung tròn mượt, vẫn đi đúng hình tuyến).
-            val sp = ArrayList<FloatArray>()
-            for (pt in routePx) {
-                val last = sp.lastOrNull()
-                if (last == null || Math.hypot((pt[0] - last[0]).toDouble(), (pt[1] - last[1]).toDouble()) >= 3.0) sp.add(pt)
+            // build-379 (Sếp): góc quẹo VUÔNG đúng hình thật, nét thẳng mịn kiểu Waze — bỏ nối cong qua trung điểm
+            // (bản 220 bo tròn mọi góc), lọc điểm lệch nhỏ bằng Douglas–Peucker (≤ 2 px) rồi nối đoạn thẳng, góc nhọn (MITER).
+            val casingPaint = Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 14f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.MITER; strokeMiter = 3f }
+            val linePaint = Paint().apply { color = Color.rgb(255, 0, 0); style = Paint.Style.STROKE; strokeWidth = 9.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.MITER; strokeMiter = 3f }
+            fun simplifyPx(pts: List<FloatArray>, eps: Float): List<FloatArray> {
+                if (pts.size < 3) return pts
+                val keep = BooleanArray(pts.size); keep[0] = true; keep[pts.size - 1] = true
+                val stack = ArrayDeque<IntArray>(); stack.addLast(intArrayOf(0, pts.size - 1))
+                while (stack.isNotEmpty()) {
+                    val (a, b) = stack.removeLast().let { it[0] to it[1] }
+                    if (b - a < 2) continue
+                    val ax = pts[a][0]; val ay = pts[a][1]; val bx = pts[b][0]; val by = pts[b][1]
+                    val dx = bx - ax; val dy = by - ay; val ln = Math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                    var best = -1f; var bi = -1
+                    for (k in a + 1 until b) {
+                        val d = if (ln < 0.5f) Math.hypot((pts[k][0] - ax).toDouble(), (pts[k][1] - ay).toDouble()).toFloat()
+                                else Math.abs(dy * pts[k][0] - dx * pts[k][1] + bx * ay - by * ax) / ln
+                        if (d > best) { best = d; bi = k }
+                    }
+                    if (best > eps && bi > 0) { keep[bi] = true; stack.addLast(intArrayOf(a, bi)); stack.addLast(intArrayOf(bi, b)) }
+                }
+                return pts.filterIndexed { k, _ -> keep[k] }
             }
-            val drawPath = if (sp.size >= 3) {
+            val sp = simplifyPx(routePx, 2f)
+            val drawPath = if (sp.size >= 2) {
                 android.graphics.Path().apply {
                     moveTo(sp[0][0], sp[0][1])
-                    for (k in 1 until sp.size - 1) {
-                        val mx2 = (sp[k][0] + sp[k + 1][0]) / 2f
-                        val my2 = (sp[k][1] + sp[k + 1][1]) / 2f
-                        quadTo(sp[k][0], sp[k][1], mx2, my2)
-                    }
-                    lineTo(sp[sp.size - 1][0], sp[sp.size - 1][1])
+                    for (k in 1 until sp.size) lineTo(sp[k][0], sp[k][1])
                 }
             } else path
             c.drawPath(drawPath, casingPaint)
             c.drawPath(drawPath, linePaint)
+            // build-379 (Sếp): mũi tên TRẮNG kiểu Waze nằm ngay trên tuyến ở khúc quẹo sắp tới, bám theo tuyến
+            // từ ~25 m trước điểm quẹo tới ~25 m sau, có đầu mũi tên. Đi thẳng / tới nơi thì không vẽ.
+            try {
+                val sg = skSign
+                val isTurn = skRoundabout || sg in 1..3 || sg in -3..-1 || sg == 6 || sg == 7 || sg == -7 || sg == 8 || sg == -8
+                if (isTurn && (skManLat != 0.0 || skManLon != 0.0)) {
+                    val mx = proj.x(skManLon); val my = proj.y(skManLat)
+                    var mi = -1; var md = 25.0
+                    for (k in idx0.coerceAtLeast(0) until iEnd.coerceAtMost(route.lats.size)) {
+                        val d = Math.hypot(proj.x(route.lons[k]) - mx, proj.y(route.lats[k]) - my)
+                        if (d < md) { md = d; mi = k }
+                    }
+                    if (mi >= 0) {
+                        val lead = 25.0; val tail = 25.0
+                        fun pt(k: Int): DoubleArray = shifted(k)
+                        // lùi về trước điểm quẹo
+                        val back = ArrayList<DoubleArray>()
+                        run {
+                            var acc = 0.0; var k = mi; var cur = pt(mi); back.add(cur)
+                            while (k - 1 >= idx0.coerceAtLeast(0) && acc < lead) {
+                                val nx = pt(k - 1); val seg = Math.hypot(nx[0] - cur[0], nx[1] - cur[1])
+                                if (acc + seg >= lead && seg > 0.01) { val f = (lead - acc) / seg; back.add(doubleArrayOf(cur[0] + (nx[0] - cur[0]) * f, cur[1] + (nx[1] - cur[1]) * f)); acc = lead; break }
+                                acc += seg; back.add(nx); cur = nx; k--
+                            }
+                        }
+                        val fwd = ArrayList<DoubleArray>()
+                        run {
+                            var acc = 0.0; var k = mi; var cur = pt(mi)
+                            while (k + 1 < route.lats.size && acc < tail) {
+                                val nx = pt(k + 1); val seg = Math.hypot(nx[0] - cur[0], nx[1] - cur[1])
+                                if (acc + seg >= tail && seg > 0.01) { val f = (tail - acc) / seg; fwd.add(doubleArrayOf(cur[0] + (nx[0] - cur[0]) * f, cur[1] + (nx[1] - cur[1]) * f)); break }
+                                acc += seg; fwd.add(nx); cur = nx; k++
+                            }
+                        }
+                        val ms = ArrayList<DoubleArray>(); ms.addAll(back.reversed()); ms.addAll(fwd)
+                        val ap = ArrayList<FloatArray>()
+                        for (m in ms) {
+                            val rx = m[0] * cosH - m[1] * sinH; val ry = m[0] * sinH + m[1] * cosH
+                            if (ry < behindLimit) continue
+                            val (sx, sy) = toScreen(rx, ry)
+                            if (sx.isNaN() || sy.isNaN()) continue
+                            val last = ap.lastOrNull()
+                            if (last == null || Math.hypot((sx - last[0]).toDouble(), (sy - last[1]).toDouble()) >= 1.0) ap.add(floatArrayOf(sx, sy))
+                        }
+                        val aps = simplifyPx(ap, 1.5f)
+                        if (aps.size >= 2) {
+                            val ex = aps[aps.size - 1]; val pv = aps[aps.size - 2]
+                            var ux = ex[0] - pv[0]; var uy = ex[1] - pv[1]
+                            val ul = Math.hypot(ux.toDouble(), uy.toDouble()).toFloat()
+                            if (ul > 0.5f) {
+                                ux /= ul; uy /= ul
+                                val headL = 13f; val headW = 10f
+                                // thân mũi tên dừng ở chân đầu mũi tên để đầu nhọn gọn
+                                val bx = ex[0] - ux * headL * 0.7f; val by = ex[1] - uy * headL * 0.7f
+                                val shaft = android.graphics.Path().apply {
+                                    moveTo(aps[0][0], aps[0][1])
+                                    for (k in 1 until aps.size - 1) lineTo(aps[k][0], aps[k][1])
+                                    lineTo(bx, by)
+                                }
+                                val head = android.graphics.Path().apply {
+                                    moveTo(ex[0] + ux * 3f, ex[1] + uy * 3f)
+                                    lineTo(bx - ux * headL * 0.3f - uy * headW, by - uy * headL * 0.3f + ux * headW)
+                                    lineTo(bx - ux * headL * 0.3f + uy * headW, by - uy * headL * 0.3f - ux * headW)
+                                    close()
+                                }
+                                val aOut = Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 8.5f; isAntiAlias = true; strokeCap = Paint.Cap.BUTT; strokeJoin = Paint.Join.MITER; strokeMiter = 3f }
+                                val aIn = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 5f; isAntiAlias = true; strokeCap = Paint.Cap.BUTT; strokeJoin = Paint.Join.MITER; strokeMiter = 3f }
+                                val hOut = Paint().apply { color = Color.BLACK; style = Paint.Style.FILL_AND_STROKE; strokeWidth = 3f; isAntiAlias = true; strokeJoin = Paint.Join.MITER }
+                                val hIn = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+                                c.drawPath(shaft, aOut); c.drawPath(head, hOut)
+                                c.drawPath(shaft, aIn); c.drawPath(head, hIn)
+                            }
+                        }
+                    }
+                }
+            } catch (_: Throwable) {}
             // build-321: ghim nổi kiểu Garmin — cây xăng (xanh) và camera (đỏ) trong tầm nhìn phía trước.
             try {
                 val pins = ArrayList<Triple<Float, Float, Int>>() // sx, sy, loại (0 xăng, 1 camera)
@@ -1985,7 +2070,7 @@ object TftLink {
         // A/B phút lẻ "L": ảnh dựng sát mốc 5 s (−800..+400 ms) nén nhẹ hẳn (8) — không né, mà đổi thứ gửi đúng lúc mốc.
         val nowWq = System.currentTimeMillis()
         val offQ = tickOffset(nowWq)
-        val jq = 14 // build-371: bỏ nén 8 sát mốc (370: không giúp, ảnh xấu)
+        val jq = 22 // build-379 (Sếp): 14 → 22 cho nét đỏ/mũi tên mịn hơn
         lastJpegQ = jq
         bmp.compress(Bitmap.CompressFormat.JPEG, jq, out)
         if (sizeMode == 1 && out.size() > SMALL_TARGET_BYTES) {
@@ -3043,7 +3128,7 @@ object TftLink {
                         resetPhaseLearning()
                         dashPaused = false
                         try { TripLog.ev("tftSession", "phase" to "reset", "origin" to "post-handshake",
-                            "jpegQuality" to 14, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
+                            "jpegQuality" to 22, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
                         sendInitBurst()
                     }
                 }
