@@ -248,8 +248,8 @@ object TftLink {
     // 800 ms chưa ACK: gửi lại đúng 1 lần ảnh mới nhất; tới ~3,75 s vẫn chưa ACK: giữ đứng, chỉ keepalive mỗi 400 ms.
     // ACK về (bất kỳ khung nào): coi xong, nếu đang trễ thì gửi ngay 1 khung mới nhất, reset bộ đếm.
     const val FAST400 = true
-    private const val F4_STEP_MS = 400L
-    private const val F4_RESEND_MS = 800L
+    private const val F4_STEP_MS = 600L // build-384 (Sếp): gộp 400/800 thành 1 mốc 600
+    private const val F4_RESEND_MS = 600L
     private const val F4_HARD_MS = 3750L
     @Volatile private var anyAckCount = 0L
     /** build-381: các seq của "khung đang bay" (khung gốc + khung thay ở 400 ms + gửi lại ở 800 ms) — ACK khớp 1 trong số này mới tính. */
