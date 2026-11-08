@@ -314,6 +314,7 @@ class DriveService : Service(), LocationListener {
                 TftLink.themeMode = prefs.tftTheme
                 TftLink.diagMode = prefs.tftDiag
                 TftLink.stepMs = prefs.tftStepMs.toLong().coerceIn(100L, 1200L)
+                TftLink.safetyMs = prefs.tftSafetyS.toLong().coerceIn(2L, 12L) * 1000L
                 TftLink.mapSnapStyle = when {
                     !prefs.tftMapSnap -> null
                     prefs.tftMapOsm || GoongMap.TILES_OFF -> "https://tiles.openfreemap.org/styles/positron"

@@ -3144,7 +3144,7 @@ object TftLink {
                         resetPhaseLearning()
                         dashPaused = false
                         try { TripLog.ev("tftSession", "phase" to "reset", "origin" to "post-handshake",
-                            "jpegQuality" to 22, "stepMs" to stepMs, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
+                            "jpegQuality" to 22, "stepMs" to stepMs, "safetyMs" to safetyMs, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
                         sendInitBurst()
                     }
                 }
@@ -3338,7 +3338,7 @@ object TftLink {
         val relSend = if (sessionStartElapsedMs > 0L) sentElapsed - sessionStartElapsedMs else -1L
         try {
             TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace,
-                "tag" to tag, "unacked" to 1, "copy" to copy, "step" to stepMs, "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "v" to 4,
+                "tag" to tag, "unacked" to 1, "copy" to copy, "step" to stepMs, "safety" to safetyMs, "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "v" to 4,
                 "bg" to (if (bgPlainNow()) "plain" else "map"), "q" to jpegQOf(jpeg))
         } catch (_: Exception) {}
         return true
@@ -3348,8 +3348,8 @@ object TftLink {
     // - Đang chờ ACK: tới mốc 400 / 800 ms chỉ "review" — lấy ảnh mới nhất làm ảnh chờ, KHÔNG gửi.
     // - ACK về: gửi ảnh chờ mới nhất, nhưng không sớm hơn 400 ms kể từ lúc gửi khung trước (nhịp 400).
     // - Không có khung bay & không có ảnh mới: keepalive lastJpeg mỗi 400 ms.
-    // - An toàn: chờ quá F4_SAFETY_MS (dash bỏ hẳn khung) → gửi lại 1 bản ảnh mới nhất rồi lại chờ.
-    private const val F4_SAFETY_MS = 9000L
+    // - An toàn: chờ quá safetyMs (dash bỏ hẳn khung) → gửi lại 1 bản ảnh mới nhất rồi lại chờ.
+    @Volatile var safetyMs: Long = 9000L // build-386: chỉnh tay 2–12 s trong Cài đặt
     private fun txLoopFast400() {
         var lastJpeg: ByteArray? = null
         var pending: QueuedFrame? = null
@@ -3401,7 +3401,7 @@ object TftLink {
                         TripLog.ev("tftLoadingStart", "source" to "ack_timeout_proxy", "visualConfirmed" to false)
                     } catch (_: Exception) {}
                 }
-                if (el >= F4_SAFETY_MS && now - lastSendAt >= F4_SAFETY_MS) tag = "safety"
+                if (el >= safetyMs && now - lastSendAt >= safetyMs) tag = "safety"
             } else if (lastSendAt == 0L || now - lastSendAt >= stepMs) {
                 review()
                 tag = if (pending != null) "next" else if (lastJpeg != null) "keepalive" else null

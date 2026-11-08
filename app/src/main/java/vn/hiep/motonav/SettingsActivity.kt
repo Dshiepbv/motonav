@@ -809,6 +809,14 @@ class SettingsActivity : Activity() {
                 steps.indexOf(prefs.tftStepMs).let { if (it < 0) 5 else it },
                 note = "Đang chờ ACK: tới mốc này chỉ làm mới ảnh, không gửi thêm. ACK về: gửi ảnh mới nhất, cách khung trước ít nhất bằng mốc này. Không có ảnh mới: gửi lại ảnh cũ mỗi mốc. Đổi là áp dụng ngay.",
             ) { prefs.tftStepMs = steps[it]; TftLink.stepMs = steps[it].toLong() }
+            val secs = (2..12).toList()
+            choice(
+                "Lưới an toàn (giây)",
+                null,
+                secs.map { "$it s" + if (it == 9) " (mặc định)" else "" },
+                secs.indexOf(prefs.tftSafetyS).let { if (it < 0) 7 else it },
+                note = "Chờ ACK quá mốc này mới gửi thêm 1 bản ảnh mới nhất (phòng màn xe nuốt mất khung). Mốc ngắn hơn lúc màn xe bận (5–7 s) sẽ thành 2 khung chờ cùng lúc → dễ hiện vòng xoay. Đổi là áp dụng ngay.",
+            ) { prefs.tftSafetyS = secs[it]; TftLink.safetyMs = secs[it] * 1000L }
         }
         if (!prefs.tftLink) return
         val tftStatus = when {
