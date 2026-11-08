@@ -3348,7 +3348,7 @@ object TftLink {
             val spent = android.os.SystemClock.elapsedRealtime() - sendStart
             // build-372: chốt nhịp 302 (log 7/11: P 30,7% vs 300 ms 40,1%).
             // build-376 (Sếp): bỏ thời gian chết — nghỉ sau ACK chỉ bằng thời gian ACK vừa rồi (50–400 ms), không cố định 400 ms.
-            val rest = (if (lastFrameAckMs > 0) lastFrameAckMs else V2_P302_REST_MS).coerceIn(50L, V2_P302_REST_MS)
+            val rest = V2_P302_REST_MS // build-378: quay lại nghỉ cố định 400 ms (376 nghỉ = thời gian ACK → 40,4% loading)
             if (rest > 0L) sleepQuiet(rest)
         }
     }

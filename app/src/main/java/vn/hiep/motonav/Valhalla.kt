@@ -71,6 +71,45 @@ object Valhalla {
     }
 
     /** Mã thao tác Valhalla → mã sign kiểu GraphHopper dùng trong app. */
+    /** build-378 (Sếp): ngã tư lệch — rẽ trái rồi rẽ phải (hoặc ngược lại) cách nhau ≤ [STAGGER_M] m mà hướng
+     *  sau khi qua chỉ lệch ≤ [STAGGER_DEG]° so với hướng trước → gộp thành một lệnh "Đi thẳng". */
+    private const val STAGGER_M = 35.0
+    private const val STAGGER_DEG = 35.0
+    private fun headingAt(la: List<Double>, lo: List<Double>, idx: Int, back: Boolean): Double? {
+        val n = la.size
+        if (n < 2) return null
+        var j = idx; var d = 0.0
+        while (d < 20.0) {
+            val k = if (back) j - 1 else j + 1
+            if (k < 0 || k >= n) break
+            d += Geo.distance(la[j], lo[j], la[k], lo[k]); j = k
+        }
+        if (j == idx) return null
+        return if (back) Geo.bearing(la[j], lo[j], la[idx], lo[idx]) else Geo.bearing(la[idx], lo[idx], la[j], lo[j])
+    }
+    private fun mergeStaggered(steps: ArrayList<Step>, la: List<Double>, lo: List<Double>) {
+        var i = 0
+        while (i + 1 < steps.size) {
+            val a = steps[i]; val b = steps[i + 1]
+            val turnA = Math.abs(a.sign) in 1..3; val turnB = Math.abs(b.sign) in 1..3
+            if (turnA && turnB && a.sign * b.sign < 0 && a.distance <= STAGGER_M) {
+                val hIn = headingAt(la, lo, a.from, true)
+                val hOut = headingAt(la, lo, b.from, false)
+                if (hIn != null && hOut != null) {
+                    val diff = Math.abs(((hOut - hIn + 540.0) % 360.0) - 180.0)
+                    if (diff <= STAGGER_DEG) {
+                        val st = Step(0, "", b.street, a.distance + b.distance, a.from, b.to, 0)
+                        steps[i] = Step(0, Maneuver.phrase(st), b.street, st.distance, a.from, b.to, 0)
+                        steps.removeAt(i + 1)
+                        try { TripLog.ev("staggerMerge", "gapM" to a.distance.toInt(), "diff" to diff.toInt(), "street" to b.street) } catch (_: Throwable) {}
+                        continue
+                    }
+                }
+            }
+            i++
+        }
+    }
+
     private fun signOf(t: Int): Int = when (t) {
         4, 5, 6 -> 4
         9 -> 1
@@ -115,6 +154,7 @@ object Valhalla {
             }
         }
         if (la.size < 2) throw RuntimeException("Tuyến Valhalla rỗng")
+        mergeStaggered(steps, la, lo)
         val sum = trip.optJSONObject("summary")
         val dist = (sum?.optDouble("length", 0.0) ?: 0.0) * 1000.0
         val time = ((sum?.optDouble("time", 0.0) ?: 0.0) * 1000).toLong()
