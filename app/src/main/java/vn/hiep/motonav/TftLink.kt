@@ -248,8 +248,8 @@ object TftLink {
     // 800 ms chưa ACK: gửi lại đúng 1 lần ảnh mới nhất; tới ~3,75 s vẫn chưa ACK: giữ đứng, chỉ keepalive mỗi 400 ms.
     // ACK về (bất kỳ khung nào): coi xong, nếu đang trễ thì gửi ngay 1 khung mới nhất, reset bộ đếm.
     const val FAST400 = true
-    private const val F4_STEP_MS = 600L // build-384 (Sếp): gộp 400/800 thành 1 mốc 600
-    private const val F4_RESEND_MS = 600L
+    // build-385 (Sếp): mốc 600 chỉnh tay trong Cài đặt › Màn TFT xe (100–1200 ms) để tự thử từng mốc.
+    @Volatile var stepMs: Long = 600L
     private const val F4_HARD_MS = 3750L
     @Volatile private var anyAckCount = 0L
     /** build-381: các seq của "khung đang bay" (khung gốc + khung thay ở 400 ms + gửi lại ở 800 ms) — ACK khớp 1 trong số này mới tính. */
@@ -3144,7 +3144,7 @@ object TftLink {
                         resetPhaseLearning()
                         dashPaused = false
                         try { TripLog.ev("tftSession", "phase" to "reset", "origin" to "post-handshake",
-                            "jpegQuality" to 22, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
+                            "jpegQuality" to 22, "stepMs" to stepMs, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
                         sendInitBurst()
                     }
                 }
@@ -3338,7 +3338,7 @@ object TftLink {
         val relSend = if (sessionStartElapsedMs > 0L) sentElapsed - sessionStartElapsedMs else -1L
         try {
             TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace,
-                "tag" to tag, "unacked" to 1, "copy" to copy, "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "v" to 4,
+                "tag" to tag, "unacked" to 1, "copy" to copy, "step" to stepMs, "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "v" to 4,
                 "bg" to (if (bgPlainNow()) "plain" else "map"), "q" to jpegQOf(jpeg))
         } catch (_: Exception) {}
         return true
@@ -3393,8 +3393,7 @@ object TftLink {
             var tag: String? = null
             if (inFlight) {
                 val el = now - sentAt
-                if (el >= F4_STEP_MS && !didReview400) { didReview400 = true; review() }
-                if (el >= F4_RESEND_MS && !didReview800) { didReview800 = true; review() }
+                if (el >= stepMs && !didReview400) { didReview400 = true; review() }
                 if (el >= F4_HARD_MS && !freezeHold) {
                     freezeHold = true
                     try {
@@ -3403,7 +3402,7 @@ object TftLink {
                     } catch (_: Exception) {}
                 }
                 if (el >= F4_SAFETY_MS && now - lastSendAt >= F4_SAFETY_MS) tag = "safety"
-            } else if (lastSendAt == 0L || now - lastSendAt >= F4_STEP_MS) {
+            } else if (lastSendAt == 0L || now - lastSendAt >= stepMs) {
                 review()
                 tag = if (pending != null) "next" else if (lastJpeg != null) "keepalive" else null
             }

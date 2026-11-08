@@ -106,6 +106,10 @@ class Prefs(ctx: Context) {
     var tftDiag: Int
         get() = sp.getInt("tftDiag", 0)
         set(v) = sp.edit().putInt("tftDiag", v).apply()
+    /** build-385: mốc gửi/renew ảnh TFT (ms), 100–1200, mặc định 600. */
+    var tftStepMs: Int
+        get() = sp.getInt("tftStepMs", 600)
+        set(v) = sp.edit().putInt("tftStepMs", v).apply()
     var tftMapSnap: Boolean
         get() = sp.getBoolean("tftMapSnap", false)
         set(v) = sp.edit().putBoolean("tftMapSnap", v).apply()

@@ -800,6 +800,16 @@ class SettingsActivity : Activity() {
             prefs.tftDiag,
             note = "Bật khi xe đứng yên cạnh điện thoại vài phút: màn xe chỉ hiện chữ đếm giây. Nếu vẫn đứng hình cỡ 5 giây một lần thì lỗi nằm ở đường truyền/màn xe, không do nội dung bản đồ. Xong nhớ chuyển về Tắt.",
         ) { prefs.tftDiag = it }
+        run {
+            val steps = (1..12).map { it * 100 }
+            choice(
+                "Mốc gửi ảnh (ms)",
+                null,
+                steps.map { "$it ms" + if (it == 600) " (mặc định)" else "" },
+                steps.indexOf(prefs.tftStepMs).let { if (it < 0) 5 else it },
+                note = "Đang chờ ACK: tới mốc này chỉ làm mới ảnh, không gửi thêm. ACK về: gửi ảnh mới nhất, cách khung trước ít nhất bằng mốc này. Không có ảnh mới: gửi lại ảnh cũ mỗi mốc. Đổi là áp dụng ngay.",
+            ) { prefs.tftStepMs = steps[it]; TftLink.stepMs = steps[it].toLong() }
+        }
         if (!prefs.tftLink) return
         val tftStatus = when {
             TftLink.authed -> {
