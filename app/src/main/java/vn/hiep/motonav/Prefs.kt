@@ -110,6 +110,10 @@ class Prefs(ctx: Context) {
     var tftStepMs: Int
         get() = sp.getInt("tftStepMs", 600)
         set(v) = sp.edit().putInt("tftStepMs", v).apply()
+    /** build-389: cách gửi kiểu NmaxConnect (gửi ngay sau ACK, ghi cả khung một lần). */
+    var tftNmaxStyle: Boolean
+        get() = sp.getBoolean("tftNmaxStyle", true)
+        set(v) = sp.edit().putBoolean("tftNmaxStyle", v).apply()
     /** build-386: lưới an toàn (giây) — chờ ACK quá mốc này mới gửi thêm 1 bản ảnh, 2–12, mặc định 9. */
     var tftSafetyS: Int
         get() = sp.getInt("tftSafetyS", 9)

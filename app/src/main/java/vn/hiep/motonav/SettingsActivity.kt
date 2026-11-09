@@ -800,6 +800,13 @@ class SettingsActivity : Activity() {
             prefs.tftDiag,
             note = "Bật khi xe đứng yên cạnh điện thoại vài phút: màn xe chỉ hiện chữ đếm giây. Nếu vẫn đứng hình cỡ 5 giây một lần thì lỗi nằm ở đường truyền/màn xe, không do nội dung bản đồ. Xong nhớ chuyển về Tắt.",
         ) { prefs.tftDiag = it }
+        choice(
+            "Cách gửi ảnh",
+            null,
+            listOf("Kiểu NmaxConnect (có ACK là gửi ngay)", "Kiểu MotoNav (theo mốc gửi ảnh)"),
+            if (prefs.tftNmaxStyle) 0 else 1,
+            note = "NmaxConnect: có ACK là gửi ảnh mới ngay, ảnh không đổi gửi lại mỗi 1 giây, ghi cả khung một lần. MotoNav: dùng \"Mốc gửi ảnh\" bên dưới, ghi giãn 15 ms/KB. Cả hai đều chỉ 1 khung chờ ACK. Đổi là áp dụng ngay.",
+        ) { prefs.tftNmaxStyle = (it == 0); TftLink.nmaxStyle = (it == 0) }
         run {
             val steps = (1..12).map { it * 100 }
             choice(

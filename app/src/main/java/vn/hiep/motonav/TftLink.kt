@@ -250,6 +250,9 @@ object TftLink {
     const val FAST400 = true
     // build-385 (Sếp): mốc 600 chỉnh tay trong Cài đặt › Màn TFT xe (100–1200 ms) để tự thử từng mốc.
     @Volatile var stepMs: Long = 600L
+    // build-389 (Sếp): "Cách gửi kiểu NmaxConnect" — có ACK là gửi ảnh mới NGAY (không nghỉ), ảnh không đổi chỉ gửi lại mỗi 1 s,
+    // ghi cả khung một lần (không giãn 15 ms/KB). Vẫn 1 khung trên dây.
+    @Volatile var nmaxStyle: Boolean = true
     private const val F4_HARD_MS = 3750L
     @Volatile private var anyAckCount = 0L
     /** build-381: các seq của "khung đang bay" (khung gốc + khung thay ở 400 ms + gửi lại ở 800 ms) — ACK khớp 1 trong số này mới tính. */
@@ -2081,7 +2084,7 @@ object TftLink {
         // A/B phút lẻ "L": ảnh dựng sát mốc 5 s (−800..+400 ms) nén nhẹ hẳn (8) — không né, mà đổi thứ gửi đúng lúc mốc.
         val nowWq = System.currentTimeMillis()
         val offQ = tickOffset(nowWq)
-        val jq = 22 // build-379 (Sếp): 14 → 22 cho nét đỏ/mũi tên mịn hơn
+        val jq = 80 // build-389 (Sếp): như NmaxConnect (22 nhìn xấu)
         lastJpegQ = jq
         bmp.compress(Bitmap.CompressFormat.JPEG, jq, out)
         if (sizeMode == 1 && out.size() > SMALL_TARGET_BYTES) {
@@ -3144,7 +3147,7 @@ object TftLink {
                         resetPhaseLearning()
                         dashPaused = false
                         try { TripLog.ev("tftSession", "phase" to "reset", "origin" to "post-handshake",
-                            "jpegQuality" to 22, "stepMs" to stepMs, "safetyMs" to safetyMs, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
+                            "jpegQuality" to 80, "nmaxStyle" to nmaxStyle, "stepMs" to stepMs, "safetyMs" to safetyMs, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
                         sendInitBurst()
                     }
                 }
@@ -3181,8 +3184,9 @@ object TftLink {
         writeStartedAt = System.currentTimeMillis()
         val t0 = System.nanoTime()
         return try {
-            val pace = PACE_MS_PER_KB
+            val pace = if (nmaxStyle) 0L else PACE_MS_PER_KB.toLong()
             lastPace = pace
+            if (pace <= 0L) { o.write(bytes); o.flush(); return true }
             var off = 0
             while (off < bytes.size) {
                 val n = minOf(PACE_CHUNK, bytes.size - off)
@@ -3338,7 +3342,7 @@ object TftLink {
         val relSend = if (sessionStartElapsedMs > 0L) sentElapsed - sessionStartElapsedMs else -1L
         try {
             TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace,
-                "tag" to tag, "unacked" to 1, "copy" to copy, "step" to stepMs, "safety" to safetyMs, "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "v" to 4,
+                "tag" to tag, "unacked" to 1, "copy" to copy, "step" to stepMs, "safety" to safetyMs, "nmax" to nmaxStyle, "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "v" to 4,
                 "bg" to (if (bgPlainNow()) "plain" else "map"), "q" to jpegQOf(jpeg))
         } catch (_: Exception) {}
         return true
@@ -3402,6 +3406,9 @@ object TftLink {
                     } catch (_: Exception) {}
                 }
                 if (el >= safetyMs && now - lastSendAt >= safetyMs) tag = "safety"
+            } else if (nmaxStyle) {
+                review()
+                tag = if (pending != null) "next" else if (lastJpeg != null && now - lastSendAt >= 1000L) "keepalive" else null
             } else if (lastSendAt == 0L || now - lastSendAt >= stepMs) {
                 review()
                 tag = if (pending != null) "next" else if (lastJpeg != null) "keepalive" else null

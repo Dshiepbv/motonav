@@ -314,6 +314,7 @@ class DriveService : Service(), LocationListener {
                 TftLink.themeMode = prefs.tftTheme
                 TftLink.diagMode = prefs.tftDiag
                 TftLink.stepMs = prefs.tftStepMs.toLong().coerceIn(100L, 1200L)
+                TftLink.nmaxStyle = prefs.tftNmaxStyle
                 TftLink.safetyMs = prefs.tftSafetyS.toLong().coerceIn(2L, 12L) * 1000L
                 TftLink.mapSnapStyle = when {
                     !prefs.tftMapSnap -> null
