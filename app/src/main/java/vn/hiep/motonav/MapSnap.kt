@@ -202,9 +202,13 @@ object MapSnap {
                             // build-387 (Sếp): giữ toà nhà (tô cam) + tên sông/hồ; tên đường vẫn do app tự vẽ.
                             val keepSym = !plain && (lid.startsWith("water_name") || lid.startsWith("waterway_line_label"))
                             if (lt == "symbol" && !keepSym) continue
-                            if (lid.contains("building") && (plain || lt != "fill")) continue
-                            // build-388 (Sếp): bỏ đường cấp 3 (hẻm/đường nhỏ/nội bộ/lối đi: class minor, service, track, path).
-                            if (lt == "line" && (lid.contains("minor") || lid.contains("path") || lid.contains("service") || lid.contains("track") || lid.contains("pier"))) continue
+                            // build-392 (Sếp): đường vẽ lại y như tối 8/11 (bản 386, đủ mọi cấp đường); chỉ thêm sông + cây, bỏ toà nhà.
+                            if (lid.contains("building")) continue
+                            if (lt == "line" && (lid.contains("rail") || lid.contains("boundary") || lid.contains("aeroway"))) continue
+                            if ((lt == "fill" || lt == "fill-extrusion") && !(lid.contains("water") || lid.contains("park") || lid.contains("grass") ||
+                                    lid.contains("wood") || lid.contains("forest") || lid.contains("green") || lid.contains("garden") ||
+                                    lid.contains("pitch") || lid.contains("cemetery") || lid.contains("landcover") || lid.contains("meadow"))) continue
+                            if (lt == "raster" || lt == "hillshade") continue
                             if (plain && (lt == "fill" || lt == "fill-extrusion" || lt == "raster" || lt == "hillshade" ||
                                     (lt == "line" && (lid.contains("waterway") || lid.contains("river") || lid.contains("canal") ||
                                         lid.contains("rail") || lid.contains("boundary") || lid.contains("aeroway"))))) continue
