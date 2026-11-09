@@ -807,6 +807,8 @@ class SettingsActivity : Activity() {
             if (prefs.tftNmaxStyle) 0 else 1,
             note = "NmaxConnect: có ACK là gửi ảnh mới ngay, ảnh không đổi gửi lại mỗi 1 giây, ghi cả khung một lần. MotoNav: dùng \"Mốc gửi ảnh\" bên dưới, ghi giãn 15 ms/KB. Cả hai đều chỉ 1 khung chờ ACK. Đổi là áp dụng ngay.",
         ) { prefs.tftNmaxStyle = (it == 0); TftLink.nmaxStyle = (it == 0) }
+        toggle("Thử nghiệm: nghe BLE của xe", "Chỉ ghi log, mặc định tắt", prefs.bleWatch,
+            note = "Nghe gói quảng bá BLE của xe để đối chiếu với các lần kẹt 10 s. Bật có thể làm màn xe báo lỗi kết nối — chỉ bật khi cần đo. Áp dụng ở lần kết nối kế tiếp.") { prefs.bleWatch = it; if (!it) BikeBleWatch.stop(this) }
         run {
             val steps = (1..12).map { it * 100 }
             choice(
