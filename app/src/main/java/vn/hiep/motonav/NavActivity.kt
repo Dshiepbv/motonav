@@ -1275,6 +1275,11 @@ class NavActivity : Activity() {
             }
         } else {
             requestPermissions(basePerms(), 7)
+            return
+        }
+        // build-396: quyền "Thiết bị ở gần" chia ra từng quyền con — app trước chỉ xin KẾT NỐI, chưa xin QUÉT BLE.
+        if (android.os.Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), 8)
         }
     }
 
