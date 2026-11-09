@@ -412,7 +412,7 @@ object TftLink {
     private fun tickModeShort(nowWall: Long): Boolean = (nowWall / 60_000L) % 2L == 1L
     /** build-373 (Sếp): A/B theo phút đồng hồ — phút lẻ = nền TRƠN (không ảnh bản đồ, không mảng nước/cây, chỉ nét đường),
      * phút chẵn = nền ảnh bản đồ như cũ. tftFrame "bg" = "plain"/"map". */
-    fun bgPlainNow(@Suppress("UNUSED_PARAMETER") nowWall: Long = System.currentTimeMillis()): Boolean = true // build-375: chốt nền trơn (log 374: 18,3% vs 31,0%)
+    fun bgPlainNow(@Suppress("UNUSED_PARAMETER") nowWall: Long = System.currentTimeMillis()): Boolean = false // build-387 (Sếp): bật lại màu cây/nước/toà nhà + tên // build-375: chốt nền trơn (log 374: 18,3% vs 31,0%)
     /** build-375: nét đường nền trơn dày như đường trên ảnh bản đồ cũ (Sếp: giữ kích thước đường + zoom). */
     private const val PLAIN_ROAD_MUL = 2.0f
     private val tickStalls = ArrayList<Long>()

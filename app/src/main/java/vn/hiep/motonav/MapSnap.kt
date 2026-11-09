@@ -199,7 +199,10 @@ object MapSnap {
                         // Bỏ toàn bộ lớp chữ/biểu tượng của nền: tên đường do app tự vẽ lên khung đặc (dễ đọc hơn trên TFT).
                         val kept = org.json.JSONArray()
                         for (li in 0 until allLayers.length()) { val ly = allLayers.getJSONObject(li); val lid = ly.optString("id").lowercase(); val lt = ly.optString("type")
-                            if (lt == "symbol" || lid.contains("building")) continue
+                            // build-387 (Sếp): giữ toà nhà (tô cam) + tên sông/hồ; tên đường vẫn do app tự vẽ.
+                            val keepSym = !plain && (lid.startsWith("water_name") || lid.startsWith("waterway_line_label"))
+                            if (lt == "symbol" && !keepSym) continue
+                            if (lid.contains("building") && (plain || lt != "fill")) continue
                             if (plain && (lt == "fill" || lt == "fill-extrusion" || lt == "raster" || lt == "hillshade" ||
                                     (lt == "line" && (lid.contains("waterway") || lid.contains("river") || lid.contains("canal") ||
                                         lid.contains("rail") || lid.contains("boundary") || lid.contains("aeroway"))))) continue
@@ -219,7 +222,7 @@ object MapSnap {
                                     id.contains("park") || id.contains("grass") || id.contains("wood") || id.contains("forest") ||
                                         id.contains("green") || id.contains("garden") || id.contains("pitch") || id.contains("cemetery") ||
                                         id.contains("landcover") || id.contains("meadow") -> { paint.put("fill-color", "#8FD19B"); paint.put("fill-opacity", 1); changed++ }
-                                    id.contains("building") -> { paint.put("fill-color", if (dark) "#2C313B" else "#CFCBC4"); paint.put("fill-opacity", 1); changed++ }
+                                    id.contains("building") -> { paint.put("fill-color", if (dark) "#B9733A" else "#F5B57A"); paint.put("fill-outline-color", if (dark) "#8A5228" else "#D98E4A"); paint.put("fill-opacity", 1); changed++ }
                                 }
                                 "line" -> when {
                                     id.contains("waterway") || id.contains("river") || id.contains("canal") -> { paint.put("line-color", "#5BAEF0"); changed++ }
@@ -235,6 +238,27 @@ object MapSnap {
                                 }
                             }
                         }
+                        // build-387 (Sếp): tên công viên, hồ, toà nhà/điểm lớn (Vincom…) — chỉ chữ, không icon.
+                        if (!plain) try {
+                            fun nameExpr() = org.json.JSONArray("[\"coalesce\",[\"get\",\"name:vi\"],[\"get\",\"name\"]]")
+                            fun lbl(id: String, srcLayer: String, minZ: Double, filter: String, color: String, size: Int, font: String) =
+                                org.json.JSONObject().apply {
+                                    put("id", id); put("type", "symbol"); put("source", "openmaptiles"); put("source-layer", srcLayer)
+                                    put("minzoom", minZ); put("filter", org.json.JSONArray(filter))
+                                    put("layout", org.json.JSONObject().apply {
+                                        put("text-field", nameExpr()); put("text-font", org.json.JSONArray().put(font))
+                                        put("text-size", size); put("text-max-width", 8); put("text-padding", 4)
+                                    })
+                                    put("paint", org.json.JSONObject().apply {
+                                        put("text-color", color); put("text-halo-color", if (dark) "#000000" else "#FFFFFF"); put("text-halo-width", 2.0); put("text-halo-blur", 0)
+                                    })
+                                }
+                            val pt = "[\"match\",[\"geometry-type\"],[\"MultiPoint\",\"Point\"],true,false]"
+                            layers.put(lbl("motonav_park_label", "park", 13.0, pt, if (dark) "#9BE3A8" else "#1E6B2E", 13, "Noto Sans Bold"))
+                            layers.put(lbl("motonav_poi_major", "poi", 13.5, "[\"all\",$pt,[\"<\",[\"get\",\"rank\"],7]]", if (dark) "#F7C08A" else "#8A3F00", 13, "Noto Sans Bold"))
+                            layers.put(lbl("motonav_poi_mid", "poi", 15.0, "[\"all\",$pt,[\">=\",[\"get\",\"rank\"],7],[\"<\",[\"get\",\"rank\"],20]]", if (dark) "#E8E8E8" else "#333333", 12, "Noto Sans Regular"))
+                            changed += 3
+                        } catch (t: Throwable) { TripLog.ev("mapSnap", "labelErr" to (t.message ?: t.javaClass.simpleName)) }
                         TripLog.ev("mapSnap", "styleTweaked" to changed, "layers" to layers.length())
                         try {
                             val ids = StringBuilder()
