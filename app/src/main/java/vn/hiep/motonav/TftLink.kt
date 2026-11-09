@@ -428,6 +428,8 @@ object TftLink {
     @Volatile private var tickAvoidMs = 0L
     @Volatile private var tickLearnedAt = 0L
     @Volatile private var last41At = 0L
+    /** build-395: ms kể từ gói tốc độ 0x41 gần nhất của xe (-1 nếu chưa có) — BikeBleWatch dùng để tự ngừng quét. */
+    fun msSinceBike41(): Long = if (last41At == 0L) -1L else System.currentTimeMillis() - last41At
 
     private fun tickReset() {
         synchronized(tickStalls) { tickStalls.clear() }

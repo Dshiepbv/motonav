@@ -114,10 +114,10 @@ class Prefs(ctx: Context) {
     var tftNmaxStyle: Boolean
         get() = sp.getBoolean("tftNmaxStyle", true)
         set(v) = sp.edit().putBoolean("tftNmaxStyle", v).apply()
-    /** build-394: nghe gói BLE của xe (thử nghiệm) — mặc định TẮT (bản 393 bật sẵn thì màn báo lỗi kết nối). */
+    /** build-394: nghe gói BLE của xe (thử nghiệm) — build-395: bật sẵn, quét nhẹ (BALANCED) + tự ngừng khi xe im > 3 s. */
     var bleWatch: Boolean
-        get() = sp.getBoolean("bleWatch", false)
-        set(v) = sp.edit().putBoolean("bleWatch", v).apply()
+        get() = sp.getBoolean("bleWatch2", true)
+        set(v) = sp.edit().putBoolean("bleWatch2", v).apply()
     /** build-386: lưới an toàn (giây) — chờ ACK quá mốc này mới gửi thêm 1 bản ảnh, 2–12, mặc định 9. */
     var tftSafetyS: Int
         get() = sp.getInt("tftSafetyS", 9)

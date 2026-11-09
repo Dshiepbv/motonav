@@ -27,6 +27,8 @@ object BikeBleWatch {
     private val seenOther = HashSet<String>()
     private var restartAt = 0L
     private var allN = 0
+    private var pausedUntil = 0L
+    private var paused = false
 
     private fun isBike(addr: String, name: String?): Boolean {
         if (addr.equals(tftAddr, true)) return true
@@ -69,7 +71,7 @@ object BikeBleWatch {
             override fun onScanFailed(errorCode: Int) { TripLog.ev("bleAdvErr", "code" to errorCode); cb = null }
         }
         try {
-            sc.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).setReportDelay(0).build(), c)
+            sc.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).setReportDelay(0).build(), c)
         } catch (e: Exception) { TripLog.ev("bleAdvErr", "msg" to (e.message ?: e.javaClass.simpleName)); return }
         cb = c
         restartAt = SystemClock.elapsedRealtime() + 25 * 60_000L
@@ -90,10 +92,22 @@ object BikeBleWatch {
                 if (acc.isEmpty() || now / 1000 % 10 == 0L) TripLog.ev("bleAll", "n" to allN, "devs" to seenOther.size)
                 allN = 0
             }
-            // Android tự hạ máy quét chạy > 30 phút xuống chế độ yếu → khởi động lại sau 25 phút.
-            if (SystemClock.elapsedRealtime() >= restartAt) {
+            // build-395: bảo vệ đường truyền ảnh — xe im (không có gói 0x41) > 3 s → ngừng quét 20 s.
+            val now2 = SystemClock.elapsedRealtime()
+            val quiet = TftLink.msSinceBike41()
+            if (!paused && quiet > 3000) {
                 try { sc.stopScan(c) } catch (_: Exception) {}
-                try { sc.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), c) } catch (_: Exception) {}
+                paused = true; pausedUntil = now2 + 20_000L
+                TripLog.ev("bleAdvPause", "bikeQuietMs" to quiet)
+            } else if (paused && now2 >= pausedUntil) {
+                try { sc.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build(), c) } catch (_: Exception) {}
+                paused = false; restartAt = now2 + 25 * 60_000L
+                TripLog.ev("bleAdvResume", "bikeQuietMs" to quiet)
+            }
+            // Android tự hạ máy quét chạy > 30 phút xuống chế độ yếu → khởi động lại sau 25 phút.
+            if (!paused && SystemClock.elapsedRealtime() >= restartAt) {
+                try { sc.stopScan(c) } catch (_: Exception) {}
+                try { sc.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build(), c) } catch (_: Exception) {}
                 restartAt = SystemClock.elapsedRealtime() + 25 * 60_000L
                 TripLog.ev("bleAdvRestart")
             }
@@ -103,7 +117,7 @@ object BikeBleWatch {
 
     fun stop(ctx: Context) {
         val c = cb ?: return
-        cb = null
+        cb = null; paused = false
         try { (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter?.bluetoothLeScanner?.stopScan(c) } catch (_: Exception) {}
         main.removeCallbacksAndMessages(null)
         synchronized(acc) { acc.clear(); seenOther.clear(); allN = 0 }
