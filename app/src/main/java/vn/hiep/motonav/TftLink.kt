@@ -253,6 +253,7 @@ object TftLink {
     // build-389 (Sếp): "Cách gửi kiểu NmaxConnect" — có ACK là gửi ảnh mới NGAY (không nghỉ), ảnh không đổi chỉ gửi lại mỗi 1 s,
     // ghi cả khung một lần (không giãn 15 ms/KB). Vẫn 1 khung trên dây.
     @Volatile var nmaxStyle: Boolean = true
+    private const val MAX_FRAME_BYTES = 22 * 1024
     private const val F4_HARD_MS = 3750L
     @Volatile private var anyAckCount = 0L
     /** build-381: các seq của "khung đang bay" (khung gốc + khung thay ở 400 ms + gửi lại ở 800 ms) — ACK khớp 1 trong số này mới tính. */
@@ -2087,6 +2088,18 @@ object TftLink {
         val jq = 80 // build-389 (Sếp): như NmaxConnect (22 nhìn xấu)
         lastJpegQ = jq
         bmp.compress(Bitmap.CompressFormat.JPEG, jq, out)
+        // build-390: trần dung lượng — AutoMaxi ghi nhận khung quá lớn làm màn xe đen; maxdash đo tới ~20 KB vẫn ổn.
+        // Quá MAX_FRAME_BYTES thì hạ quality từng nấc 10 (tối thiểu 30) tới khi vừa.
+        if (out.size() > MAX_FRAME_BYTES) {
+            var q = jq - 10
+            while (q >= 30) {
+                out.reset()
+                bmp.compress(Bitmap.CompressFormat.JPEG, q, out)
+                lastJpegQ = q
+                if (out.size() <= MAX_FRAME_BYTES) break
+                q -= 10
+            }
+        }
         if (sizeMode == 1 && out.size() > SMALL_TARGET_BYTES) {
             // Ảnh nhỏ: hạ quality từng bước tới khi ≤ SMALL_TARGET_BYTES (hoặc quality 4).
             var q = 11
@@ -2104,7 +2117,7 @@ object TftLink {
                 "jpegSizeBytes" to raw.size, "quality" to jq, "sizeMode" to sizeMode)
         } catch (_: Exception) {}
         val fin = if (iccStripNow()) stripIcc(raw) else raw
-        jpegQMap[fin] = jq
+        jpegQMap[fin] = lastJpegQ
         return fin
     }
 
