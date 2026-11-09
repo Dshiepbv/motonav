@@ -242,6 +242,7 @@ class DriveService : Service(), LocationListener {
             lm.removeUpdates(this)
         } catch (_: Exception) {
         }
+        try { BikeBleWatch.stop(this) } catch (_: Exception) {}
         handler.removeCallbacksAndMessages(null)
         thread.quitSafely()
         executor.shutdownNow()
@@ -308,6 +309,7 @@ class DriveService : Service(), LocationListener {
             if (on != tftLinkWasOn) {
                 tftLinkWasOn = on
                 if (on) TftLink.start(this@DriveService, prefs.tftDevice) else TftLink.stop()
+                try { if (on) BikeBleWatch.start(this@DriveService, prefs.tftDevice) else BikeBleWatch.stop(this@DriveService) } catch (_: Exception) {}
             }
             if (on) {
                 // build-250: ảnh bản đồ Goong cho TFT (cần Map Tiles Key; bật/tắt trong Cài đặt)
