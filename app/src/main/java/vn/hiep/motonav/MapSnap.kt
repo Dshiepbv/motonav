@@ -205,13 +205,6 @@ object MapSnap {
                             if (lid.contains("building") && (plain || lt != "fill")) continue
                             // build-388 (Sếp): bỏ đường cấp 3 (hẻm/đường nhỏ/nội bộ/lối đi: class minor, service, track, path).
                             if (lt == "line" && (lid.contains("minor") || lid.contains("path") || lid.contains("service") || lid.contains("track") || lid.contains("pier"))) continue
-                            // build-391 (Sếp): cấp đường tính theo TUYẾN (cấp 1 chạm tuyến đỏ, cấp 2 nối cấp 1) — nền
-                            // không biết tuyến nên bỏ hết lớp đường của nền; app tự vẽ đường cấp 1–2 từ dữ liệu OSM.
-                            if (lt == "line" && !lid.contains("waterway") && !lid.contains("river") && !lid.contains("canal") &&
-                                (lid.contains("highway") || lid.contains("road") || lid.contains("bridge") || lid.contains("tunnel") ||
-                                    lid.contains("street") || lid.contains("casing") || lid.contains("motorway") || lid.contains("major"))) continue
-                            // build-391 (Sếp): chỉ giữ toà nhà lớn (cao ≥ 15 m ≈ 5 tầng trở lên), bỏ nhà dân.
-                            if (lid.contains("building") && lt == "fill") ly.put("filter", org.json.JSONArray("[\">=\", [\"coalesce\", [\"get\", \"render_height\"], 0], 15]"))
                             if (plain && (lt == "fill" || lt == "fill-extrusion" || lt == "raster" || lt == "hillshade" ||
                                     (lt == "line" && (lid.contains("waterway") || lid.contains("river") || lid.contains("canal") ||
                                         lid.contains("rail") || lid.contains("boundary") || lid.contains("aeroway"))))) continue

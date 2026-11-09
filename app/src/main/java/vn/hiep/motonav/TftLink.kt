@@ -936,53 +936,6 @@ object TftLink {
     @Volatile private var skNextLimit: Int? = null
     @Volatile private var skNextLimitDist = -1
     @Volatile private var skWays: List<Way>? = null
-    // build-391 (Sếp): cấp đường theo TUYẾN — cấp 0 = tuyến đỏ, cấp 1 = way chạm thẳng tuyến đỏ,
-    // cấp 2 = way chung nút với way cấp 1. Còn lại (cấp 3+) không vẽ. Tính 1 lần cho mỗi tuyến/bộ way.
-    private var tierRouteRef: Any? = null
-    private var tierWaysRef: Any? = null
-    private var tierMap: java.util.IdentityHashMap<Way, Int> = java.util.IdentityHashMap()
-    private val NON_ROAD = setOf("footway", "path", "cycleway", "steps", "pedestrian", "bridleway", "corridor", "platform", "construction", "proposed", "elevator", "via_ferrata", "raceway", "bus_stop")
-    private fun roadTiers(route: Route, ways: List<Way>): java.util.IdentityHashMap<Way, Int> {
-        if (tierRouteRef === route && tierWaysRef === ways) return tierMap
-        val cell = 0.0001 // ~11 m
-        fun ck(la: Double, lo: Double): Long = (Math.floor(la / cell).toLong() shl 32) xor (Math.floor(lo / cell).toLong() and 0xFFFFFFFFL)
-        val grid = HashMap<Long, ArrayList<DoubleArray>>()
-        for (i in 0 until route.lats.size) {
-            val la0 = route.lats[i]; val lo0 = route.lons[i]
-            val n = if (i + 1 < route.lats.size) Math.ceil(Geo.distance(la0, lo0, route.lats[i + 1], route.lons[i + 1]) / 4.0).toInt().coerceIn(1, 500) else 1
-            for (k in 0 until n) {
-                val t = k.toDouble() / n
-                val la = if (n == 1) la0 else la0 + (route.lats[i + 1] - la0) * t
-                val lo = if (n == 1) lo0 else lo0 + (route.lons[i + 1] - lo0) * t
-                grid.getOrPut(ck(la, lo)) { ArrayList() }.add(doubleArrayOf(la, lo))
-            }
-        }
-        fun nearRoute(la: Double, lo: Double): Boolean {
-            val a = Math.floor(la / cell).toLong(); val b = Math.floor(lo / cell).toLong()
-            for (da in -1L..1L) for (db in -1L..1L) {
-                val l = grid[((a + da) shl 32) xor ((b + db) and 0xFFFFFFFFL)] ?: continue
-                for (p in l) if (Geo.distance(la, lo, p[0], p[1]) <= 7.0) return true
-            }
-            return false
-        }
-        fun nk(la: Double, lo: Double): Long = (Math.round(la * 1e6) shl 32) xor (Math.round(lo * 1e6) and 0xFFFFFFFFL)
-        val out = java.util.IdentityHashMap<Way, Int>()
-        val t1Nodes = HashSet<Long>()
-        val rest = ArrayList<Way>()
-        for (wy in ways) {
-            if (wy.lats.size < 2 || wy.highway.isEmpty() || wy.highway in NON_ROAD) continue
-            var hit = false
-            for (k in wy.lats.indices) if (nearRoute(wy.lats[k], wy.lons[k])) { hit = true; break }
-            if (hit) { out[wy] = 1; for (k in wy.lats.indices) t1Nodes.add(nk(wy.lats[k], wy.lons[k])) } else rest.add(wy)
-        }
-        var t2 = 0
-        for (wy in rest) {
-            for (k in wy.lats.indices) if (t1Nodes.contains(nk(wy.lats[k], wy.lons[k]))) { out[wy] = 2; t2++; break }
-        }
-        tierRouteRef = route; tierWaysRef = ways; tierMap = out
-        try { TripLog.ev("roadTiers", "ways" to ways.size, "t1" to (out.size - t2), "t2" to t2) } catch (_: Exception) {}
-        return out
-    }
     @Volatile private var skSpeedKmh: Int = -1
     @Volatile private var skLimitKmh: Int? = null
     @Volatile private var skDistanceM: Int = -1
@@ -1126,33 +1079,6 @@ object TftLink {
                 c.drawBitmap(snap.bitmap, 0f, 0f, null)
                 val pt = snap.pixelForLatLng(org.maplibre.android.geometry.LatLng(skLat, skLon))
                 if (!pt.x.isNaN() && !pt.y.isNaN() && pt.y > h * 0.3f && pt.y < h * 0.95f) { carX = pt.x; anchorY = pt.y }
-                // build-391: nền đã bỏ lớp đường → khi chưa có tuyến, app tự vẽ đường cấp tertiary trở lên (như build 388).
-                val fw = skWays
-                if (fw != null) {
-                    val proj = LocalProjection(skLat, skLon); val lim = maxAhead * 1.2
-                    val caseP = Paint().apply { color = if (dk) Color.rgb(0x3A, 0x3F, 0x49) else Color.rgb(0x6E, 0x74, 0x7C); style = Paint.Style.STROKE; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-                    val fillP = Paint().apply { color = if (dk) Color.rgb(0xA4, 0xAB, 0xB6) else Color.rgb(0xA3, 0xA9, 0xB1); style = Paint.Style.STROKE; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-                    val drawn = ArrayList<Pair<android.graphics.Path, Float>>()
-                    for (wy in fw) {
-                        if (wy.lats.size < 2) continue
-                        val m = when {
-                            wy.highway.startsWith("motorway") -> 12.0; wy.highway.startsWith("trunk") -> 11.0
-                            wy.highway.startsWith("primary") -> 10.0; wy.highway.startsWith("secondary") -> 8.0
-                            wy.highway.startsWith("tertiary") -> 6.5; else -> continue
-                        }
-                        val path = android.graphics.Path(); var started = false
-                        for (k in wy.lats.indices) {
-                            val dx = proj.x(wy.lons[k]); val dy = proj.y(wy.lats[k])
-                            if (Math.abs(dx) > lim || Math.abs(dy) > lim) { started = false; continue }
-                            val q = snap.pixelForLatLng(org.maplibre.android.geometry.LatLng(wy.lats[k], wy.lons[k]))
-                            if (!q.x.isFinite() || !q.y.isFinite()) { started = false; continue }
-                            if (!started) { path.moveTo(q.x, q.y); started = true } else path.lineTo(q.x, q.y)
-                        }
-                        drawn.add(path to Math.max(3f, (MapSnap.WIDTH_SCALE * m / mPerPx).toFloat()))
-                    }
-                    for ((pth, wpx) in drawn) { caseP.strokeWidth = wpx + 2f; c.drawPath(pth, caseP) }
-                    for ((pth, wpx) in drawn) { fillP.strokeWidth = wpx; c.drawPath(pth, fillP) }
-                }
             } else {
                 c.drawColor(if (dk) Color.rgb(23, 26, 33) else Color.rgb(247, 247, 249))
                 val ways = skWays
@@ -1482,8 +1408,7 @@ object TftLink {
                 }
             }
             val ways = skWays
-            if (ways != null) {
-                val tiers = roadTiers(route, ways)
+            if (ways != null && snapShot == null) {
                 // Theo yêu cầu "cái nào nhìn giống Google Map hơn": Google Maps không ẩn hẳn đường
                 // cấp 3 (tertiary/residential) mà chỉ GIẢM PHẠM VI hiển thị quanh tuyến + phân cấp độ
                 // dày/độ nổi bật — đã làm ở branchPaintFor bên dưới. Nên chọn giảm hành lang xuống
@@ -1563,29 +1488,23 @@ object TftLink {
                         }
                         si += sampleStep
                     }
-                    if (inCorridor && tiers.containsKey(wy)) candidates.add(wy to nearestD)
+                    if (inCorridor) candidates.add(wy to nearestD)
                 }
-                candidates.sortWith(compareBy({ tiers[it.first] ?: 9 }, { it.second }))
+                candidates.sortBy { it.second }
                 var drawnWays = 0
                 val wayCap = 220 // hành lang bắt nhiều way hơn kiểu nối-chuỗi cũ, nới trần lên tương ứng
                 // build-249: vẽ đường thành DẢI xám có bề rộng thật (như bản đồ nền) thay vì nét mảnh — hai
                 // chiều của đại lộ liền thành một dải, hẻm nhỏ xa tuyến bỏ bớt cho đỡ chằng chịt.
-                val roadGray = Paint().apply { color = if (snapShot != null) { if (dk) Color.rgb(0xA4, 0xAB, 0xB6) else Color.rgb(0xA3, 0xA9, 0xB1) } else if (dk) Color.rgb(156, 163, 176) else Color.rgb(172, 177, 188); style = Paint.Style.FILL; isAntiAlias = true }
-                // Viền đường như bản đồ nền cũ (casing) — vẽ hết viền trước, rồi mới phủ lõi, để giao lộ liền mạch.
-                val roadCase = Paint().apply { color = if (dk) Color.rgb(0x3A, 0x3F, 0x49) else Color.rgb(0x6E, 0x74, 0x7C); style = Paint.Style.STROKE; strokeWidth = 2.2f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND }
-                val roadPaths = ArrayList<android.graphics.Path>()
+                val roadGray = Paint().apply { color = if (dk) Color.rgb(156, 163, 176) else Color.rgb(172, 177, 188); style = Paint.Style.FILL; isAntiAlias = true }
                 val limR = drawAhead * 1.1
-                for ((wy, _) in candidates) {
+                for ((wy, nearD) in candidates) {
                     if (drawnWays >= wayCap) break
-                    // Bề rộng = đúng như lớp đường của bản đồ nền trước đây (mét × WIDTH_SCALE) để giữ tỉ lệ.
-                    val widthM: Double = MapSnap.WIDTH_SCALE * when {
-                        wy.highway.startsWith("motorway") -> 12.0
-                        wy.highway.startsWith("trunk") -> 11.0
-                        wy.highway.startsWith("primary") -> 10.0
-                        wy.highway.startsWith("secondary") -> 8.0
-                        wy.highway.startsWith("tertiary") -> 6.5
-                        wy.highway == "residential" || wy.highway == "unclassified" || wy.highway == "living_street" -> 5.5
-                        else -> 3.5
+                    val widthM: Double = when (wy.highway) {
+                        "motorway", "trunk", "primary", "motorway_link", "trunk_link", "primary_link" ->
+                            (wy.lanes?.let { it * 3.3 } ?: 12.0).coerceIn(8.0, 22.0)
+                        "secondary", "tertiary", "secondary_link", "tertiary_link" -> if (wy.highway.startsWith("secondary")) 9.5 else 7.5
+                        "residential", "unclassified", "living_street" -> if (nearD <= 250.0) 5.0 else continue
+                        else -> if (nearD <= 40.0) 3.5 else continue
                     }
                     val hw = widthM / 2.0
                     val step = (wy.lats.size / 55).coerceAtLeast(1)
@@ -1609,7 +1528,7 @@ object TftLink {
                             for (k in 0 until n) { val (sx, sy) = toScreen(lxs[k], lys[k]); if (k == 0) bp.moveTo(sx, sy) else bp.lineTo(sx, sy) }
                             for (k in n - 1 downTo 0) { val (sx, sy) = toScreen(rxs[k], rys[k]); bp.lineTo(sx, sy) }
                             bp.close()
-                            roadPaths.add(bp)
+                            c.drawPath(bp, roadGray)
                             any = true
                         }
                         runX = ArrayList(); runY = ArrayList()
@@ -1625,8 +1544,6 @@ object TftLink {
                     flush()
                     if (any) drawnWays++
                 }
-                for (bp in roadPaths) c.drawPath(bp, roadCase)
-                for (bp in roadPaths) c.drawPath(bp, roadGray)
             }
 
             // Với maxAhead lớn (tới 4km), tuyến có thể có hàng nghìn điểm trong đoạn này — nếu vẽ
