@@ -38,8 +38,12 @@ object BikeBleWatch {
         return u.startsWith("YCCU") || u.contains("YAMAHA") || u.contains("NMAX")
     }
 
+    private var lastTry = 0L
     fun start(ctx: Context, addr: String) {
         if (cb != null) return
+        val nowT = SystemClock.elapsedRealtime()
+        if (lastTry != 0L && nowT - lastTry < 30_000L) return // build-397: gọi lại mỗi vòng, thử tối đa 30 s/lần (chờ cấp quyền)
+        lastTry = nowT
         val a = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter ?: return
         if (!a.isEnabled) return
         val sc = a.bluetoothLeScanner ?: return
