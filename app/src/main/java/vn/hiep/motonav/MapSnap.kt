@@ -213,7 +213,28 @@ object MapSnap {
                                     (lt == "line" && (lid.contains("waterway") || lid.contains("river") || lid.contains("canal") ||
                                         lid.contains("rail") || lid.contains("boundary") || lid.contains("aeroway"))))) continue
                             kept.put(ly) } // build-302: bỏ lớp toà nhà (Sếp: không cần)
-                        j.put("layers", kept)
+                        // build-398 (Sếp: "không thấy tí màu nào"): positron chỉ tô rừng (wood) + vườn quốc gia, còn công viên/cỏ
+                        // trong phố (OpenMapTiles landcover class grass, subclass park…) không có lớp nào → tự thêm lớp tô xanh.
+                        if (!plain) try {
+                            val greens = org.json.JSONArray()
+                            greens.put(org.json.JSONObject("""{"id":"motonav_green_landcover","type":"fill","source":"openmaptiles","source-layer":"landcover",
+                                "filter":["match",["get","class"],["grass","wood","wetland","farmland"],true,false],
+                                "paint":{"fill-color":"#8FD19B","fill-opacity":1}}"""))
+                            greens.put(org.json.JSONObject("""{"id":"motonav_green_landuse","type":"fill","source":"openmaptiles","source-layer":"landuse",
+                                "filter":["match",["get","class"],["park","cemetery","pitch","playground","garden","stadium","zoo","theme_park"],true,false],
+                                "paint":{"fill-color":"#8FD19B","fill-opacity":1}}"""))
+                            val withG = org.json.JSONArray()
+                            var inserted = false
+                            for (li in 0 until kept.length()) {
+                                val ly = kept.getJSONObject(li)
+                                // chèn ngay trước lớp nước đầu tiên (nước vẽ đè lên cỏ), sau nền
+                                if (!inserted && ly.optString("type") != "background") { for (g in 0 until greens.length()) withG.put(greens.get(g)); inserted = true }
+                                withG.put(ly)
+                            }
+                            if (!inserted) for (g in 0 until greens.length()) withG.put(greens.get(g))
+                            j.put("layers", withG)
+                        } catch (t: Throwable) { TripLog.ev("mapSnap", "greenErr" to (t.message ?: t.javaClass.simpleName)); j.put("layers", kept) }
+                        else j.put("layers", kept)
                         val layers = j.getJSONArray("layers")
                         var changed = 0
                         for (i in 0 until layers.length()) {
