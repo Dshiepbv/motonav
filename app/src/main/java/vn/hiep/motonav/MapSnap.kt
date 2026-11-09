@@ -203,6 +203,8 @@ object MapSnap {
                             val keepSym = !plain && (lid.startsWith("water_name") || lid.startsWith("waterway_line_label"))
                             if (lt == "symbol" && !keepSym) continue
                             if (lid.contains("building") && (plain || lt != "fill")) continue
+                            // build-388 (Sếp): bỏ đường cấp 3 (hẻm/đường nhỏ/nội bộ/lối đi: class minor, service, track, path).
+                            if (lt == "line" && (lid.contains("minor") || lid.contains("path") || lid.contains("service") || lid.contains("track") || lid.contains("pier"))) continue
                             if (plain && (lt == "fill" || lt == "fill-extrusion" || lt == "raster" || lt == "hillshade" ||
                                     (lt == "line" && (lid.contains("waterway") || lid.contains("river") || lid.contains("canal") ||
                                         lid.contains("rail") || lid.contains("boundary") || lid.contains("aeroway"))))) continue
