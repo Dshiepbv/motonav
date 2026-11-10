@@ -195,6 +195,8 @@ object TftLink {
     @Volatile private var waitingSeq: Int = -1
     /** build-372: màn xe đã gửi 56 (tạm dừng) — không gửi ảnh cho tới 55 `01 00` (hoặc quá [PAUSE_MAX_MS] thì tự chạy lại). */
     @Volatile private var dashPaused = false
+    /** build-399: tăng mỗi lần xe cho tiếp tục (cmd 55 / tự hết hạn tạm dừng) — vòng gửi bỏ khung đang chờ, gửi ảnh mới ngay. */
+    @Volatile private var resumeCount = 0
     @Volatile private var dashPausedAt = 0L
     private const val PAUSE_MAX_MS = 20_000L
     @Volatile private var waitingSentAt: Long = 0L
@@ -3132,6 +3134,7 @@ object TftLink {
                             if (v == 1) {
                                 val was = dashPaused
                                 dashPaused = false
+                                resumeCount++
                                 sendInitBurst()
                                 try { TripLog.ev("tftResume", "wasPaused" to was,
                                     "pausedMs" to (if (was) System.currentTimeMillis() - dashPausedAt else 0L)) } catch (_: Exception) {}
@@ -3379,6 +3382,7 @@ object TftLink {
         var didReview800 = false
         var ackSeen = anyAckCount
         var freezeHold = false
+        var resumeSeen = resumeCount
         f4Series.clear()
         fun review() { val q = mailbox.getAndSet(null); if (q != null) pending = q }
         while (running.get() && connected) {
@@ -3392,9 +3396,17 @@ object TftLink {
             if (dashPaused) {
                 if (System.currentTimeMillis() - dashPausedAt > PAUSE_MAX_MS) {
                     dashPaused = false
+                    resumeCount++
                     try { TripLog.ev("tftResume", "wasPaused" to true, "auto" to true, "pausedMs" to PAUSE_MAX_MS) } catch (_: Exception) {}
                     sendInitBurst()
                 } else { awaitV2Wake(200); continue }
+            }
+            // build-399 (Sếp): xe vừa cho tiếp tục → khung đang chờ ACK coi như xe đã bỏ; gửi ngay ảnh mới nhất.
+            if (resumeCount != resumeSeen) {
+                resumeSeen = resumeCount
+                if (inFlight) try { TripLog.ev("tftResumeFresh", "droppedWaitMs" to (android.os.SystemClock.elapsedRealtime() - sentAt)) } catch (_: Exception) {}
+                inFlight = false; freezeHold = false; didReview400 = false; didReview800 = false
+                f4Series.clear(); ackSeen = anyAckCount; lastSendAt = 0L
             }
             val now = android.os.SystemClock.elapsedRealtime()
             val ackNow = anyAckCount
