@@ -19,6 +19,8 @@ class WxMark(
     val label: String,     // vd "28°" hoặc "70%"
     val km: Double,        // cách vị trí hiện tại bao xa (km)
     val minutes: Int,      // bao lâu nữa tới (phút)
+    val tempC: Int = 0,    // build-402: nhiệt độ (°C) cho ô thời tiết kiểu Garmin
+    val prob: Int = 0,
 )
 
 object WxCat {
@@ -137,7 +139,7 @@ object RouteWeather {
             val changed = cats[k] != lastCat
             if (changed || km - lastKm >= 12 || k == sLat.size - 1 && cats[k] != lastCat) {
                 val label = if (WxCat.wet(cats[k])) "${probs[k]}%" else "${temps[k]}°"
-                marks.add(WxMark(sLat[k], sLon[k], cats[k], label, km, etas[k]))
+                marks.add(WxMark(sLat[k], sLon[k], cats[k], label, km, etas[k], temps[k], probs[k]))
                 lastCat = cats[k]
                 lastKm = km
             }

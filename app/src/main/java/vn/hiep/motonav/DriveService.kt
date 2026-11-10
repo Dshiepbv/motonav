@@ -785,6 +785,7 @@ class DriveService : Service(), LocationListener {
                 Live.wxSummary = null
                 Live.wxDestCat = null
                 Live.wxDestLabel = null
+                Live.wxHereCat = null; Live.wxHereTemp = null
                 Live.wxVersion++
             }
             wxRouteVer = -1
@@ -812,6 +813,9 @@ class DriveService : Service(), LocationListener {
                 Live.wxDestCat = destMark?.cat
                 Live.wxDestLabel = destMark?.label
                 Live.wxDestNight = destMark?.let { RouteWeather.isNightAt(it.minutes) } ?: false
+                val here = marks.firstOrNull()
+                Live.wxHereCat = here?.cat; Live.wxHereTemp = here?.tempC; Live.wxHereProb = here?.prob ?: 0
+                Live.wxHereNight = RouteWeather.isNightAt(0)
                 Live.wxVersion++
                 // Báo một lần khi phía trước có mưa
                 if (summary != null && summary.startsWith("Phía trước") && summary != wxAnnounced) {

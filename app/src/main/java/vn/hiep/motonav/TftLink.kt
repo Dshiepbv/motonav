@@ -1345,8 +1345,8 @@ object TftLink {
             run {
                 if (snapShot != null) {
                     // Tăng tương phản + bão hoà toàn khung (không tăng dung lượng JPEG đáng kể).
-                    val cm = android.graphics.ColorMatrix().apply { setSaturation(1.25f) }
-                    val ct = 1.35f; val tr = (-0.5f * ct + 0.5f) * 255f
+                    val cm = android.graphics.ColorMatrix().apply { setSaturation(1.1f) } // build-402: giữ tông dịu kiểu Garmin (trước 1.25/1.35)
+                    val ct = 1.12f; val tr = (-0.5f * ct + 0.5f) * 255f
                     cm.postConcat(android.graphics.ColorMatrix(floatArrayOf(ct, 0f, 0f, 0f, tr, 0f, ct, 0f, 0f, tr, 0f, 0f, ct, 0f, tr, 0f, 0f, 0f, 1f, 0f)))
                     c.drawBitmap(snapShot.bitmap, 0f, 0f, Paint().apply { colorFilter = android.graphics.ColorMatrixColorFilter(cm) })
                     return@run
@@ -1996,6 +1996,29 @@ object TftLink {
                 c.drawText("$nd m", ncx, ncy + arcR + h * 0.075f, dp)
             }
         }
+        // build-402 (Sếp: "y như Garmin StreetCross"): ô thời tiết nền trắng bo góc bên phải — biểu tượng, nhiệt độ, giờ, "Vị trí hiện tại".
+        run {
+            val wc = Live.wxHereCat; val wt = Live.wxHereTemp
+            if (skActive && wc != null && wt != null) {
+                val bw = w * 0.22f; val bh = h * 0.30f
+                val right = w - w * 0.02f; val top = limBottomY + h * 0.03f
+                val rect = android.graphics.RectF(right - bw, top, right, top + bh)
+                c.drawRoundRect(rect, h * 0.025f, h * 0.025f, Paint().apply { color = if (dk) Color.argb(235, 30, 34, 40) else Color.argb(235, 255, 255, 255); style = Paint.Style.FILL; isAntiAlias = true })
+                c.drawRoundRect(rect, h * 0.025f, h * 0.025f, Paint().apply { color = if (dk) Color.rgb(90, 96, 104) else Color.rgb(170, 174, 160); style = Paint.Style.STROKE; strokeWidth = 1.5f; isAntiAlias = true })
+                val fg = if (dk) Color.WHITE else Color.rgb(30, 30, 30)
+                val icS = bh * 0.42f
+                drawWxIcon(c, rect.left + bw * 0.27f, rect.top + bh * 0.30f, icS, wc, Live.wxHereNight, dk)
+                val tp = Paint().apply { color = fg; textSize = h * 0.085f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.LEFT }
+                c.drawText("$wt°C", rect.left + bw * 0.50f, rect.top + bh * 0.30f, tp)
+                val cal = java.util.Calendar.getInstance()
+                val hr = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                val hTxt = (if (hr % 12 == 0) 12 else hr % 12).toString() + (if (hr < 12) "am" else "pm")
+                val sp2 = Paint().apply { color = fg; textSize = h * 0.058f; isAntiAlias = true; textAlign = Paint.Align.LEFT }
+                c.drawText(if (WxCat.wet(wc)) "$hTxt · ${Live.wxHereProb}%" else hTxt, rect.left + bw * 0.52f, rect.top + bh * 0.48f, sp2)
+                val cp = Paint().apply { color = fg; textSize = h * 0.06f; isAntiAlias = true; textAlign = Paint.Align.CENTER }
+                c.drawText("Vị trí hiện tại", rect.centerX(), rect.top + bh * 0.84f, cp)
+            }
+        }
         // ETA (giờ đến, bên TRÁI) và thời gian+quãng đường còn lại (bên PHẢI) — 2 khung giống hệt
         // nhau (trắng, viền đỏ, chữ đen) để đối xứng 2 bên, cùng ngang hàng với tam giác vị trí xe
         // (anchorY), theo yêu cầu mới nhất. Trước đây khung còn lại nằm dưới biển tốc độ, dạng chữ
@@ -2125,6 +2148,44 @@ object TftLink {
         val fin = if (iccStripNow()) stripIcc(raw) else raw
         jpegQMap[fin] = lastJpegQ
         return fin
+    }
+
+    /** build-402: biểu tượng thời tiết kiểu Garmin (mây xám, mặt trời vàng, hạt mưa xanh, tia sét vàng). */
+    private fun drawWxIcon(c: Canvas, cx: Float, cy: Float, sz: Float, cat: Int, night: Boolean, dk: Boolean) {
+        val sun = Paint().apply { color = if (night) Color.rgb(240, 220, 120) else Color.rgb(255, 190, 30); style = Paint.Style.FILL; isAntiAlias = true }
+        val cloudFill = Paint().apply { color = if (dk) Color.rgb(200, 205, 212) else Color.rgb(250, 250, 250); style = Paint.Style.FILL; isAntiAlias = true }
+        val cloudLine = Paint().apply { color = if (dk) Color.rgb(220, 224, 230) else Color.rgb(60, 64, 70); style = Paint.Style.STROKE; strokeWidth = sz * 0.06f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND }
+        fun cloud(ox: Float, oy: Float, k: Float) {
+            val p = android.graphics.Path()
+            p.addCircle(ox - sz * 0.18f * k, oy + sz * 0.05f * k, sz * 0.17f * k, android.graphics.Path.Direction.CW)
+            p.addCircle(ox + sz * 0.02f * k, oy - sz * 0.06f * k, sz * 0.23f * k, android.graphics.Path.Direction.CW)
+            p.addCircle(ox + sz * 0.24f * k, oy + sz * 0.06f * k, sz * 0.16f * k, android.graphics.Path.Direction.CW)
+            p.addRect(ox - sz * 0.18f * k, oy + sz * 0.02f * k, ox + sz * 0.24f * k, oy + sz * 0.22f * k, android.graphics.Path.Direction.CW)
+            val u = android.graphics.Path(); u.op(p, android.graphics.Path.Op.UNION)
+            c.drawPath(p, cloudFill); c.drawPath(p, cloudLine)
+        }
+        when (cat) {
+            WxCat.CLEAR -> {
+                if (night) { c.drawCircle(cx, cy, sz * 0.32f, sun); c.drawCircle(cx + sz * 0.14f, cy - sz * 0.1f, sz * 0.28f, Paint().apply { color = if (dk) Color.rgb(30, 34, 40) else Color.WHITE; isAntiAlias = true }) }
+                else {
+                    c.drawCircle(cx, cy, sz * 0.24f, sun)
+                    val ray = Paint(sun).apply { style = Paint.Style.STROKE; strokeWidth = sz * 0.07f; strokeCap = Paint.Cap.ROUND }
+                    for (a in 0 until 8) { val r = Math.toRadians(a * 45.0); c.drawLine(cx + (sz * 0.33f * Math.cos(r)).toFloat(), cy + (sz * 0.33f * Math.sin(r)).toFloat(), cx + (sz * 0.46f * Math.cos(r)).toFloat(), cy + (sz * 0.46f * Math.sin(r)).toFloat(), ray) }
+                }
+            }
+            WxCat.PARTLY -> { c.drawCircle(cx - sz * 0.12f, cy - sz * 0.14f, sz * 0.22f, sun); cloud(cx + sz * 0.06f, cy + sz * 0.06f, 0.9f) }
+            WxCat.CLOUDY -> cloud(cx, cy, 1.0f)
+            else -> {
+                cloud(cx, cy - sz * 0.1f, 1.0f)
+                val drop = Paint().apply { color = Color.rgb(40, 120, 220); style = Paint.Style.STROKE; strokeWidth = sz * 0.07f; strokeCap = Paint.Cap.ROUND; isAntiAlias = true }
+                val n = if (cat >= WxCat.RAIN) 4 else 2
+                for (i in 0 until n) { val x = cx - sz * 0.2f + i * sz * (0.4f / (n - 1).coerceAtLeast(1)); c.drawLine(x, cy + sz * 0.2f, x - sz * 0.06f, cy + sz * 0.36f, drop) }
+                if (cat >= WxCat.STORM) {
+                    val bolt = android.graphics.Path().apply { moveTo(cx + sz * 0.04f, cy + sz * 0.1f); lineTo(cx - sz * 0.08f, cy + sz * 0.3f); lineTo(cx + sz * 0.02f, cy + sz * 0.3f); lineTo(cx - sz * 0.06f, cy + sz * 0.48f); lineTo(cx + sz * 0.14f, cy + sz * 0.24f); lineTo(cx + sz * 0.04f, cy + sz * 0.24f); close() }
+                    c.drawPath(bolt, Paint().apply { color = Color.rgb(255, 200, 0); isAntiAlias = true })
+                }
+            }
+        }
     }
 
     /** Ghim nổi: đầu nhọn chạm (x, y), vòng tròn bán kính r phía trên, biểu tượng trắng bên trong. kind 0 = cây xăng, 1 = camera. */

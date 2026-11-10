@@ -122,6 +122,11 @@ object Live {
     @Volatile var wxDestCat: Int? = null
     @Volatile var wxDestLabel: String? = null
     @Volatile var wxDestNight = false
+    // build-402: thời tiết tại vị trí hiện tại (mốc đầu tuyến) cho ô thời tiết kiểu Garmin trên TFT.
+    @Volatile var wxHereCat: Int? = null
+    @Volatile var wxHereTemp: Int? = null
+    @Volatile var wxHereProb: Int = 0
+    @Volatile var wxHereNight = false
 
     // Dải chữ cảnh báo (hiện kèm mọi âm thanh)
     @Volatile var alertText: String? = null
