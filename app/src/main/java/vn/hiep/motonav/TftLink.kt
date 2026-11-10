@@ -3497,7 +3497,9 @@ object TftLink {
                         TripLog.ev("tftLoadingStart", "source" to "ack_timeout_proxy", "visualConfirmed" to false)
                     } catch (_: Exception) {}
                 }
-                if (el >= safetyMs && now - lastSendAt >= safetyMs) tag = "safety"
+                // build-405: log 404 cho thấy xe giữ lại MỌI khung gửi trong lúc kẹt rồi ACK dồn ~5 s sau; 12 khung dồn (~110 KB)
+                // → 0x41 im rồi rớt Bluetooth. Nên mỗi lần kẹt chỉ được gửi thêm TỐI ĐA 1 bản an toàn (≤2 khung chưa ACK).
+                if (el >= safetyMs && now - lastSendAt >= safetyMs && f4Series.size < 2) tag = "safety"
             } else if (nmaxStyle) {
                 review()
                 tag = if (pending != null) "next" else if (lastJpeg != null && now - lastSendAt >= 1000L) "keepalive" else null
