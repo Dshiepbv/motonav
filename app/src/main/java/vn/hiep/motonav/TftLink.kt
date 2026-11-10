@@ -3532,6 +3532,7 @@ object TftLink {
     private const val P727_KEEPALIVE_MS = 2500L
     private const val P727_FREEZE_LOST = 3
     private const val P727_RESYNC_LOST = 4
+    private const val P727_HOLD_MAX_MS = 8000L
     @Volatile private var p727ResyncAt = 0L
     private var p727ResyncN = 0
 
@@ -3587,6 +3588,8 @@ object TftLink {
         var lost = 0
         var hold = false
         var needResend = false
+        var holdSince = 0L
+        var holdAck = ackedFrame
         try { TripLog.ev("tftPipe", "ver" to 727, "ackWaitMs" to P727_ACK_WAIT_MS, "minIntervalMs" to P727_MIN_INTERVAL_MS, "resend" to 350, "resyncLost" to P727_RESYNC_LOST) } catch (_: Exception) {}
         while (running.get() && connected) {
             val urgent = urgentQ.poll()
@@ -3598,6 +3601,14 @@ object TftLink {
                 continue
             }
             val started = System.currentTimeMillis()
+            if (hold) {
+                // build-404: màn kẹt → KHÔNG gửi gì thêm, KHÔNG đóng socket (403 đóng socket = mỗi lần xoay là ngắt).
+                // Chờ màn trả ACK muộn hoặc tối đa 8 s rồi gửi 1 khung mới.
+                if (ackedFrame != holdAck || started - holdSince >= P727_HOLD_MAX_MS) {
+                    try { TripLog.ev("tftWake", "from" to (if (ackedFrame != holdAck) "lateAck" else "timer"), "heldMs" to started - holdSince) } catch (_: Exception) {}
+                    hold = false; lost = 0; needResend = false
+                } else { awaitV2Wake(100); continue }
+            }
             var tag: String? = null
             val fresh = mailbox.getAndSet(null)
             val jpeg: ByteArray = if (needResend && lastJpeg != null) {
@@ -3623,15 +3634,9 @@ object TftLink {
             } else {
                 needResend = tag != "resend"
                 if (tag != "resend") lost++
-                if (!hold && lost >= P727_FREEZE_LOST) {
-                    hold = true; lost = 0
+                if (lost >= P727_FREEZE_LOST) {
+                    hold = true; holdSince = System.currentTimeMillis(); holdAck = ackedFrame
                     try { TripLog.ev("tftFreezeHold") } catch (_: Exception) {}
-                } else if (hold && lost >= P727_RESYNC_LOST) {
-                    p727ResyncN++
-                    try { TripLog.ev("tftResync", "lostStreak" to lost, "n" to p727ResyncN) } catch (_: Exception) {}
-                    p727ResyncAt = System.currentTimeMillis()
-                    try { activeSocket?.close() } catch (_: Exception) {}
-                    break
                 }
             }
             val rest = P727_MIN_INTERVAL_MS - (System.currentTimeMillis() - started)

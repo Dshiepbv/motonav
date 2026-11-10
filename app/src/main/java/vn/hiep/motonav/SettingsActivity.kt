@@ -805,10 +805,8 @@ class SettingsActivity : Activity() {
             null,
             listOf("Như bản 7.27-v2 (PIPE V2, JPEG 14)", "Kiểu NmaxConnect (có ACK là gửi ngay)", "Kiểu MotoNav (theo mốc gửi ảnh)"),
             prefs.tftSendMode.coerceIn(0, 2),
-            note = "7.27-v2: chép nguyên cách gửi bản 7.27 (chờ ACK 1,2 s, quá hạn thì gửi khung mới, kẹt 2 lần thì chỉ giữ kết nối mỗi 6 s), áp dụng ở lần kết nối kế tiếp. NmaxConnect: có ACK là gửi ảnh mới ngay, ảnh không đổi gửi lại mỗi 1 giây, ghi cả khung một lần. MotoNav: dùng \"Mốc gửi ảnh\" bên dưới, ghi giãn 15 ms/KB. Cả hai đều chỉ 1 khung chờ ACK. Đổi là áp dụng ngay.",
+            note = "7.27-v2: chờ ACK 300 ms, khung mất thì gửi lại 1 lần, màn kẹt thì ngừng gửi chờ màn tỉnh (không ngắt kết nối), áp dụng ở lần kết nối kế tiếp. NmaxConnect: có ACK là gửi ảnh mới ngay, ảnh không đổi gửi lại mỗi 1 giây, ghi cả khung một lần. MotoNav: dùng \"Mốc gửi ảnh\" bên dưới, ghi giãn 15 ms/KB. Cả hai đều chỉ 1 khung chờ ACK. Đổi là áp dụng ngay.",
         ) { prefs.tftSendMode = it; prefs.tftNmaxStyle = (it == 1); TftLink.nmaxStyle = (it == 1); TftLink.send727 = (it == 0); TftLink.FAST400 = (it != 0) }
-        toggle("Thử nghiệm: nghe BLE của xe", "Chỉ ghi log, quét nhẹ, tự ngừng khi xe im", prefs.bleWatch,
-            note = "Nghe gói quảng bá BLE của xe để đối chiếu với các lần kẹt 10 s. Quét nhẹ (25% thời gian); xe im quá 3 s thì tự ngừng quét 20 s cho đường truyền ảnh. Áp dụng ở lần kết nối kế tiếp.") { prefs.bleWatch = it; if (!it) BikeBleWatch.stop(this) }
         run {
             val steps = (1..12).map { it * 100 }
             choice(
@@ -1012,39 +1010,6 @@ class SettingsActivity : Activity() {
             }
             refresh()
         }
-        val ccuStatus = when {
-            CcuAuth.running -> "🔄 Đang hỏi xe…"
-            CcuAuth.ccuCode != null -> "✅ Mã CCU: \"${CcuAuth.ccuCode}\" · Passkey: \"${CcuAuth.passkey}\""
-            CcuAuth.error != null -> "⚠️ ${CcuAuth.error}"
-            else -> "Chưa thử"
-        }
-        action("Thử nghiệm: dò mã CCU + passkey (bước 1 BLE)", ccuStatus, note = "Bước đầu để làm hiện icon dẫn đường trên màn xe — xong tự chuyển sang bước 2+3.") {
-            if (!hasBleScanPermission() || !hasBtPermission()) {
-                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), REQ_BLE_PERM)
-            }
-            CcuAuth.queryOnce(this, prefs.tftDevice)
-            refresh()
-        }
-        val bleStatus = when {
-            CcuBle.running -> "🔄 ${CcuBle.stage}"
-            CcuBle.error != null -> "⚠️ ${CcuBle.error}"
-            CcuBle.authError != null -> "⚠️ Đăng ký ${CcuBle.subscribedCount}/${CcuBle.expectedCount} OK, nhưng bước gửi xác thực lỗi: ${CcuBle.authError}"
-            CcuBle.subscribedCount > 0 -> "✅ Đăng ký ${CcuBle.subscribedCount}/${CcuBle.expectedCount} · ${CcuBle.authStage}"
-            else -> "Chưa thử"
-        }
-        val bleNote = buildString {
-            append("Cần bấm bước 1 lấy mã CCU trước. Quét BLE tìm đúng màn xe, kết nối GATT, đăng ký nhận dữ liệu rồi gửi hello + xác thực.")
-            CcuBle.missingChars?.let { append("\nChưa đăng ký được: "); append(it) }
-            CcuBle.lastNotify?.let { append("\nXe phản hồi gần nhất: "); append(it) }
-        }
-        action("Thử nghiệm: quét + kết nối BLE + xác thực (bước 2+3)", bleStatus, note = bleNote) {
-            if (!hasBleScanPermission() || !hasBtPermission()) {
-                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), REQ_BLE_PERM)
-            } else {
-                CcuBle.connectOnce(this, prefs.tftDevice, CcuAuth.ccuCode, CcuAuth.passkey)
-            }
-            refresh()
-        }
     }
 
     private fun fillDeviceGuides() {
@@ -1077,10 +1042,6 @@ class SettingsActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_BT_PERM && hasBtPermission()) {
             prefs.tftLink = true
-            refresh()
-        }
-        if (requestCode == REQ_BLE_PERM && hasBtPermission() && hasBleScanPermission()) {
-            CcuBle.connectOnce(this, prefs.tftDevice, CcuAuth.ccuCode, CcuAuth.passkey)
             refresh()
         }
     }
