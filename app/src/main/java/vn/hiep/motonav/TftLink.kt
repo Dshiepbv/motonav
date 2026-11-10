@@ -2089,7 +2089,7 @@ object TftLink {
         // A/B phút lẻ "L": ảnh dựng sát mốc 5 s (−800..+400 ms) nén nhẹ hẳn (8) — không né, mà đổi thứ gửi đúng lúc mốc.
         val nowWq = System.currentTimeMillis()
         val offQ = tickOffset(nowWq)
-        val jq = 80 // build-389 (Sếp): như NmaxConnect (22 nhìn xấu)
+        val jq = 22 // build-400 (Sếp 10/11): về lại JPEG 22 (80 → khung 20–22 KB, xe tạm dừng liên tục)
         lastJpegQ = jq
         bmp.compress(Bitmap.CompressFormat.JPEG, jq, out)
         // build-390: trần dung lượng — AutoMaxi ghi nhận khung quá lớn làm màn xe đen; maxdash đo tới ~20 KB vẫn ổn.
@@ -3165,7 +3165,7 @@ object TftLink {
                         resetPhaseLearning()
                         dashPaused = false
                         try { TripLog.ev("tftSession", "phase" to "reset", "origin" to "post-handshake",
-                            "jpegQuality" to 80, "nmaxStyle" to nmaxStyle, "stepMs" to stepMs, "safetyMs" to safetyMs, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
+                            "jpegQuality" to 22, "nmaxStyle" to nmaxStyle, "stepMs" to stepMs, "safetyMs" to safetyMs, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
                         sendInitBurst()
                     }
                 }
