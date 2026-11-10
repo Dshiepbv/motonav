@@ -2961,7 +2961,9 @@ object TftLink {
                     lastError = "Không gọi được tới xe (lần $failCount)"
                 }
             }
-            sleepQuiet(4_000)
+            // build-403: bản 7.27 thật đóng socket khi màn đứng (tftResync) rồi gọi lại ngay ~1 s, không chờ 4 s.
+            if (p727ResyncAt != 0L && System.currentTimeMillis() - p727ResyncAt < 5_000L) { p727ResyncAt = 0L; sleepQuiet(300) }
+            else sleepQuiet(4_000)
         }
     }
 
@@ -3521,19 +3523,20 @@ object TftLink {
         }
     }
 
-    // ===== build-401 (Sếp 10/11): dựng lại nguyên cách gửi của bản 7.27-v2-pipe (= PIPE V2 build 341, commit 10f41bf) =====
-    // Chép nguyên logic: gửi khung → chờ ACK tối đa 1,2 s (có khung mới hơn thì thôi chờ) → quá hạn thì bỏ qua, gửi khung mới;
-    // 2 lần quá hạn liên tiếp → "freeze-hold": chỉ gửi lại khung cuối mỗi 6 s tới khi có ACK; tỉnh lại thì 6 s gửi theo nhịp ACK;
-    // bình thường tối thiểu 700 ms/khung; không có ảnh mới thì gửi lại khung cũ sau 2,5 s; ghi giãn 15 ms/KB; JPEG 14.
-    private const val P727_ACK_WAIT_MS = 1200L
-    private const val P727_MIN_INTERVAL_MS = 700L
+    // ===== build-403 (Sếp 10/11): chép theo log của chính bản 7.27-v2-pipe Sếp chạy tối 10/11 (bản 401/402 chép nhầm thông số build 341) =====
+    // Log 7.27 thật: tftPipe ackWaitMs 300 / minIntervalMs 320; không bao giờ ngừng gửi (~2–3 khung/s, 4–6,5 KB);
+    // khung không ACK sau 300 ms → bỏ, khung kế tiếp là GỬI LẠI cùng ảnh với seq mới (tftResend afterMs 350);
+    // 3 khung mất liền → tftFreezeHold; thêm 4 khung mất → tftResync: đóng socket, gọi lại ngay (~1,3 s), bắt tay lại.
+    private const val P727_ACK_WAIT_MS = 300L
+    private const val P727_MIN_INTERVAL_MS = 320L
     private const val P727_KEEPALIVE_MS = 2500L
-    private const val P727_FREEZE_TIMEOUTS = 2
-    private const val P727_FREEZE_KEEPALIVE_MS = 6000L
-    private const val P727_DRAIN_MS = 6000L
-    @Volatile private var p727WakeNow = false
+    private const val P727_FREEZE_LOST = 3
+    private const val P727_RESYNC_LOST = 4
+    @Volatile private var p727ResyncAt = 0L
+    private var p727ResyncN = 0
 
-    private fun sendFrameWire727(jpeg: ByteArray, tag: String?): Boolean {
+    /** Trả về null nếu lỗi ghi (mất kết nối), true nếu có ACK, false nếu quá 300 ms. */
+    private fun sendFrameWire727(jpeg: ByteArray, tag: String?): Boolean? {
         val seq = (frameSeq + 1) and 0xFFFF
         frameSeq = seq
         var body = jpeg
@@ -3550,46 +3553,41 @@ object TftLink {
         val wr0 = System.nanoTime()
         val ok = sendPaced(packet)
         lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt()
-        if (!ok) { lastFrameError = "Gửi khung lỗi (mất kết nối)"; return false }
+        if (!ok) { lastFrameError = "Gửi khung lỗi (mất kết nối)"; return null }
         synchronized(recentFrames) {
             recentFrames.addLast(seq to jpeg)
             while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
         }
         var timedOut = false
-        var preempted = false
         synchronized(ackLock) {
             while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
-                if (tag != "keepalive" && mailbox.get() != null) { preempted = true; break }
                 val left = P727_ACK_WAIT_MS - (System.currentTimeMillis() - sentAt)
                 if (left <= 0) { timedOut = true; break }
                 try { (ackLock as Object).wait(left) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
             }
         }
         val waited = System.currentTimeMillis() - sentAt
-        val lost = timedOut || preempted
-        lastFrameAckMs = if (lost) P727_ACK_WAIT_MS else waited
-        p727WakeNow = v2PrevTimedOut && !lost
-        v2PrevTimedOut = lost
-        if (preempted) lastFrameError = "Khung #${seq} bỏ chờ ACK sớm (đã có khung mới hơn)"
-        else if (timedOut) lastFrameError = "Khung #${seq} chưa ACK sau ${P727_ACK_WAIT_MS}ms — bỏ qua, dùng khung mới"
+        lastFrameAckMs = if (timedOut) P727_ACK_WAIT_MS else waited
+        v2PrevTimedOut = timedOut
+        if (timedOut) lastFrameError = "Khung #${seq} chưa ACK sau ${P727_ACK_WAIT_MS}ms"
         else { lastFrameError = null; frameTxCount++ }
         statBytes += jpeg.size
-        recordFrameStat(waited.coerceAtMost(stallWaitMs), lost)
+        recordFrameStat(waited.coerceAtMost(stallWaitMs), timedOut)
         try {
             TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace,
-                "ackMs" to (if (lost) null else lastFrameAckMs), "timedOut" to lost,
-                "lost" to (if (timedOut) true else null), "pre" to (if (preempted) true else null), "tag" to tag, "v" to 727, "q" to jpegQOf(jpeg))
+                "ackMs" to (if (timedOut) null else lastFrameAckMs), "timedOut" to timedOut,
+                "tag" to tag, "v" to 727, "q" to jpegQOf(jpeg))
         } catch (_: Exception) {}
-        return true
+        return !timedOut
     }
 
     private fun txLoop727() {
         var lastJpeg: ByteArray? = null
         var lastAt = 0L
-        var freezeHold = false
-        var consecTo = 0
-        var drainUntil = 0L
-        try { TripLog.ev("tftPipe", "ver" to 727, "ackWaitMs" to P727_ACK_WAIT_MS, "minIntervalMs" to P727_MIN_INTERVAL_MS, "keepaliveMs" to P727_KEEPALIVE_MS) } catch (_: Exception) {}
+        var lost = 0
+        var hold = false
+        var needResend = false
+        try { TripLog.ev("tftPipe", "ver" to 727, "ackWaitMs" to P727_ACK_WAIT_MS, "minIntervalMs" to P727_MIN_INTERVAL_MS, "resend" to 350, "resyncLost" to P727_RESYNC_LOST) } catch (_: Exception) {}
         while (running.get() && connected) {
             val urgent = urgentQ.poll()
             if (urgent != null) {
@@ -3599,61 +3597,45 @@ object TftLink {
                 signalV2Wake()
                 continue
             }
-            val now = System.currentTimeMillis()
-            if (freezeHold) {
-                val fresh = mailbox.getAndSet(null)
-                if (fresh != null) lastJpeg = fresh.jpeg
-                val lj = lastJpeg
-                if (lj != null && lastAt != 0L && now - lastAt >= P727_FREEZE_KEEPALIVE_MS) {
-                    if (!sendFrameWire727(lj, "keepalive")) break
-                    lastAt = System.currentTimeMillis()
-                    v2LastTxAt = lastAt
-                    v2Sent++
-                    if (!v2PrevTimedOut) {
-                        freezeHold = false
-                        p727WakeNow = false
-                        drainUntil = System.currentTimeMillis() + P727_DRAIN_MS
-                        try { TripLog.ev("tftWake", "from" to "keepalive") } catch (_: Exception) {}
-                    }
-                } else awaitV2Wake(300)
-                continue
+            val started = System.currentTimeMillis()
+            var tag: String? = null
+            val fresh = mailbox.getAndSet(null)
+            val jpeg: ByteArray = if (needResend && lastJpeg != null) {
+                // khung trước mất → gửi lại đúng ảnh đó (seq mới), ảnh mới (nếu có) để lượt sau
+                if (fresh != null) mailbox.compareAndSet(null, fresh)
+                tag = "resend"
+                try { TripLog.ev("tftResend", "afterMs" to 350) } catch (_: Exception) {}
+                lastJpeg!!
+            } else if (fresh != null) fresh.jpeg
+            else {
+                val prev = lastJpeg
+                if (prev != null && lastAt != 0L && started - lastAt >= P727_KEEPALIVE_MS) { tag = "keepalive"; prev }
+                else { awaitV2Wake(100); continue }
             }
-            val q = mailbox.getAndSet(null)
-            if (q == null) {
-                val previous = lastJpeg
-                if (previous != null && lastAt != 0L && System.currentTimeMillis() - lastAt >= P727_KEEPALIVE_MS) {
-                    if (!sendFrameWire727(previous, "keepalive")) break
-                    lastAt = System.currentTimeMillis()
-                    v2LastTxAt = lastAt
-                    v2Sent++
-                    p727WakeNow = false
-                } else awaitV2Wake(200)
-                continue
-            }
-            val jpeg = q.jpeg
             lastJpeg = jpeg
-            val started = System.nanoTime()
-            if (!sendFrameWire727(jpeg, null)) break
+            val r = sendFrameWire727(jpeg, tag) ?: break
             lastAt = System.currentTimeMillis()
             v2LastTxAt = lastAt
             v2Sent++
-            if (v2PrevTimedOut) {
-                consecTo++
-                if (consecTo >= P727_FREEZE_TIMEOUTS) {
-                    freezeHold = true
-                    try { TripLog.ev("tftFreezeHold") } catch (_: Exception) {}
-                }
+            if (r) {
+                if (hold) try { TripLog.ev("tftWake", "from" to "frame") } catch (_: Exception) {}
+                lost = 0; hold = false; needResend = false
             } else {
-                consecTo = 0
-                if (p727WakeNow) {
-                    drainUntil = System.currentTimeMillis() + P727_DRAIN_MS
-                    try { TripLog.ev("tftWake", "from" to "frame") } catch (_: Exception) {}
+                needResend = tag != "resend"
+                if (tag != "resend") lost++
+                if (!hold && lost >= P727_FREEZE_LOST) {
+                    hold = true; lost = 0
+                    try { TripLog.ev("tftFreezeHold") } catch (_: Exception) {}
+                } else if (hold && lost >= P727_RESYNC_LOST) {
+                    p727ResyncN++
+                    try { TripLog.ev("tftResync", "lostStreak" to lost, "n" to p727ResyncN) } catch (_: Exception) {}
+                    p727ResyncAt = System.currentTimeMillis()
+                    try { activeSocket?.close() } catch (_: Exception) {}
+                    break
                 }
-                p727WakeNow = false
             }
-            val spent = (System.nanoTime() - started) / 1_000_000L
-            val rest = P727_MIN_INTERVAL_MS - spent
-            if (rest > 0 && System.currentTimeMillis() >= drainUntil) sleepQuiet(rest)
+            val rest = P727_MIN_INTERVAL_MS - (System.currentTimeMillis() - started)
+            if (rest > 0) sleepQuiet(rest)
         }
     }
 
