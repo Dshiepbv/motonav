@@ -317,7 +317,7 @@ class DriveService : Service(), LocationListener {
                 TftLink.themeMode = prefs.tftTheme
                 TftLink.diagMode = prefs.tftDiag
                 TftLink.stepMs = prefs.tftStepMs.toLong().coerceIn(100L, 1200L)
-                TftLink.nmaxStyle = prefs.tftNmaxStyle
+                run { val m = prefs.tftSendMode.coerceIn(0, 2); TftLink.nmaxStyle = (m == 1); TftLink.send727 = (m == 0); TftLink.FAST400 = (m != 0) }
                 TftLink.safetyMs = prefs.tftSafetyS.toLong().coerceIn(2L, 12L) * 1000L
                 TftLink.mapSnapStyle = when {
                     !prefs.tftMapSnap -> null

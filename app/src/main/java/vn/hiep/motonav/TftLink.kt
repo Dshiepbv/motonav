@@ -249,7 +249,9 @@ object TftLink {
     // build-380 (Sếp): nhịp "400/800" — không chờ ACK mới gửi tiếp. T=0 gửi; 400 ms: gửi ảnh mới (hoặc lastJpeg);
     // 800 ms chưa ACK: gửi lại đúng 1 lần ảnh mới nhất; tới ~3,75 s vẫn chưa ACK: giữ đứng, chỉ keepalive mỗi 400 ms.
     // ACK về (bất kỳ khung nào): coi xong, nếu đang trễ thì gửi ngay 1 khung mới nhất, reset bộ đếm.
-    const val FAST400 = true
+    /** build-401 (Sếp): false = dựng lại cách gửi PIPE V2 của bản 7.27-v2 (mặc định); true = FAST400 (bản 383–400). */
+    @Volatile var FAST400 = false
+    @Volatile var send727 = true
     // build-385 (Sếp): mốc 600 chỉnh tay trong Cài đặt › Màn TFT xe (100–1200 ms) để tự thử từng mốc.
     @Volatile var stepMs: Long = 600L
     // build-389 (Sếp): "Cách gửi kiểu NmaxConnect" — có ACK là gửi ảnh mới NGAY (không nghỉ), ảnh không đổi chỉ gửi lại mỗi 1 s,
@@ -2089,7 +2091,7 @@ object TftLink {
         // A/B phút lẻ "L": ảnh dựng sát mốc 5 s (−800..+400 ms) nén nhẹ hẳn (8) — không né, mà đổi thứ gửi đúng lúc mốc.
         val nowWq = System.currentTimeMillis()
         val offQ = tickOffset(nowWq)
-        val jq = 22 // build-400 (Sếp 10/11): về lại JPEG 22 (80 → khung 20–22 KB, xe tạm dừng liên tục)
+        val jq = if (send727) 14 else 22 // build-401: chế độ 7.27 dùng JPEG 14 như bản gốc; build-400 (Sếp 10/11): về lại JPEG 22 (80 → khung 20–22 KB, xe tạm dừng liên tục)
         lastJpegQ = jq
         bmp.compress(Bitmap.CompressFormat.JPEG, jq, out)
         // build-390: trần dung lượng — AutoMaxi ghi nhận khung quá lớn làm màn xe đen; maxdash đo tới ~20 KB vẫn ổn.
@@ -3100,7 +3102,7 @@ object TftLink {
                                 android.os.SystemClock.elapsedRealtime() - sessionStartElapsedMs else -1L
                             try { TripLog.ev("tftAck", "got" to seq, "want" to want, "accepted" to accepted,
                                 "class" to ackClass, "ageMs" to ackAge, "relMs" to rel) } catch (_: Exception) {}
-                            if (FAST400) {
+                            if (FAST400 && !send727) {
                                 val st0 = f4Sent.remove(seq)
                                 if (st0 != null) try { TripLog.ev("tftAck4", "seq" to seq, "ackMs" to (android.os.SystemClock.elapsedRealtime() - st0)) } catch (_: Exception) {}
                             }
@@ -3202,7 +3204,7 @@ object TftLink {
         writeStartedAt = System.currentTimeMillis()
         val t0 = System.nanoTime()
         return try {
-            val pace = if (nmaxStyle) 0L else PACE_MS_PER_KB.toLong()
+            val pace = if (nmaxStyle && !send727) 0L else PACE_MS_PER_KB.toLong()
             lastPace = pace
             if (pace <= 0L) { o.write(bytes); o.flush(); return true }
             var off = 0
@@ -3458,8 +3460,145 @@ object TftLink {
         }
     }
 
+    // ===== build-401 (Sếp 10/11): dựng lại nguyên cách gửi của bản 7.27-v2-pipe (= PIPE V2 build 341, commit 10f41bf) =====
+    // Chép nguyên logic: gửi khung → chờ ACK tối đa 1,2 s (có khung mới hơn thì thôi chờ) → quá hạn thì bỏ qua, gửi khung mới;
+    // 2 lần quá hạn liên tiếp → "freeze-hold": chỉ gửi lại khung cuối mỗi 6 s tới khi có ACK; tỉnh lại thì 6 s gửi theo nhịp ACK;
+    // bình thường tối thiểu 700 ms/khung; không có ảnh mới thì gửi lại khung cũ sau 2,5 s; ghi giãn 15 ms/KB; JPEG 14.
+    private const val P727_ACK_WAIT_MS = 1200L
+    private const val P727_MIN_INTERVAL_MS = 700L
+    private const val P727_KEEPALIVE_MS = 2500L
+    private const val P727_FREEZE_TIMEOUTS = 2
+    private const val P727_FREEZE_KEEPALIVE_MS = 6000L
+    private const val P727_DRAIN_MS = 6000L
+    @Volatile private var p727WakeNow = false
+
+    private fun sendFrameWire727(jpeg: ByteArray, tag: String?): Boolean {
+        val seq = (frameSeq + 1) and 0xFFFF
+        frameSeq = seq
+        var body = jpeg
+        if (body.size <= 2048) body = body.copyOf(2050)
+        val payload = ByteArray(body.size + 3)
+        payload[0] = 3
+        payload[1] = (seq and 0xFF).toByte()
+        payload[2] = ((seq ushr 8) and 0xFF).toByte()
+        System.arraycopy(body, 0, payload, 3, body.size)
+        val sentAt = System.currentTimeMillis()
+        waitingSeq = seq
+        waitingSentAt = sentAt
+        val packet = pack(payload, 0, 1)
+        val wr0 = System.nanoTime()
+        val ok = sendPaced(packet)
+        lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt()
+        if (!ok) { lastFrameError = "Gửi khung lỗi (mất kết nối)"; return false }
+        synchronized(recentFrames) {
+            recentFrames.addLast(seq to jpeg)
+            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
+        }
+        var timedOut = false
+        var preempted = false
+        synchronized(ackLock) {
+            while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
+                if (tag != "keepalive" && mailbox.get() != null) { preempted = true; break }
+                val left = P727_ACK_WAIT_MS - (System.currentTimeMillis() - sentAt)
+                if (left <= 0) { timedOut = true; break }
+                try { (ackLock as Object).wait(left) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+            }
+        }
+        val waited = System.currentTimeMillis() - sentAt
+        val lost = timedOut || preempted
+        lastFrameAckMs = if (lost) P727_ACK_WAIT_MS else waited
+        p727WakeNow = v2PrevTimedOut && !lost
+        v2PrevTimedOut = lost
+        if (preempted) lastFrameError = "Khung #${seq} bỏ chờ ACK sớm (đã có khung mới hơn)"
+        else if (timedOut) lastFrameError = "Khung #${seq} chưa ACK sau ${P727_ACK_WAIT_MS}ms — bỏ qua, dùng khung mới"
+        else { lastFrameError = null; frameTxCount++ }
+        statBytes += jpeg.size
+        recordFrameStat(waited.coerceAtMost(stallWaitMs), lost)
+        try {
+            TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace,
+                "ackMs" to (if (lost) null else lastFrameAckMs), "timedOut" to lost,
+                "lost" to (if (timedOut) true else null), "pre" to (if (preempted) true else null), "tag" to tag, "v" to 727, "q" to jpegQOf(jpeg))
+        } catch (_: Exception) {}
+        return true
+    }
+
+    private fun txLoop727() {
+        var lastJpeg: ByteArray? = null
+        var lastAt = 0L
+        var freezeHold = false
+        var consecTo = 0
+        var drainUntil = 0L
+        try { TripLog.ev("tftPipe", "ver" to 727, "ackWaitMs" to P727_ACK_WAIT_MS, "minIntervalMs" to P727_MIN_INTERVAL_MS, "keepaliveMs" to P727_KEEPALIVE_MS) } catch (_: Exception) {}
+        while (running.get() && connected) {
+            val urgent = urgentQ.poll()
+            if (urgent != null) {
+                v2Urgent++
+                val o = out ?: break
+                try { o.write(urgent); o.flush() } catch (_: IOException) { break }
+                signalV2Wake()
+                continue
+            }
+            val now = System.currentTimeMillis()
+            if (freezeHold) {
+                val fresh = mailbox.getAndSet(null)
+                if (fresh != null) lastJpeg = fresh.jpeg
+                val lj = lastJpeg
+                if (lj != null && lastAt != 0L && now - lastAt >= P727_FREEZE_KEEPALIVE_MS) {
+                    if (!sendFrameWire727(lj, "keepalive")) break
+                    lastAt = System.currentTimeMillis()
+                    v2LastTxAt = lastAt
+                    v2Sent++
+                    if (!v2PrevTimedOut) {
+                        freezeHold = false
+                        p727WakeNow = false
+                        drainUntil = System.currentTimeMillis() + P727_DRAIN_MS
+                        try { TripLog.ev("tftWake", "from" to "keepalive") } catch (_: Exception) {}
+                    }
+                } else awaitV2Wake(300)
+                continue
+            }
+            val q = mailbox.getAndSet(null)
+            if (q == null) {
+                val previous = lastJpeg
+                if (previous != null && lastAt != 0L && System.currentTimeMillis() - lastAt >= P727_KEEPALIVE_MS) {
+                    if (!sendFrameWire727(previous, "keepalive")) break
+                    lastAt = System.currentTimeMillis()
+                    v2LastTxAt = lastAt
+                    v2Sent++
+                    p727WakeNow = false
+                } else awaitV2Wake(200)
+                continue
+            }
+            val jpeg = q.jpeg
+            lastJpeg = jpeg
+            val started = System.nanoTime()
+            if (!sendFrameWire727(jpeg, null)) break
+            lastAt = System.currentTimeMillis()
+            v2LastTxAt = lastAt
+            v2Sent++
+            if (v2PrevTimedOut) {
+                consecTo++
+                if (consecTo >= P727_FREEZE_TIMEOUTS) {
+                    freezeHold = true
+                    try { TripLog.ev("tftFreezeHold") } catch (_: Exception) {}
+                }
+            } else {
+                consecTo = 0
+                if (p727WakeNow) {
+                    drainUntil = System.currentTimeMillis() + P727_DRAIN_MS
+                    try { TripLog.ev("tftWake", "from" to "frame") } catch (_: Exception) {}
+                }
+                p727WakeNow = false
+            }
+            val spent = (System.nanoTime() - started) / 1_000_000L
+            val rest = P727_MIN_INTERVAL_MS - spent
+            if (rest > 0 && System.currentTimeMillis() >= drainUntil) sleepQuiet(rest)
+        }
+    }
+
     /** TX worker duy nhất: ưu tiên gói điều khiển, sau đó gửi khung mới nhất trong mailbox. */
     private fun txLoopV2() {
+        if (send727) { txLoop727(); return }
         if (FAST400) { txLoopFast400(); return }
         var lastJpeg: ByteArray? = null
         var lastAt = 0L

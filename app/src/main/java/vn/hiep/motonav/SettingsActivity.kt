@@ -803,10 +803,10 @@ class SettingsActivity : Activity() {
         choice(
             "Cách gửi ảnh",
             null,
-            listOf("Kiểu NmaxConnect (có ACK là gửi ngay)", "Kiểu MotoNav (theo mốc gửi ảnh)"),
-            if (prefs.tftNmaxStyle) 0 else 1,
-            note = "NmaxConnect: có ACK là gửi ảnh mới ngay, ảnh không đổi gửi lại mỗi 1 giây, ghi cả khung một lần. MotoNav: dùng \"Mốc gửi ảnh\" bên dưới, ghi giãn 15 ms/KB. Cả hai đều chỉ 1 khung chờ ACK. Đổi là áp dụng ngay.",
-        ) { prefs.tftNmaxStyle = (it == 0); TftLink.nmaxStyle = (it == 0) }
+            listOf("Như bản 7.27-v2 (PIPE V2, JPEG 14)", "Kiểu NmaxConnect (có ACK là gửi ngay)", "Kiểu MotoNav (theo mốc gửi ảnh)"),
+            prefs.tftSendMode.coerceIn(0, 2),
+            note = "7.27-v2: chép nguyên cách gửi bản 7.27 (chờ ACK 1,2 s, quá hạn thì gửi khung mới, kẹt 2 lần thì chỉ giữ kết nối mỗi 6 s), áp dụng ở lần kết nối kế tiếp. NmaxConnect: có ACK là gửi ảnh mới ngay, ảnh không đổi gửi lại mỗi 1 giây, ghi cả khung một lần. MotoNav: dùng \"Mốc gửi ảnh\" bên dưới, ghi giãn 15 ms/KB. Cả hai đều chỉ 1 khung chờ ACK. Đổi là áp dụng ngay.",
+        ) { prefs.tftSendMode = it; prefs.tftNmaxStyle = (it == 1); TftLink.nmaxStyle = (it == 1); TftLink.send727 = (it == 0); TftLink.FAST400 = (it != 0) }
         toggle("Thử nghiệm: nghe BLE của xe", "Chỉ ghi log, quét nhẹ, tự ngừng khi xe im", prefs.bleWatch,
             note = "Nghe gói quảng bá BLE của xe để đối chiếu với các lần kẹt 10 s. Quét nhẹ (25% thời gian); xe im quá 3 s thì tự ngừng quét 20 s cho đường truyền ảnh. Áp dụng ở lần kết nối kế tiếp.") { prefs.bleWatch = it; if (!it) BikeBleWatch.stop(this) }
         run {

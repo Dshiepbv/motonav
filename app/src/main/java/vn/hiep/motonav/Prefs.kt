@@ -114,6 +114,10 @@ class Prefs(ctx: Context) {
     var tftNmaxStyle: Boolean
         get() = sp.getBoolean("tftNmaxStyle", true)
         set(v) = sp.edit().putBoolean("tftNmaxStyle", v).apply()
+    /** build-401: 0 = như bản 7.27-v2 (mặc định), 1 = NmaxConnect, 2 = MotoNav (mốc gửi). */
+    var tftSendMode: Int
+        get() = sp.getInt("tftSendMode", 0)
+        set(v) = sp.edit().putInt("tftSendMode", v).apply()
     /** build-394: nghe gói BLE của xe (thử nghiệm) — build-395: bật sẵn, quét nhẹ (BALANCED) + tự ngừng khi xe im > 3 s. */
     var bleWatch: Boolean
         get() = sp.getBoolean("bleWatch2", true)
