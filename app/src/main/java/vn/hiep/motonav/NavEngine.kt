@@ -76,6 +76,7 @@ class NavEngine(
         Live.destLat = lat
         Live.destLon = lon
         Live.destName = name
+        Live.destFlag = true
         Live.route = null
         Live.routeError = null
         seg = 0
@@ -579,9 +580,10 @@ class NavEngine(
         // (log thực tế: đứng/đi rất chậm ~2 phút cách đích 48-85m, không bao giờ vào được ngưỡng cũ).
         // Nới ra: gần như đứng yên một lúc (~20s) trong bán kính rộng hơn (120m) thì coi như đã tới.
         val now2 = SystemClock.elapsedRealtime()
-        if (straightDist < 120 && speedMps < 1.0) {
+        // build-407: log 11/11 22:00 báo tới nơi khi còn 129 m (đứng chờ gần đích) → siết lại: ≤70 m thẳng, ≤90 m theo tuyến, đứng 30 s.
+        if (straightDist < 70 && remaining < 90 && speedMps < 1.0) {
             if (nearDestSince == 0L) nearDestSince = now2
-            if (now2 - nearDestSince > 20_000) {
+            if (now2 - nearDestSince > 30_000) {
                 TripLog.ev("arrived", "remaining" to remaining, "straight" to straightDist, "why" to "stationaryNearDest")
                 learnEta()
                 alert("Đã đến nơi${Live.destName?.let { ": $it" } ?: ""}", "Đã đến nơi", false)

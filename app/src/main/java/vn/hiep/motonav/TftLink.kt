@@ -142,6 +142,7 @@ object TftLink {
         send(speedPacket(0, 3))
         send(gPacket(12, 1))
         lastSentKey = "" // để lần update() kế tiếp gửi lại đúng trạng thái dẫn đường hiện tại
+        lastSentName = "" // build-407: gói đầu ghi đè tên "MotoNav" → gửi lại ngay tên đường đang đi (trước chờ tới khi đổi đường, có lúc 1 phút)
     }
 
     // ---------- Gói tin kênh chữ (sau khi đã bắt tay xong) ----------
@@ -1941,13 +1942,14 @@ object TftLink {
                 fun addPin(la: Double, lo: Double, kind: Int) {
                     val dx = proj.x(lo); val dy = proj.y(la)
                     val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
-                    if (ry < 15.0 || ry > drawAhead || Math.abs(rx) > drawAhead * 0.8) return
+                    if (ry < (if (kind == 2) 0.0 else 15.0) || ry > drawAhead || Math.abs(rx) > drawAhead * 0.8) return
                     val (sx, sy) = toScreen(rx, ry)
                     if (sx.isNaN() || sy.isNaN() || sx < h * 0.06f || sx > w - h * 0.06f || sy < h * 0.12f || sy > h * 0.95f) return
                     pins.add(Triple(sx, sy, kind))
                 }
                 Live.osm?.fuel?.forEach { addPin(it[0], it[1], 0) }
                 Live.tftCams.forEach { addPin(it.lat, it.lon, 1) }
+                if (Live.destFlag && Live.destLat != 0.0) addPin(Live.destLat, Live.destLon, 2)
                 // xa trước, gần sau (ghim gần đè lên ghim xa); tối đa 8 ghim
                 pins.sortBy { it.second }
                 for (pn in pins.takeLast(8)) drawPin(c, pn.first, pn.second, h * 0.06f, pn.third)
@@ -2190,6 +2192,7 @@ object TftLink {
 
     /** Ghim nổi: đầu nhọn chạm (x, y), vòng tròn bán kính r phía trên, biểu tượng trắng bên trong. kind 0 = cây xăng, 1 = camera. */
     private fun drawPin(c: Canvas, x: Float, y: Float, r: Float, kind: Int) {
+        if (kind == 2) { drawFinishFlag(c, x, y, r * 1.25f); return }
         val col = if (kind == 0) Color.rgb(25, 118, 210) else Color.rgb(211, 47, 47)
         val cy = y - r * 1.9f
         val body = android.graphics.Path().apply {
@@ -2212,6 +2215,23 @@ object TftLink {
             c.drawRect(x - r * 0.2f, cy - r * 0.5f, x + r * 0.2f, cy - r * 0.3f, wp)
             c.drawCircle(x, cy + r * 0.03f, r * 0.24f, Paint().apply { color = col; style = Paint.Style.FILL; isAntiAlias = true })
         }
+    }
+
+    /** build-407: cờ đích ca-rô cắm tại điểm tới, chân cột ở (x, y). */
+    private fun drawFinishFlag(c: Canvas, x: Float, y: Float, r: Float) {
+        val poleTop = y - r * 3.2f
+        val pole = Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = r * 0.32f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+        val poleIn = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r * 0.14f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+        c.drawLine(x, y, x, poleTop, pole)
+        c.drawLine(x, y, x, poleTop, poleIn)
+        val fw = r * 2.2f; val fh = r * 1.5f
+        val left = x + r * 0.1f; val top = poleTop
+        c.drawRect(left - r * 0.08f, top - r * 0.08f, left + fw + r * 0.08f, top + fh + r * 0.08f, Paint().apply { color = Color.BLACK; style = Paint.Style.FILL })
+        val cw = fw / 4f; val ch = fh / 3f
+        val wP = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL }
+        val bP = Paint().apply { color = Color.BLACK; style = Paint.Style.FILL }
+        for (i in 0 until 4) for (j in 0 until 3) c.drawRect(left + i * cw, top + j * ch, left + (i + 1) * cw, top + (j + 1) * ch, if ((i + j) % 2 == 0) wP else bP)
+        c.drawCircle(x, y, r * 0.22f, Paint().apply { color = Color.rgb(211, 47, 47); style = Paint.Style.FILL; isAntiAlias = true })
     }
 
     /** Vẽ biểu tượng chỉ dẫn kiểu Garmin trong ô vuông cạnh [sz] tâm (cx, cy). Toạ độ đơn vị -0.5..0.5, y hướng xuống. */

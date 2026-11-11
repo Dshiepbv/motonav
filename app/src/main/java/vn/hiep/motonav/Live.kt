@@ -53,6 +53,8 @@ object Live {
     @Volatile var routeStatus: String? = null
     @Volatile var routeError: String? = null
     @Volatile var destLat = 0.0
+    /** build-407: cờ đích trên TFT — bật khi bắt đầu dẫn đường, giữ cả sau khi tới nơi cho tới lần dẫn đường mới. */
+    @Volatile var destFlag = false
     @Volatile var destLon = 0.0
     @Volatile var destName: String? = null
     @Volatile var remainingM = 0.0
