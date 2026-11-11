@@ -2025,7 +2025,8 @@ object TftLink {
         // nhau (trắng, viền đỏ, chữ đen) để đối xứng 2 bên, cùng ngang hàng với tam giác vị trí xe
         // (anchorY), theo yêu cầu mới nhất. Trước đây khung còn lại nằm dưới biển tốc độ, dạng chữ
         // trần không khung — nay gộp lại 1 dòng và đóng khung y hệt ETA.
-        if (skActive && skRoute != null) {
+        // build-408 (Sếp): bỏ 2 ô ETA/còn lại khỏi ảnh — ETA, thời gian và km còn lại giờ hiện trên thanh chữ của màn xe (gói tên).
+        if (false && skActive && skRoute != null) {
             val remKm = skRemainingM / 1000.0
             val remTxt = if (remKm >= 10) "${remKm.toInt()} km" else String.format("%.1f km", remKm)
             val remMin = (skEtaMs / 60000L).toInt()
@@ -3892,6 +3893,14 @@ object TftLink {
      * Gọi liên tục (khoảng mỗi giây) từ dịch vụ chạy nền khi đang dẫn đường. Tự lọc trùng để
      * không gửi lại những gì chưa đổi — giữ đúng tinh thần "kênh chữ nhẹ" không nghẽn Bluetooth.
      */
+    private fun etaBarText(): String {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
+        val remMin = (skEtaMs / 60000L).toInt()
+        val km = skRemainingM / 1000.0
+        val kmTxt = (if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')) + " km"
+        return String.format(java.util.Locale.US, "ETA: %02d:%02d - %02d:%02d - ", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), remMin / 60, remMin % 60) + kmTxt
+    }
+
     fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, currentStreet: String, etaMinutes: Int) {
         if (!authed) return
         if (textOffNow()) { textWasOff = true; return }
@@ -3902,7 +3911,8 @@ object TftLink {
         // tự vẽ cố định góc trên-trái khung ảnh (xem buildSketchFrame). Rơi về "MotoNav" khi chưa
         // dẫn đường hoặc chưa map-match ra tên đường. Tách khỏi "active" ở dưới để vẫn cập nhật được
         // kể cả lúc không dẫn đường, chỉ gửi khi thật sự đổi để không tốn băng thông.
-        val wantName = if (currentStreet.isNotBlank()) currentStreet else "MotoNav"
+        // build-408 (Sếp): thanh chữ của màn xe không hiện tên đường nữa mà hiện "ETA: giờ đến - thời gian còn lại - km còn lại".
+        val wantName = if (active && skEtaMs > 0L) etaBarText() else "MotoNav"
         if (wantName != lastSentName) {
             send(namePacket(wantName))
             lastSentName = wantName
