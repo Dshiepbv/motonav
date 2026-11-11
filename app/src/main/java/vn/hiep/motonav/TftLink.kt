@@ -2962,7 +2962,8 @@ object TftLink {
                 }
             }
             // build-403: bản 7.27 thật đóng socket khi màn đứng (tftResync) rồi gọi lại ngay ~1 s, không chờ 4 s.
-            if (p727ResyncAt != 0L && System.currentTimeMillis() - p727ResyncAt < 5_000L) { p727ResyncAt = 0L; sleepQuiet(300) }
+            if (deadReconnectAt != 0L && System.currentTimeMillis() - deadReconnectAt < 5_000L) { deadReconnectAt = 0L; sleepQuiet(500) }
+            else if (p727ResyncAt != 0L && System.currentTimeMillis() - p727ResyncAt < 5_000L) { p727ResyncAt = 0L; sleepQuiet(300) }
             else sleepQuiet(4_000)
         }
     }
@@ -3436,6 +3437,9 @@ object TftLink {
     // - ACK về: gửi ảnh chờ mới nhất, nhưng không sớm hơn 400 ms kể từ lúc gửi khung trước (nhịp 400).
     // - Không có khung bay & không có ảnh mới: keepalive lastJpeg mỗi 400 ms.
     // - An toàn: chờ quá safetyMs (dash bỏ hẳn khung) → gửi lại 1 bản ảnh mới nhất rồi lại chờ.
+    private const val DEAD41_MS = 6000L
+    private const val DEAD_ACK_MS = 15000L
+    @Volatile private var deadReconnectAt = 0L
     @Volatile var safetyMs: Long = 9000L // build-386: chỉnh tay 2–12 s trong Cài đặt
     private fun txLoopFast400() {
         var lastJpeg: ByteArray? = null
@@ -3497,9 +3501,16 @@ object TftLink {
                         TripLog.ev("tftLoadingStart", "source" to "ack_timeout_proxy", "visualConfirmed" to false)
                     } catch (_: Exception) {}
                 }
-                // build-405: log 404 cho thấy xe giữ lại MỌI khung gửi trong lúc kẹt rồi ACK dồn ~5 s sau; 12 khung dồn (~110 KB)
-                // → 0x41 im rồi rớt Bluetooth. Nên mỗi lần kẹt chỉ được gửi thêm TỐI ĐA 1 bản an toàn (≤2 khung chưa ACK).
-                if (el >= safetyMs && now - lastSendAt >= safetyMs && f4Series.size < 2) tag = "safety"
+                // build-406: log 11/11 — cả 2 lần màn chết đều ngay/sau bản "an toàn" gửi lúc màn đang kẹt → bỏ hẳn bản an toàn.
+                // Màn chết (xe ngừng gửi tốc độ 0x41 ≥ 6 s) hoặc chờ ACK ≥ 15 s → đóng socket, gọi lại ngay (19:48 màn chết 7 phút
+                // mà Bluetooth không tự rớt; 20:04 Bluetooth tự rớt thì app nối lại 2 s là có hình).
+                val s41 = msSinceBike41()
+                if ((s41 >= DEAD41_MS && el >= DEAD41_MS) || el >= DEAD_ACK_MS) {
+                    try { TripLog.ev("tftDeadReconnect", "since41" to s41, "waitMs" to el) } catch (_: Exception) {}
+                    deadReconnectAt = System.currentTimeMillis()
+                    try { activeSocket?.close() } catch (_: Exception) {}
+                    break
+                }
             } else if (nmaxStyle) {
                 review()
                 tag = if (pending != null) "next" else if (lastJpeg != null && now - lastSendAt >= 1000L) "keepalive" else null
