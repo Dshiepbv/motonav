@@ -787,7 +787,7 @@ class DriveService : Service(), LocationListener {
 
     private fun updateWeather() {
         val r = Live.route
-        if (!prefs.weather || prefs.batterySaver || !Live.ownNav || r == null) {
+        if (true || !prefs.weather || prefs.batterySaver || !Live.ownNav || r == null) { // build-438 (Sếp): bỏ hẳn thời tiết
             if (Live.wxJson != null) {
                 Live.wxJson = null
                 Live.wxSummary = null
