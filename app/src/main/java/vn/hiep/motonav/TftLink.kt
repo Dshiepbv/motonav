@@ -2003,7 +2003,9 @@ object TftLink {
         val lim = skLimitKmh
         var limBottomY = h * 0.03f
         if (lim != null && lim > 0) {
-            val cx = if (panels) w * 0.158f else w * 0.90f; val cy = if (panels) h * 0.45f else h * 0.16f; val r = if (panels) h * 0.10f else h * 0.105f
+            // build-433 (Sếp): sắp đổi tốc độ → biển hiện tại ngang nút +, biển kế tiếp ngang nút −.
+            val nextOn = skNextLimit.let { it != null && it > 0 && it < lim } && skNextLimitDist in 0..100
+            val cx = if (panels) w * 0.158f else w * 0.90f; val cy = if (panels) (if (nextOn) h * 0.34f else h * 0.45f) else h * 0.16f; val r = if (panels) h * 0.10f else h * 0.105f
             val ringPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.FILL; isAntiAlias = true }
             val facePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
             val numPaint = Paint().apply { color = Color.BLACK; textSize = r * 1.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
@@ -2017,7 +2019,7 @@ object TftLink {
             val nd = skNextLimitDist
             if (nl != null && nl > 0 && nl < lim && nd in 0..100) {
                 // build-410 (Sếp): biển sắp đổi chuyển xuống DƯỚI biển tốc độ (bên cạnh dành cho biển cấm rẽ).
-                val nr = r * 0.8f; val ncx = if (panels) w * 0.90f else cx; val ncy = if (panels) h * 0.16f else cy + r + h * 0.04f + nr
+                val nr = r * 0.8f; val ncx = cx; val ncy = if (panels) h * 0.555f else cy + r + h * 0.04f + nr
                 c.drawCircle(ncx, ncy, nr, ringPaint)
                 c.drawCircle(ncx, ncy, nr * 0.78f, facePaint)
                 val np = Paint(numPaint).apply { textSize = nr * 1.15f }
@@ -2027,7 +2029,7 @@ object TftLink {
                 val arcPaint = Paint().apply { color = Color.rgb(255, 196, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 c.drawArc(android.graphics.RectF(ncx - arcR, ncy - arcR, ncx + arcR, ncy + arcR), -90f, 360f * nd / 100f, false, arcPaint)
                 val dp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.075f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                c.drawText("$nd m", ncx - arcR - h * 0.012f - dp.measureText("$nd m") / 2f, ncy + h * 0.025f, dp)
+                if (!panels) c.drawText("$nd m", ncx - arcR - h * 0.012f - dp.measureText("$nd m") / 2f, ncy + h * 0.025f, dp)
                 limBottomY = ncy + arcR
             }
         }
@@ -2036,7 +2038,7 @@ object TftLink {
             val nt = Live.signsAhead.firstOrNull { (it.first == SignType.NO_LEFT || it.first == SignType.NO_RIGHT || it.first == SignType.NO_UTURN) && it.third <= 150 }
             if (skActive && nt != null) {
                 val r = h * 0.105f
-                val cx = if (lim != null && lim > 0 && !panels) w * 0.90f - r * 2.4f else if (panels && skNextLimit != null && skNextLimitDist in 0..100) w * 0.90f - r * 2.6f else w * 0.90f
+                val cx = if (lim != null && lim > 0 && !panels) w * 0.90f - r * 2.4f else w * 0.90f
                 drawNoTurnSign(c, cx, h * 0.16f, r, nt.first)
                 if (nt.third >= 0) {
                     val dp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.065f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
