@@ -964,6 +964,7 @@ object TftLink {
     const val VIEW_SCALE = 0.7
     const val PANEL_W_FRAC = 0.22f   // build-424: khung đen bên trái
     const val BOTTOM_H_FRAC = 0.155f // build-424: dải đen dưới
+    const val FW_TOP_FRAC = 0.77f    // build-426: mép trên thanh firmware dưới của đồng hồ (ảnh 12/11: che từ ~0.78h)
     // Mức zoom theo tốc độ (0=xa/>=40, 1=vừa/20-39, 2=gần/<20) — nhớ lại mức trước đó và chỉ đổi
     // khi tốc độ vượt hẳn qua ngưỡng (có biên trễ ~2-3km/h mỗi bên) để đứng yên/chạy chậm quanh
     // mốc 20km/h không làm bản đồ zoom ra zoom vào liên tục do nhiễu tốc độ GPS.
@@ -1242,7 +1243,7 @@ object TftLink {
                 // dưới tâm ảnh khi nghiêng 60° so với 45°, camera MapLibre fov 36,87°) để xe vẫn nằm đúng chỗ cũ.
                 // build-424 (Sếp): xe cao lên chút (0.22 → 0.16) + bản đồ dời sang phải né khung đen bên trái:
                 // tâm camera lệch sang TRÁI hướng đi nửa bề rộng khung → xe nằm giữa phần bản đồ còn lại.
-                val aheadM = (0.16 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.54
+                val aheadM = (-0.02 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.54 // build-426: xe ~0.48h (né thanh firmware dưới)
                 val sideM = if (skActive) (w * PANEL_W_FRAC / 2.0) * mPerPx * 0.95 else 0.0
                 val tLat = skLat + (cosH * aheadM + sinH * sideM) / 110540.0
                 val tLon = skLon + (sinH * aheadM - cosH * sideM) / (111320.0 * Math.cos(Math.toRadians(skLat)))
@@ -1979,10 +1980,13 @@ object TftLink {
         c.drawPath(carPath, carPaint)
         // Biển tốc độ tối đa, góc trên bên phải — theo yêu cầu. Vẽ kiểu biển báo VN (viền đỏ, nền
         // trắng, số đen) để nhận ra ngay là giới hạn tốc độ chứ không phải số liệu khác.
+        // build-426: khung đen vẽ TRƯỚC biển tốc độ (biển nằm trong khung, giữa nút + và − của đồng hồ).
+        val panels = skActive && skRoute != null
+        if (panels) drawGarminPanels(c, w, h, dk)
         val lim = skLimitKmh
         var limBottomY = h * 0.03f
         if (lim != null && lim > 0) {
-            val cx = w * 0.90f; val cy = h * 0.16f; val r = h * 0.105f
+            val cx = if (panels) w * 0.158f else w * 0.90f; val cy = if (panels) h * 0.45f else h * 0.16f; val r = if (panels) h * 0.10f else h * 0.105f
             val ringPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.FILL; isAntiAlias = true }
             val facePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
             val numPaint = Paint().apply { color = Color.BLACK; textSize = r * 1.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
@@ -1996,7 +2000,7 @@ object TftLink {
             val nd = skNextLimitDist
             if (nl != null && nl > 0 && nl < lim && nd in 0..100) {
                 // build-410 (Sếp): biển sắp đổi chuyển xuống DƯỚI biển tốc độ (bên cạnh dành cho biển cấm rẽ).
-                val nr = r * 0.8f; val ncx = cx; val ncy = cy + r + h * 0.04f + nr
+                val nr = r * 0.8f; val ncx = if (panels) w * 0.90f else cx; val ncy = if (panels) h * 0.16f else cy + r + h * 0.04f + nr
                 c.drawCircle(ncx, ncy, nr, ringPaint)
                 c.drawCircle(ncx, ncy, nr * 0.78f, facePaint)
                 val np = Paint(numPaint).apply { textSize = nr * 1.15f }
@@ -2015,7 +2019,7 @@ object TftLink {
             val nt = Live.signsAhead.firstOrNull { (it.first == SignType.NO_LEFT || it.first == SignType.NO_RIGHT || it.first == SignType.NO_UTURN) && it.third <= 150 }
             if (skActive && nt != null) {
                 val r = h * 0.105f
-                val cx = if (lim != null && lim > 0) w * 0.90f - r * 2.4f else w * 0.90f
+                val cx = if (lim != null && lim > 0 && !panels) w * 0.90f - r * 2.4f else if (panels && skNextLimit != null && skNextLimitDist in 0..100) w * 0.90f - r * 2.6f else w * 0.90f
                 drawNoTurnSign(c, cx, h * 0.16f, r, nt.first)
                 if (nt.third >= 0) {
                     val dp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.065f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
@@ -2051,7 +2055,6 @@ object TftLink {
         // (anchorY), theo yêu cầu mới nhất. Trước đây khung còn lại nằm dưới biển tốc độ, dạng chữ
         // trần không khung — nay gộp lại 1 dòng và đóng khung y hệt ETA.
         // build-408 (Sếp): bỏ 2 ô ETA/còn lại khỏi ảnh — ETA, thời gian và km còn lại giờ hiện trên thanh chữ của màn xe (gói tên).
-        if (skActive && skRoute != null) drawGarminPanels(c, w, h, dk)
         if (false && skActive && skRoute != null && skEtaMs > 0L) { // build-424: thay bằng khung đen kiểu Garmin
             // build-410 (Sếp): nhóm ETA vẽ vào ảnh, góc dưới bên phải (ngay trên thanh firmware), 1 khung gọn.
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
@@ -2283,12 +2286,14 @@ object TftLink {
     private fun drawGarminPanels(c: Canvas, w: Int, h: Int, dk: Boolean) {
         val pw = w * PANEL_W_FRAC
         val bh = h * BOTTOM_H_FRAC
+        // build-426 (Sếp): thanh firmware dưới của đồng hồ che ~22% đáy ảnh → cả cụm nằm TRÊN mốc FW_TOP; phần dưới tô đen.
+        val hb = h * FW_TOP_FRAC
         val bg = Paint().apply { color = Color.rgb(12, 12, 14); style = Paint.Style.FILL }
         c.drawRect(0f, 0f, pw, h.toFloat(), bg)
-        c.drawRect(0f, h - bh, w.toFloat(), h.toFloat(), bg)
+        c.drawRect(0f, hb - bh, w.toFloat(), h.toFloat(), bg)
         val sep = Paint().apply { color = Color.rgb(70, 70, 76); strokeWidth = 2f }
-        c.drawLine(pw, 0f, pw, h - bh, sep)
-        c.drawLine(0f, h - bh, w.toFloat(), h - bh, sep)
+        c.drawLine(pw, 0f, pw, hb - bh, sep)
+        c.drawLine(0f, hb - bh, w.toFloat(), hb - bh, sep)
         fun tp(sz: Float, bold: Boolean, al: Paint.Align, col: Int = Color.WHITE) = Paint().apply {
             color = col; textSize = sz; isAntiAlias = true; textAlign = al
             typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
@@ -2320,8 +2325,8 @@ object TftLink {
         // --- dải dưới ---
         val lab = tp(h * 0.052f, false, Paint.Align.LEFT, gray)
         val v = tp(h * 0.085f, true, Paint.Align.LEFT)
-        val labY = h - bh + h * 0.055f
-        val valY = h - h * 0.025f
+        val labY = hb - bh + h * 0.055f
+        val valY = hb - h * 0.025f
         val km = skRemainingM / 1000.0
         val kmTxt = (if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')) + " km"
         val padX = w * 0.015f
@@ -2348,7 +2353,7 @@ object TftLink {
             while (s.length > 3 && sp.measureText(s) > avail) s = s.dropLast(2)
             if (s != st) s = s.trimEnd() + "…"
             val mid = padX + leftUsed + w * 0.03f + avail / 2f
-            c.drawText(s, mid, h - bh / 2f - (sp.fontMetrics.ascent + sp.fontMetrics.descent) / 2f, sp)
+            c.drawText(s, mid, hb - bh / 2f - (sp.fontMetrics.ascent + sp.fontMetrics.descent) / 2f, sp)
         }
     }
 
