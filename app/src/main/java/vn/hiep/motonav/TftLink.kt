@@ -1256,7 +1256,7 @@ object TftLink {
                 // dưới tâm ảnh khi nghiêng 60° so với 45°, camera MapLibre fov 36,87°) để xe vẫn nằm đúng chỗ cũ.
                 // build-424 (Sếp): xe cao lên chút (0.22 → 0.16) + bản đồ dời sang phải né khung đen bên trái:
                 // tâm camera lệch sang TRÁI hướng đi nửa bề rộng khung → xe nằm giữa phần bản đồ còn lại.
-                val aheadM = (0.06 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.54 // build-426: xe ~0.48h (né thanh firmware dưới)
+                val aheadM = (0.20 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.54 // build-426: xe ~0.48h (né thanh firmware dưới)
                 val sideM = if (skActive) (w * PANEL_W_FRAC / 2.0) * mPerPx * 0.95 else 0.0
                 val tLat = skLat + (cosH * aheadM + sinH * sideM) / 110540.0
                 val tLon = skLon + (sinH * aheadM - cosH * sideM) / (111320.0 * Math.cos(Math.toRadians(skLat)))
@@ -1855,8 +1855,8 @@ object TftLink {
             // build-379 (Sếp): góc quẹo VUÔNG đúng hình thật, nét thẳng mịn kiểu Waze — bỏ nối cong qua trung điểm
             // (bản 220 bo tròn mọi góc), lọc điểm lệch nhỏ bằng Douglas–Peucker (≤ 2 px) rồi nối đoạn thẳng, góc nhọn (MITER).
             // build-421 (Sếp: "đường dẫn màu tím như Garmin, mịn"): tím hồng viền tím đậm, nối/đầu bo tròn.
-            val casingPaint = Paint().apply { color = Color.rgb(120, 20, 120); style = Paint.Style.STROKE; strokeWidth = 13f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND } // build-427: mảnh hơn (Sếp)
-            val linePaint = Paint().apply { color = Color.rgb(232, 60, 220); style = Paint.Style.STROKE; strokeWidth = 9f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+            val casingPaint = Paint().apply { color = Color.rgb(120, 20, 120); style = Paint.Style.STROKE; strokeWidth = 15f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND } // build-432: tím 11 px (Sếp)
+            val linePaint = Paint().apply { color = Color.rgb(232, 60, 220); style = Paint.Style.STROKE; strokeWidth = 11f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
             fun simplifyPx(pts: List<FloatArray>, eps: Float): List<FloatArray> {
                 if (pts.size < 3) return pts
                 val keep = BooleanArray(pts.size); keep[0] = true; keep[pts.size - 1] = true
@@ -1898,7 +1898,7 @@ object TftLink {
                         if (d < md) { md = d; mi = k }
                     }
                     if (mi >= 0) {
-                        val lead = 60.0; val tail = 60.0 // build-380 (Sếp): mỗi bên 60 m
+                        val lead = 75.0; val tail = 95.0 // build-432 (Sếp): nghiêng 60° làm mũi tên bị bẹp → kéo dài (trước 60/60 m)
                         fun pt(k: Int): DoubleArray = shifted(k)
                         // lùi về trước điểm quẹo
                         val back = ArrayList<DoubleArray>()
@@ -1936,7 +1936,7 @@ object TftLink {
                             val ul = Math.hypot(ux.toDouble(), uy.toDouble()).toFloat()
                             if (ul > 0.5f) {
                                 ux /= ul; uy /= ul
-                                val headL = 13f; val headW = 10f
+                                val headL = 16f; val headW = 11f
                                 // thân mũi tên dừng ở chân đầu mũi tên để đầu nhọn gọn
                                 val bx = ex[0] - ux * headL * 0.7f; val by = ex[1] - uy * headL * 0.7f
                                 val shaft = android.graphics.Path().apply {
@@ -1990,8 +1990,10 @@ object TftLink {
             lineTo(carX + carR * 0.7f, anchorY + carR * 0.6f)
             close()
         }
-        c.drawPath(carPath, Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 4f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
-        c.drawPath(carPath, carPaint)
+        if (!navPanels) {
+            c.drawPath(carPath, Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 4f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
+            c.drawPath(carPath, carPaint)
+        } else drawCar3D(c, carX, anchorY, carR)
         // Biển tốc độ tối đa, góc trên bên phải — theo yêu cầu. Vẽ kiểu biển báo VN (viền đỏ, nền
         // trắng, số đen) để nhận ra ngay là giới hạn tốc độ chứ không phải số liệu khác.
         // build-426: khung đen vẽ TRƯỚC biển tốc độ (biển nằm trong khung, giữa nút + và − của đồng hồ).
@@ -2295,6 +2297,24 @@ object TftLink {
     }
 
     /**
+     * build-432 (Sếp): tam giác vị trí dạng KHỐI 3D kiểu Garmin — mũi nhọn có gân giữa, mặt trái sáng / mặt phải tối,
+     * bóng đổ mờ phía dưới cho "nổi" lên khỏi bản đồ. Chân tam giác giữ đúng chỗ cũ (anchorY + 0.6r).
+     */
+    private fun drawCar3D(c: Canvas, x: Float, y: Float, r: Float) {
+        val tipY = y - r * 1.05f; val baseY = y + r * 0.6f; val notchY = y + r * 0.28f; val hw = r * 0.78f
+        // bóng đổ
+        c.drawOval(android.graphics.RectF(x - hw * 1.05f, baseY - r * 0.12f, x + hw * 1.05f, baseY + r * 0.30f),
+            Paint().apply { color = Color.argb(150, 0, 0, 0); isAntiAlias = true; maskFilter = android.graphics.BlurMaskFilter(r * 0.18f, android.graphics.BlurMaskFilter.Blur.NORMAL) })
+        val outline = android.graphics.Path().apply { moveTo(x, tipY); lineTo(x - hw, baseY); lineTo(x, notchY); lineTo(x + hw, baseY); close() }
+        c.drawPath(outline, Paint().apply { color = Color.rgb(10, 30, 70); style = Paint.Style.STROKE; strokeWidth = r * 0.16f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
+        val left = android.graphics.Path().apply { moveTo(x, tipY); lineTo(x - hw, baseY); lineTo(x, notchY); close() }
+        val right = android.graphics.Path().apply { moveTo(x, tipY); lineTo(x + hw, baseY); lineTo(x, notchY); close() }
+        c.drawPath(left, Paint().apply { isAntiAlias = true; shader = android.graphics.LinearGradient(x - hw, baseY, x, tipY, Color.rgb(70, 160, 255), Color.rgb(150, 210, 255), android.graphics.Shader.TileMode.CLAMP) })
+        c.drawPath(right, Paint().apply { isAntiAlias = true; shader = android.graphics.LinearGradient(x + hw, baseY, x, tipY, Color.rgb(16, 70, 170), Color.rgb(40, 110, 220), android.graphics.Shader.TileMode.CLAMP) })
+        c.drawLine(x, tipY, x, notchY, Paint().apply { color = Color.argb(200, 255, 255, 255); strokeWidth = r * 0.05f; isAntiAlias = true })
+    }
+
+    /**
      * build-424 (Sếp, kiểu Garmin): khung ĐEN bên trái (dưới nút +/− của đồng hồ) — góc trên = khoảng cách tới chỗ rẽ,
      * gần tới đích thì "Đích bên trái/phải"; dải ĐEN dưới đáy: km còn lại | tên đường đang đi | thời gian còn lại + giờ tới.
      */
@@ -2340,9 +2360,9 @@ object TftLink {
         if (skEtaMs > 0L) {
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
             val etaTxt = String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
-            val ep = tp(h * 0.105f, true, Paint.Align.CENTER)
-            if (ep.measureText(etaTxt) > pw - 8f) ep.textSize *= (pw - 8f) / ep.measureText(etaTxt)
-            c.drawText(etaTxt, cx, hb - h * 0.035f, ep)
+            val ep = tp(h * 0.13f, true, Paint.Align.CENTER) // build-432: to hơn, thấp hơn (Sếp)
+            if (ep.measureText(etaTxt) > pw - 6f) ep.textSize *= (pw - 6f) / ep.measureText(etaTxt)
+            c.drawText(etaTxt, cx, hb - h * 0.004f, ep)
             val remMin = (skEtaMs / 60000L).toInt()
             val leftTxt = if (remMin >= 60) String.format(java.util.Locale.US, "%d g %02d", remMin / 60, remMin % 60) else "$remMin ph"
             val km = skRemainingM / 1000.0
