@@ -963,7 +963,7 @@ object TftLink {
     /** build-364: tỉ lệ thu nhỏ khung nhìn TFT (1.0 = như cũ; 0.7 = nhìn xa hơn ~1.43 lần). */
     const val VIEW_SCALE = 0.7
     const val PANEL_W_FRAC = 0.22f   // build-424: khung đen bên trái
-    const val BOTTOM_H_FRAC = 0.155f // build-424: dải đen dưới
+    const val BOTTOM_H_FRAC = 0.115f // build-424: dải đen dưới
     const val FW_TOP_FRAC = 0.77f    // build-426: mép trên thanh firmware dưới của đồng hồ (ảnh 12/11: che từ ~0.78h)
     // Mức zoom theo tốc độ (0=xa/>=40, 1=vừa/20-39, 2=gần/<20) — nhớ lại mức trước đó và chỉ đổi
     // khi tốc độ vượt hẳn qua ngưỡng (có biên trễ ~2-3km/h mỗi bên) để đứng yên/chạy chậm quanh
