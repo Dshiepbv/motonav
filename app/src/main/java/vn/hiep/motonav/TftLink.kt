@@ -1102,6 +1102,12 @@ object TftLink {
                 c.drawBitmap(snap.bitmap, 0f, 0f, null)
                 val pt = snap.pixelForLatLng(org.maplibre.android.geometry.LatLng(skLat, skLon))
                 if (!pt.x.isNaN() && !pt.y.isNaN() && pt.y > h * 0.3f && pt.y < h * 0.95f) { carX = pt.x; anchorY = pt.y }
+                // build-435 (Sếp): tới nơi xong (hết dẫn đường) cờ đích của tuyến gần nhất VẪN hiện trên bản đồ.
+                if (Live.destFlag && (Live.destLat != 0.0 || Live.destLon != 0.0)) try {
+                    val dp = snap.pixelForLatLng(org.maplibre.android.geometry.LatLng(Live.destLat, Live.destLon))
+                    if (dp.x.isFinite() && dp.y.isFinite() && dp.x in -20f..(w + 20f) && dp.y in -20f..(h + 20f))
+                        drawPin(c, dp.x, dp.y, h * 0.06f, 2)
+                } catch (_: Throwable) {}
             } else {
                 c.drawColor(if (dk) Color.rgb(23, 26, 33) else Color.rgb(247, 247, 249))
                 val ways = skWays
