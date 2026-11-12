@@ -48,8 +48,10 @@ object MapSnap {
     @Volatile var PIXEL_RATIO = 2.0f
 
     class Snap(val bitmap: android.graphics.Bitmap, private val raw: MapSnapshot, private val k: Float) {
+        /** build-434: ảnh được vẽ lệch sang phải dx px (né khung đen trái) — toạ độ trả ra đã cộng dx. */
+        var dx = 0f
         fun pixelForLatLng(ll: org.maplibre.android.geometry.LatLng): android.graphics.PointF =
-            raw.pixelForLatLng(ll).let { android.graphics.PointF(it.x / k, it.y / k) }
+            raw.pixelForLatLng(ll).let { android.graphics.PointF(it.x / k + dx, it.y / k) }
     }
 
     fun render(ctx: Context, styleUrl: String, dark: Boolean, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,

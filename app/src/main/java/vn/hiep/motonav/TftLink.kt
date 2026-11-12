@@ -1257,10 +1257,13 @@ object TftLink {
                 // build-424 (Sếp): xe cao lên chút (0.22 → 0.16) + bản đồ dời sang phải né khung đen bên trái:
                 // tâm camera lệch sang TRÁI hướng đi nửa bề rộng khung → xe nằm giữa phần bản đồ còn lại.
                 val aheadM = (0.20 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.54 // build-426: xe ~0.48h (né thanh firmware dưới)
-                val sideM = if (skActive) (w * PANEL_W_FRAC / 2.0) * mPerPx * 0.95 else 0.0
+                // build-434 (Sếp: "đường tím phải thẳng lên"): KHÔNG lệch camera sang bên nữa (lệch tâm làm đường thẳng
+                // phía trước bị nghiêng về điểm tụ giữa màn) — chụp ảnh đúng bề rộng phần bản đồ rồi vẽ dời sang phải.
+                val sideM = 0.0
+                val mapW = if (skActive) (w - (w * PANEL_W_FRAC).toInt()) else w
                 val tLat = skLat + (cosH * aheadM + sinH * sideM) / 110540.0
                 val tLon = skLon + (sinH * aheadM - cosH * sideM) / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 60.0, w, h, plain = bgPlainNow())
+                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 60.0, mapW, h, plain = bgPlainNow())?.also { it.dx = (w - mapW).toFloat() }
             }
             // rx/ry (mét thật, đã xoay theo hướng xe) -> toạ độ pixel, nén bán kính theo căn bậc hai
             // (mũ 0.55) quanh vị trí xe: gần xe gần như không nén (dễ thấy rẽ), xa xe nén mạnh hơn.
@@ -1373,7 +1376,7 @@ object TftLink {
                     val cm = android.graphics.ColorMatrix().apply { setSaturation(1.0f) } // build-402: giữ tông dịu kiểu Garmin (trước 1.25/1.35)
                     val ct = 1.0f; val tr = (-0.5f * ct + 0.5f) * 255f
                     cm.postConcat(android.graphics.ColorMatrix(floatArrayOf(ct, 0f, 0f, 0f, tr, 0f, ct, 0f, 0f, tr, 0f, 0f, ct, 0f, tr, 0f, 0f, 0f, 1f, 0f)))
-                    c.drawBitmap(snapShot.bitmap, 0f, 0f, Paint().apply { colorFilter = android.graphics.ColorMatrixColorFilter(cm) })
+                    c.drawBitmap(snapShot.bitmap, snapShot.dx, 0f, Paint().apply { colorFilter = android.graphics.ColorMatrixColorFilter(cm) })
                     return@run
                 }
                 c.drawColor(if (dk) Color.rgb(23, 26, 33) else Color.rgb(247, 247, 249))
