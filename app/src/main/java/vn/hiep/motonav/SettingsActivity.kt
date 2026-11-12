@@ -858,6 +858,14 @@ class SettingsActivity : Activity() {
             if (packOk) "✅ Đã có (ngày ${OfflinePack.date}, ${OfflinePack.file(this).length() / 1_000_000} MB) — chạm để cập nhật" else "Chưa tải — chạm để tải",
             note = "Tải một lần đường, tốc độ, camera, biển báo của TP.HCM mở rộng → nhanh hơn, mất mạng vẫn chạy. Tự cập nhật hằng tuần trên GitHub",
         ) { Updater.downloadPack(this, prefs) { refresh() } }
+        // build-437 (Sếp): nền bản đồ màn xe offline cả Việt Nam.
+        val mf = MapSnap.offlineFile(this)
+        val mapOk = mf.exists() && mf.length() > 10_000_000
+        action(
+            "Bản đồ offline Việt Nam",
+            if (mapOk) "✅ Đã có (${mf.length() / 1_000_000} MB) — chạm để tải lại" else "Chưa tải — chạm để tải",
+            note = "Nền bản đồ màn xe cả nước, dùng được khi mất mạng. File vài trăm MB, nên tải bằng Wi-Fi",
+        ) { Updater.downloadVnMap(this, prefs) { refresh() } }
     }
 
     private fun fillBackground() {

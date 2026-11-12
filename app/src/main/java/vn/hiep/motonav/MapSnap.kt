@@ -115,7 +115,7 @@ object MapSnap {
                 val cam = CameraPosition.Builder().target(LatLng(lat, lon)).zoom(zoom).bearing(bearing).tilt(tilt).build()
                 var s = snapshotter
                 val tk = tKey(dark, plain)
-                val styleKey = styleUrl + (if (tweakedMap[tk] != null) "#t" else "") + (if (dark) "d" else "l") + (if (plain) "p" else "")
+                val styleKey = styleUrl + (if (tweakedMap[tk] != null) "#t" else "") + (if (dark) "d" else "l") + (if (plain) "p" else "") + (if (offlineOn()) "o" else "")
                 if (s == null || curStyle != styleKey || curW != w || curH != h) {
                     try { s?.cancel() } catch (_: Throwable) {}
                     val sj = tweakedStyle(styleUrl, dark, plain)
@@ -203,7 +203,24 @@ object MapSnap {
                 } finally { tweaking = false }
             }, "mapsnap-style").apply { isDaemon = true; start() }
         }
-        return tweakedMap[tKey(dark, plain)]
+        return withOffline(tweakedMap[tKey(dark, plain)])
+    }
+
+    /** build-437: file bản đồ nền offline cả Việt Nam (vietnam.mbtiles, dựng bằng planetiler trên GitHub Actions). */
+    fun offlineFile(ctx: Context): java.io.File = java.io.File(java.io.File(ctx.filesDir, "maps").apply { mkdirs() }, "vietnam.mbtiles")
+    private fun offlineOn(): Boolean = appCtxForCache?.let { offlineFile(it).let { f -> f.exists() && f.length() > 10_000_000 } } ?: false
+
+    /** Có file offline → nguồn "openmaptiles" đọc thẳng từ file (mbtiles://), không cần mạng cho nền bản đồ. */
+    private fun withOffline(sj: String?): String? {
+        if (sj == null || !offlineOn()) return sj
+        return try {
+            val j = org.json.JSONObject(sj)
+            val src = j.optJSONObject("sources") ?: return sj
+            val f = offlineFile(appCtxForCache!!)
+            val key = if (src.has("openmaptiles")) "openmaptiles" else src.keys().asSequence().firstOrNull() ?: return sj
+            src.put(key, org.json.JSONObject().put("type", "vector").put("url", "mbtiles://" + f.absolutePath))
+            j.toString()
+        } catch (t: Throwable) { try { TripLog.ev("mapSnap", "offlineErr" to (t.message ?: t.javaClass.simpleName)) } catch (_: Throwable) {}; sj }
     }
 
     private fun buildTweaked(body: String) {

@@ -119,6 +119,67 @@ object Updater {
         throw RuntimeException("Bản phát hành mới nhất không có file APK")
     }
 
+    /** build-437: thông tin file bản đồ nền offline cả VN (release "vn-map", asset vietnam.mbtiles). */
+    private fun mapInfo(token: String): Triple<Long, Long, String> {
+        val o = gh("https://api.github.com/repos/$REPO/releases/tags/vn-map", token, "application/vnd.github+json") { r ->
+            JSONObject(r.body!!.string())
+        }
+        val assets = o.getJSONArray("assets")
+        for (i in 0 until assets.length()) {
+            val x = assets.getJSONObject(i)
+            if (x.getString("name") == "vietnam.mbtiles")
+                return Triple(x.getLong("id"), x.optLong("size"), x.optString("updated_at"))
+        }
+        throw RuntimeException("Chưa có file bản đồ Việt Nam (đang dựng trên GitHub, thử lại sau)")
+    }
+
+    /** build-437 (Sếp): tải nền bản đồ offline cả Việt Nam (vài trăm MB) — chạy nền, hiện % trong hộp thoại. */
+    fun downloadVnMap(a: Activity, prefs: Prefs, done: () -> Unit) {
+        val token = prefs.githubToken
+        val progress = AlertDialog.Builder(a).setTitle("Đang tải bản đồ Việt Nam").setMessage("Đang kiểm tra…").setCancelable(true).show()
+        val ctx = a.applicationContext
+        fun ui(f: () -> Unit) = main.post { try { f() } catch (_: Throwable) {} }
+        Thread {
+            try {
+                val (id, size, updated) = mapInfo(token)
+                val dst = MapSnap.offlineFile(ctx)
+                val tmp = java.io.File(dst.parentFile, "vietnam.tmp")
+                gh("https://api.github.com/repos/$REPO/releases/assets/$id", token, "application/octet-stream") { r ->
+                    val body = r.body!!
+                    val total = body.contentLength().takeIf { it > 0 } ?: size
+                    tmp.outputStream().use { out ->
+                        body.byteStream().use { inp ->
+                            val buf = ByteArray(256 * 1024)
+                            var got = 0L; var last = -1
+                            while (true) {
+                                val n = inp.read(buf)
+                                if (n < 0) break
+                                out.write(buf, 0, n)
+                                got += n
+                                val pct = if (total > 0) (got * 100 / total).toInt() else 0
+                                if (pct != last) { last = pct; ui { progress.setMessage("$pct%  (${got / 1_000_000}/${total / 1_000_000} MB)\nCó thể đóng hộp thoại, vẫn tải tiếp.") } }
+                            }
+                        }
+                    }
+                }
+                if (size > 0 && tmp.length() < size) throw RuntimeException("tải chưa đủ (${tmp.length() / 1_000_000}/${size / 1_000_000} MB)")
+                if (!tmp.renameTo(dst)) { dst.delete(); tmp.renameTo(dst) }
+                ctx.getSharedPreferences("motonav", Context.MODE_PRIVATE).edit().putString("vnMapUpdated", updated).apply()
+                TripLog.ev("vnMap", "ok" to true, "bytes" to dst.length())
+                ui {
+                    progress.dismiss()
+                    Toast.makeText(ctx, "Đã có bản đồ offline Việt Nam (${dst.length() / 1_000_000} MB)", Toast.LENGTH_LONG).show()
+                    done()
+                }
+            } catch (e: Exception) {
+                ui {
+                    progress.dismiss()
+                    Toast.makeText(ctx, "Không tải được bản đồ: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
     /** Tải gói dữ liệu OSM ngoại tuyến (release "osm-data") vào bộ nhớ riêng của app. */
     fun downloadPack(a: Activity, prefs: Prefs, done: () -> Unit) {
         // Kho motonav hiện CÔNG KHAI: tải không cần mã; mã chỉ dùng dự phòng nếu kho đổi riêng tư.
