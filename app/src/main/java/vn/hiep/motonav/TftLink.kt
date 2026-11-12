@@ -1831,8 +1831,8 @@ object TftLink {
             // build-379 (Sếp): góc quẹo VUÔNG đúng hình thật, nét thẳng mịn kiểu Waze — bỏ nối cong qua trung điểm
             // (bản 220 bo tròn mọi góc), lọc điểm lệch nhỏ bằng Douglas–Peucker (≤ 2 px) rồi nối đoạn thẳng, góc nhọn (MITER).
             // build-421 (Sếp: "đường dẫn màu tím như Garmin, mịn"): tím hồng viền tím đậm, nối/đầu bo tròn.
-            val casingPaint = Paint().apply { color = Color.rgb(120, 20, 120); style = Paint.Style.STROKE; strokeWidth = 24f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-            val linePaint = Paint().apply { color = Color.rgb(232, 60, 220); style = Paint.Style.STROKE; strokeWidth = 18f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+            val casingPaint = Paint().apply { color = Color.rgb(120, 20, 120); style = Paint.Style.STROKE; strokeWidth = 19f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+            val linePaint = Paint().apply { color = Color.rgb(232, 60, 220); style = Paint.Style.STROKE; strokeWidth = 14f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
             fun simplifyPx(pts: List<FloatArray>, eps: Float): List<FloatArray> {
                 if (pts.size < 3) return pts
                 val keep = BooleanArray(pts.size); keep[0] = true; keep[pts.size - 1] = true
