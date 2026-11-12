@@ -116,7 +116,15 @@ object TftLink {
     }
 
     /** cmd 3 / sub 1: tên hiển thị (ví dụ tên người lái) — chữ ASCII, bỏ dấu. */
-    private fun namePacket(s: String): ByteArray = pack(asciiBytes(s, 64), 3, 1)
+    private fun namePacket(s: String): ByteArray = pack(utf8Bytes(s, 64), 3, 1)
+
+    /** build-431 (Sếp): thử gửi tên CÓ DẤU (UTF-8) — đồng hồ có sẵn bộ chữ tiếng Việt ("Đường"). Cắt đúng ranh ký tự. */
+    private fun utf8Bytes(s: String, maxLen: Int): ByteArray {
+        var str = s.trim().ifBlank { " " }
+        var b = str.toByteArray(Charsets.UTF_8)
+        while (b.size > maxLen && str.isNotEmpty()) { str = str.dropLast(1); b = str.toByteArray(Charsets.UTF_8) }
+        return b
+    }
 
     /** cmd 17 / sub 1: tốc độ + đơn vị — dùng trong gói cấu hình ban đầu (giá trị 0, chỉ để báo đơn vị). */
     private fun speedPacket(speedKmh: Int, flags: Int): ByteArray {
