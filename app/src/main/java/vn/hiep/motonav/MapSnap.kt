@@ -235,10 +235,10 @@ object MapSnap {
                             val greens = org.json.JSONArray()
                             greens.put(org.json.JSONObject("""{"id":"motonav_green_landcover","type":"fill","source":"openmaptiles","source-layer":"landcover",
                                 "filter":["match",["get","class"],["grass","wood","wetland","farmland"],true,false],
-                                "paint":{"fill-color":"#8FD19B","fill-opacity":1}}"""))
+                                "paint":{"fill-color":"$GARMIN_GREEN","fill-opacity":1}}"""))
                             greens.put(org.json.JSONObject("""{"id":"motonav_green_landuse","type":"fill","source":"openmaptiles","source-layer":"landuse",
                                 "filter":["match",["get","class"],["park","cemetery","pitch","playground","garden","stadium","zoo","theme_park"],true,false],
-                                "paint":{"fill-color":"#8FD19B","fill-opacity":1}}"""))
+                                "paint":{"fill-color":"$GARMIN_GREEN","fill-opacity":1}}"""))
                             val withG = org.json.JSONArray()
                             var inserted = false
                             for (li in 0 until kept.length()) {
@@ -266,6 +266,8 @@ object MapSnap {
                                         id.contains("green") || id.contains("garden") || id.contains("pitch") || id.contains("cemetery") ||
                                         id.contains("landcover") || id.contains("meadow") -> { paint.put("fill-color", if (dark) "#2E4A2A" else GARMIN_GREEN); paint.put("fill-opacity", 1); changed++ }
                                     id.contains("building") -> { paint.put("fill-color", if (dark) "#B9733A" else "#F5B57A"); paint.put("fill-outline-color", if (dark) "#8A5228" else "#D98E4A"); paint.put("fill-opacity", 1); changed++ }
+                                    // build-421 (Sếp: "y Garmin"): mọi mảng đất khác (khu dân cư, công nghiệp…) = đúng màu nền → nền trơn, hết lốm đốm.
+                                    else -> { paint.put("fill-color", if (dark) "#22291C" else GARMIN_LAND); paint.remove("fill-outline-color"); paint.put("fill-opacity", 1); changed++ }
                                 }
                                 "line" -> when {
                                     id.contains("waterway") || id.contains("river") || id.contains("canal") -> { paint.put("line-color", "#5BAEF0"); changed++ }
@@ -329,13 +331,13 @@ object MapSnap {
      * (pixel = mét × 2^zoom / (156543 × cos vĩ độ)) — đại lộ vẽ đúng bề rộng, không còn nét mảnh. Vĩ độ TP.HCM ≈ 10.9°.
      */
     // build-402: bảng màu kiểu Garmin StreetCross (ảnh màn xe Sếp gửi 10/11).
-    const val GARMIN_LAND = "#DCE5C0"
-    const val GARMIN_GREEN = "#BFD99A"
-    const val GARMIN_WATER = "#9DC7EC"
+    const val GARMIN_LAND = "#ECEAE5"   // build-421: xám kem nhạt như ảnh Garmin
+    const val GARMIN_GREEN = "#AEDB8F"
+    const val GARMIN_WATER = "#86B9EA"
     private fun garminRoadColor(dark: Boolean, casing: Boolean): org.json.JSONArray {
-        val trunk = if (casing) (if (dark) "#8A4A10" else "#C46A12") else (if (dark) "#D9822B" else "#F39A2E")
-        val major = if (casing) (if (dark) "#7A6A20" else "#C9A92C") else (if (dark) "#C9B24A" else "#F7DC55")
-        val minor = if (casing) (if (dark) "#2A2F28" else "#A7AD94") else (if (dark) "#8C9488" else "#FFFFFF")
+        val trunk = if (casing) (if (dark) "#8A4A10" else "#C8700F") else (if (dark) "#D9822B" else "#F7A21B")
+        val major = if (casing) (if (dark) "#7A5A20" else "#D58A1E") else (if (dark) "#C9963A" else "#FBB43C") // build-421: đường chính cam như Garmin
+        val minor = if (casing) (if (dark) "#2A2F28" else "#B4B2AC") else (if (dark) "#8C9488" else "#FFFFFF")
         return org.json.JSONArray().put("match").put(org.json.JSONArray().put("get").put("class"))
             .put(org.json.JSONArray().put("motorway").put("trunk")).put(trunk)
             .put(org.json.JSONArray().put("primary").put("secondary")).put(major)

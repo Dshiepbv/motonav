@@ -1346,8 +1346,8 @@ object TftLink {
             run {
                 if (snapShot != null) {
                     // Tăng tương phản + bão hoà toàn khung (không tăng dung lượng JPEG đáng kể).
-                    val cm = android.graphics.ColorMatrix().apply { setSaturation(1.1f) } // build-402: giữ tông dịu kiểu Garmin (trước 1.25/1.35)
-                    val ct = 1.12f; val tr = (-0.5f * ct + 0.5f) * 255f
+                    val cm = android.graphics.ColorMatrix().apply { setSaturation(1.0f) } // build-402: giữ tông dịu kiểu Garmin (trước 1.25/1.35)
+                    val ct = 1.0f; val tr = (-0.5f * ct + 0.5f) * 255f
                     cm.postConcat(android.graphics.ColorMatrix(floatArrayOf(ct, 0f, 0f, 0f, tr, 0f, ct, 0f, 0f, tr, 0f, 0f, ct, 0f, tr, 0f, 0f, 0f, 1f, 0f)))
                     c.drawBitmap(snapShot.bitmap, 0f, 0f, Paint().apply { colorFilter = android.graphics.ColorMatrixColorFilter(cm) })
                     return@run
@@ -1830,8 +1830,9 @@ object TftLink {
             // chỗ nét đỏ chạm sát nét trắng; nền đen đồng nhất quanh nét giữ màu đỏ rõ hơn.
             // build-379 (Sếp): góc quẹo VUÔNG đúng hình thật, nét thẳng mịn kiểu Waze — bỏ nối cong qua trung điểm
             // (bản 220 bo tròn mọi góc), lọc điểm lệch nhỏ bằng Douglas–Peucker (≤ 2 px) rồi nối đoạn thẳng, góc nhọn (MITER).
-            val casingPaint = Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 14f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.MITER; strokeMiter = 3f }
-            val linePaint = Paint().apply { color = Color.rgb(255, 0, 0); style = Paint.Style.STROKE; strokeWidth = 9.5f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.MITER; strokeMiter = 3f }
+            // build-421 (Sếp: "đường dẫn màu tím như Garmin, mịn"): tím hồng viền tím đậm, nối/đầu bo tròn.
+            val casingPaint = Paint().apply { color = Color.rgb(120, 20, 120); style = Paint.Style.STROKE; strokeWidth = 24f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+            val linePaint = Paint().apply { color = Color.rgb(232, 60, 220); style = Paint.Style.STROKE; strokeWidth = 18f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
             fun simplifyPx(pts: List<FloatArray>, eps: Float): List<FloatArray> {
                 if (pts.size < 3) return pts
                 val keep = BooleanArray(pts.size); keep[0] = true; keep[pts.size - 1] = true
