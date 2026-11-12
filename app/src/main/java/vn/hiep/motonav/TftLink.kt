@@ -2048,10 +2048,12 @@ object TftLink {
             val km = skRemainingM / 1000.0
             val kmTxt = (if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')) + " km"
             // build-411 (Sếp): 3 dòng (giờ đến / thời gian còn lại / km) cho khung hẹp, đỡ che góc nhìn.
+            // build-412 (Sếp): thứ tự thời gian còn lại → km → ETA; thời gian ghi kiểu dễ đọc ("25 ph", "1 g 05").
+            val leftTxt = if (remMin >= 60) String.format(java.util.Locale.US, "%d g %02d", remMin / 60, remMin % 60) else "$remMin ph"
             val lines = listOf(
-                String.format(java.util.Locale.US, "ETA %02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE)),
-                String.format(java.util.Locale.US, "%02d:%02d", remMin / 60, remMin % 60),
+                leftTxt,
                 kmTxt,
+                String.format(java.util.Locale.US, "ETA %02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE)),
             )
             val tp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.075f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.RIGHT }
             val fmT = tp.fontMetrics
