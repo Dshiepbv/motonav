@@ -2339,8 +2339,8 @@ object TftLink {
             rightUsed = maxOf(lab.measureText("Đến · $leftTxt"), v.measureText(etaTxt))
         }
         val leftUsed = maxOf(tp(h * 0.052f, false, Paint.Align.LEFT).measureText("Còn lại"), v.apply { textAlign = Paint.Align.LEFT }.measureText(kmTxt))
-        val st = skCurrentStreet
-        if (!st.isNullOrBlank()) {
+        val st: String = skCurrentStreet ?: ""
+        if (st.isNotBlank()) {
             val avail = w - 2 * padX - leftUsed - rightUsed - w * 0.06f
             val sp = tp(h * 0.085f, true, Paint.Align.CENTER)
             while (sp.measureText(st) > avail && sp.textSize > h * 0.055f) sp.textSize -= 1f
