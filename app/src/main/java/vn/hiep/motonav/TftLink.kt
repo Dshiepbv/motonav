@@ -2123,15 +2123,20 @@ object TftLink {
             // To hơn nữa theo yêu cầu "cho cái icon to to tí" (0.135->0.17).
             val arm = h * 0.17f
             // Đẩy cả bảng sát kịch góc trên-trái theo yêu cầu mới nhất.
-            val iconCx = w * 0.075f
-            val iconCy = arm * 0.78f
+            // build-416 (Sếp): cụm dẫn đường xuống góc dưới bên TRÁI, ngang hàng khung ETA (chân = chân tam giác xe):
+            // mũi tên ở trên, số mét ngay dưới.
+            val baseLastM = anchorY + h * 0.085f * 0.6f
+            val distPaintProbe = Paint().apply { textSize = h * 0.13f; typeface = Typeface.DEFAULT_BOLD }
+            val fmProbe = distPaintProbe.fontMetrics
+            val iconCx = w * 0.085f
+            val iconCy = baseLastM + fmProbe.ascent - h * 0.02f - arm * 0.62f
             // build-320: bộ mũi tên kiểu Garmin (Sếp: đủ rẽ trái/phải, chếch, gắt, đi thẳng, quay đầu, vòng xuyến, đi về
             // bên, đến nơi) — nét dày bo tròn + đầu mũi tên tam giác, viền tương phản để nổi trên bản đồ.
             drawManeuverIcon(c, iconCx, iconCy, arm * 1.25f, if (skRoundabout) 6 else skSign, skExit, dk)
             // Bỏ hẳn tên đường khỏi bảng này theo yêu cầu — chỉ còn icon + khoảng cách, căn giữa
             // icon theo chiều dọc (tên đường giờ chỉ còn hiện trên bản đồ, xem nhãn gắn tuyến bên
             // dưới, đã phóng to).
-            val textX = iconCx + arm * 0.95f
+            val textX = w * 0.02f
             // Khoảng cách trên bảng dẫn giữ màu trắng theo yêu cầu (không đổi đỏ như ETA/tuyến chính).
             val infoPaint = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.13f; textAlign = Paint.Align.LEFT; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val dM = skDistanceM
@@ -2139,8 +2144,8 @@ object TftLink {
                 val distTxt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000f) else "$dM m"
                 val fm = infoPaint.fontMetrics
                 val haloP = Paint(infoPaint).apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.03f; strokeJoin = Paint.Join.ROUND }
-                c.drawText(distTxt, textX, iconCy - (fm.ascent + fm.descent) / 2f, haloP)
-                c.drawText(distTxt, textX, iconCy - (fm.ascent + fm.descent) / 2f, infoPaint)
+                c.drawText(distTxt, textX, baseLastM, haloP)
+                c.drawText(distTxt, textX, baseLastM, infoPaint)
             }
         }
         val out = ByteArrayOutputStream()
