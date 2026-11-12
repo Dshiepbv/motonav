@@ -1070,7 +1070,7 @@ object TftLink {
         // build-427 (Sếp): khung đen = "dải phân cách cứng" — bản đồ, tuyến, nhãn tên đường chỉ vẽ trong vùng bản đồ.
         val navPanels = skActive && skRoute != null
         val mapL = if (navPanels) w * PANEL_W_FRAC else 0f
-        val mapB = if (navPanels) h * (FW_TOP_FRAC - BOTTOM_H_FRAC) else h.toFloat()
+        val mapB = if (navPanels) h * FW_TOP_FRAC - h * 0.24f else h.toFloat() // build-430: nhãn né cụm km/phút góc dưới + thanh firmware
         var mapClip = -1
         val dk = isDark()
         if ((route == null || route.lats.size < 2) && FREE_MAP && (skLat != 0.0 || skLon != 0.0)) {
@@ -1248,7 +1248,7 @@ object TftLink {
                 // dưới tâm ảnh khi nghiêng 60° so với 45°, camera MapLibre fov 36,87°) để xe vẫn nằm đúng chỗ cũ.
                 // build-424 (Sếp): xe cao lên chút (0.22 → 0.16) + bản đồ dời sang phải né khung đen bên trái:
                 // tâm camera lệch sang TRÁI hướng đi nửa bề rộng khung → xe nằm giữa phần bản đồ còn lại.
-                val aheadM = (-0.02 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.54 // build-426: xe ~0.48h (né thanh firmware dưới)
+                val aheadM = (0.06 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.54 // build-426: xe ~0.48h (né thanh firmware dưới)
                 val sideM = if (skActive) (w * PANEL_W_FRAC / 2.0) * mPerPx * 0.95 else 0.0
                 val tLat = skLat + (cosH * aheadM + sinH * sideM) / 110540.0
                 val tLon = skLon + (sinH * aheadM - cosH * sideM) / (111320.0 * Math.cos(Math.toRadians(skLat)))
@@ -1358,7 +1358,7 @@ object TftLink {
             // bề rộng 1km làm máy phải xử lý/vẽ nặng quá.
             // build-239: nền ảnh mảng màu kiểu Waze tối (nước/công viên/khu dân cư) thay nền đen — chỉ
             // đổi màu vẽ, mọi phép chiếu/zoom/xoay giữ nguyên như các nét đường.
-            if (navPanels) { mapClip = c.save(); c.clipRect(mapL, 0f, w.toFloat(), mapB) }
+            if (navPanels) { mapClip = c.save(); c.clipRect(mapL, 0f, w.toFloat(), h.toFloat()) }
             run {
                 if (snapShot != null) {
                     // Tăng tương phản + bão hoà toàn khung (không tăng dung lượng JPEG đáng kể).
@@ -2297,10 +2297,8 @@ object TftLink {
         val hb = h * FW_TOP_FRAC
         val bg = Paint().apply { color = Color.rgb(12, 12, 14); style = Paint.Style.FILL }
         c.drawRect(0f, 0f, pw, h.toFloat(), bg)
-        c.drawRect(0f, hb - bh, w.toFloat(), h.toFloat(), bg)
         val sep = Paint().apply { color = Color.rgb(70, 70, 76); strokeWidth = 2f }
-        c.drawLine(pw, 0f, pw, hb - bh, sep)
-        c.drawLine(0f, hb - bh, w.toFloat(), hb - bh, sep)
+        c.drawLine(pw, 0f, pw, hb, sep)
         fun tp(sz: Float, bold: Boolean, al: Paint.Align, col: Int = Color.WHITE) = Paint().apply {
             color = col; textSize = sz; isAntiAlias = true; textAlign = al
             typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
@@ -2329,38 +2327,28 @@ object TftLink {
             c.drawText("Đích", cx, h * 0.29f, p)
             c.drawText(side, cx, h * 0.37f, p)
         }
-        // --- dải dưới ---
-        val lab = tp(h * 0.052f, false, Paint.Align.LEFT, gray)
-        val v = tp(h * 0.085f, true, Paint.Align.LEFT)
-        val labY = hb - bh + h * 0.055f
-        val valY = hb - h * 0.025f
-        val km = skRemainingM / 1000.0
-        val kmTxt = (if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')) + " km"
-        val padX = w * 0.015f
-        // build-428 (Sếp): bỏ chữ nhỏ "Còn lại"/"Đến · N ph" — chỉ còn km và giờ tới, căn giữa dải.
-        val valMidY = hb - bh / 2f - (v.fontMetrics.ascent + v.fontMetrics.descent) / 2f
-        c.drawText(kmTxt, padX, valMidY, v)
-        var rightUsed = 0f
+        // build-430 (Sếp): bỏ dải dưới. Giờ tới (ETA) nằm trong khung đen, dưới nút − của đồng hồ;
+        // thời gian còn lại + km còn lại ở góc dưới bên phải bản đồ, không nền (viền chữ), trên thanh firmware.
         if (skEtaMs > 0L) {
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
+            val etaTxt = String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
+            val ep = tp(h * 0.105f, true, Paint.Align.CENTER)
+            if (ep.measureText(etaTxt) > pw - 8f) ep.textSize *= (pw - 8f) / ep.measureText(etaTxt)
+            c.drawText(etaTxt, cx, hb - h * 0.035f, ep)
             val remMin = (skEtaMs / 60000L).toInt()
             val leftTxt = if (remMin >= 60) String.format(java.util.Locale.US, "%d g %02d", remMin / 60, remMin % 60) else "$remMin ph"
-            val etaTxt = String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
-            lab.textAlign = Paint.Align.RIGHT; v.textAlign = Paint.Align.RIGHT
-            c.drawText(etaTxt, w - padX, valMidY, v)
-            rightUsed = v.measureText(etaTxt)
-        }
-        val leftUsed = v.apply { textAlign = Paint.Align.LEFT }.measureText(kmTxt)
-        val st: String = skCurrentStreet ?: ""
-        if (st.isNotBlank()) {
-            val avail = w - 2 * padX - leftUsed - rightUsed - w * 0.06f
-            val sp = tp(h * 0.085f, true, Paint.Align.CENTER)
-            while (sp.measureText(st) > avail && sp.textSize > h * 0.055f) sp.textSize -= 1f
-            var s = st
-            while (s.length > 3 && sp.measureText(s) > avail) s = s.dropLast(2)
-            if (s != st) s = s.trimEnd() + "…"
-            val mid = padX + leftUsed + w * 0.03f + avail / 2f
-            c.drawText(s, mid, hb - bh / 2f - (sp.fontMetrics.ascent + sp.fontMetrics.descent) / 2f, sp)
+            val km = skRemainingM / 1000.0
+            val kmTxt = (if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')) + " km"
+            val rp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.10f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.RIGHT }
+            val halo = Paint(rp).apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
+            val fm = rp.fontMetrics
+            val lineH = (fm.descent - fm.ascent) * 0.92f
+            val right = w - w * 0.02f
+            val base = hb - h * 0.03f
+            listOf(leftTxt, kmTxt).forEachIndexed { k, s ->
+                val y = base - lineH * (1 - k)
+                c.drawText(s, right, y, halo); c.drawText(s, right, y, rp)
+            }
         }
     }
 
