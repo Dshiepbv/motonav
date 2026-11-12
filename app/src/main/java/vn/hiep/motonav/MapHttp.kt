@@ -23,7 +23,7 @@ object MapHttp {
     fun install() {
         if (installed) return
         installed = true
-        val client = OkHttpClient.Builder()
+        val client = OkHttpClient.Builder().dns(MapDns)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor(Interceptor { chain ->

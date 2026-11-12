@@ -146,7 +146,7 @@ object MapSnap {
     private fun tKey(dark: Boolean, plain: Boolean) = (if (dark) "d" else "l") + (if (plain) "p" else "m")
     @Volatile private var tweakTryAt = 0L
     @Volatile private var tweaking = false
-    private val styleHttp = okhttp3.OkHttpClient.Builder()
+    private val styleHttp = okhttp3.OkHttpClient.Builder().dns(MapDns)
         .connectTimeout(6, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
 
     // build-365: lưu sẵn file style (Sếp: "lưu sẵn file để không phụ thuộc mạng"). Log 6/11 17:42–20:17: điện thoại
