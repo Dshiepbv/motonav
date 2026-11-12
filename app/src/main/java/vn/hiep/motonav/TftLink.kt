@@ -2056,7 +2056,7 @@ object TftLink {
                 String.format(java.util.Locale.US, "ETA %02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE)),
             )
             // build-413 (Sếp): không nền, chữ to hơn (viền tương phản để đọc trên bản đồ), chân khung ngang chân tam giác vị trí xe.
-            val tp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.13f; // build-415: to hơn (Sếp)
+            val tp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.117f; // build-419: giảm 10% (Sếp)
                 isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.RIGHT }
             val halo = Paint(tp).apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
             val fmT = tp.fontMetrics
@@ -2119,7 +2119,7 @@ object TftLink {
         // Bố cục theo kiểu Waze (ảnh người dùng gửi): icon bên TRÁI, chữ khoảng cách + tên đường
         // xếp dọc bên PHẢI icon (không còn xếp dọc dưới icon như trước) — chỉ khác Waze ở chỗ KHÔNG
         // có khung nền tối phía sau, theo đúng yêu cầu ban đầu "ko nền".
-        if (false && skActive && skRoute != null && !skNextStreet.isNullOrBlank()) { // build-417 (Sếp): tạm ẩn cụm mũi tên (bị nút +/- firmware che)
+        if (skActive && skRoute != null && !skNextStreet.isNullOrBlank()) { // build-419 (Sếp): chỉ ẩn mũi tên, giữ số mét tới chỗ rẽ
             // To hơn nữa theo yêu cầu "cho cái icon to to tí" (0.135->0.17).
             val arm = h * 0.17f
             // Đẩy cả bảng sát kịch góc trên-trái theo yêu cầu mới nhất.
@@ -2132,7 +2132,7 @@ object TftLink {
             val iconCy = baseLastM + fmProbe.ascent - h * 0.02f - arm * 0.62f
             // build-320: bộ mũi tên kiểu Garmin (Sếp: đủ rẽ trái/phải, chếch, gắt, đi thẳng, quay đầu, vòng xuyến, đi về
             // bên, đến nơi) — nét dày bo tròn + đầu mũi tên tam giác, viền tương phản để nổi trên bản đồ.
-            drawManeuverIcon(c, iconCx, iconCy, arm * 1.25f, if (skRoundabout) 6 else skSign, skExit, dk)
+            if (false) drawManeuverIcon(c, iconCx, iconCy, arm * 1.25f, if (skRoundabout) 6 else skSign, skExit, dk)
             // Bỏ hẳn tên đường khỏi bảng này theo yêu cầu — chỉ còn icon + khoảng cách, căn giữa
             // icon theo chiều dọc (tên đường giờ chỉ còn hiện trên bản đồ, xem nhãn gắn tuyến bên
             // dưới, đã phóng to).
