@@ -2016,7 +2016,7 @@ object TftLink {
         // build-402 (Sếp: "y như Garmin StreetCross"): ô thời tiết nền trắng bo góc bên phải — biểu tượng, nhiệt độ, giờ, "Vị trí hiện tại".
         run {
             val wc = Live.wxHereCat; val wt = Live.wxHereTemp
-            if (skActive && wc != null && wt != null && limBottomY + h * 0.33f < h * 0.66f) { // build-410: nhường chỗ ô ETA dưới góc phải
+            if (false && skActive && wc != null && wt != null) { // build-413 (Sếp): bỏ ô thời tiết // build-410: nhường chỗ ô ETA dưới góc phải
                 val bw = w * 0.22f; val bh = h * 0.30f
                 val right = w - w * 0.02f; val top = limBottomY + h * 0.03f
                 val rect = android.graphics.RectF(right - bw, top, right, top + bh)
@@ -2055,16 +2055,17 @@ object TftLink {
                 kmTxt,
                 String.format(java.util.Locale.US, "ETA %02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE)),
             )
-            val tp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.075f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.RIGHT }
+            // build-413 (Sếp): không nền, chữ to hơn (viền tương phản để đọc trên bản đồ), chân khung ngang chân tam giác vị trí xe.
+            val tp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.10f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.RIGHT }
+            val halo = Paint(tp).apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.022f; strokeJoin = Paint.Join.ROUND }
             val fmT = tp.fontMetrics
-            val lineH = (fmT.descent - fmT.ascent) * 0.95f
-            val padX = h * 0.025f; val padY = h * 0.015f
-            val right = w - w * 0.015f; val bottom = h - h * 0.02f
-            val tw = lines.maxOf { tp.measureText(it) }
-            val rect = android.graphics.RectF(right - tw - padX * 2f, bottom - lineH * lines.size - padY * 2f, right, bottom)
-            c.drawRoundRect(rect, h * 0.025f, h * 0.025f, Paint().apply { color = if (dk) Color.argb(235, 0, 0, 0) else Color.argb(235, 255, 255, 255); style = Paint.Style.FILL; isAntiAlias = true })
-            c.drawRoundRect(rect, h * 0.025f, h * 0.025f, Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.STROKE; strokeWidth = h * 0.012f; isAntiAlias = true })
-            lines.forEachIndexed { i, ln -> c.drawText(ln, rect.right - padX, rect.top + padY + lineH * i - fmT.ascent * 0.95f, tp) }
+            val lineH = (fmT.descent - fmT.ascent) * 0.92f
+            val right = w - w * 0.02f
+            val baseLast = anchorY + h * 0.085f * 0.6f // chân tam giác xe (carR = 0.085h, đáy = anchorY + 0.6·carR)
+            lines.forEachIndexed { i, ln ->
+                val y = baseLast - lineH * (lines.size - 1 - i)
+                c.drawText(ln, right, y, halo); c.drawText(ln, right, y, tp)
+            }
         }
         if (false && skActive && skRoute != null) {
             val remKm = skRemainingM / 1000.0
