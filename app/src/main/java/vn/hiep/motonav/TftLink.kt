@@ -1067,6 +1067,11 @@ object TftLink {
         // "var" vì ở nhánh có tuyến, anchorY được tính lại theo toScreen(0,0) — vị trí xe trên màn
         // đổi theo mức nghiêng camera 3D (skTiltT), xem bên dưới.
         var anchorY = h * 0.72f
+        // build-427 (Sếp): khung đen = "dải phân cách cứng" — bản đồ, tuyến, nhãn tên đường chỉ vẽ trong vùng bản đồ.
+        val navPanels = skActive && skRoute != null
+        val mapL = if (navPanels) w * PANEL_W_FRAC else 0f
+        val mapB = if (navPanels) h * (FW_TOP_FRAC - BOTTOM_H_FRAC) else h.toFloat()
+        var mapClip = -1
         val dk = isDark()
         if ((route == null || route.lats.size < 2) && FREE_MAP && (skLat != 0.0 || skLon != 0.0)) {
             // build-368 (Sếp): chế độ chờ = bản đồ quanh xe (không dẫn đường) để đo gửi ảnh độc lập với dẫn đường.
@@ -1353,6 +1358,7 @@ object TftLink {
             // bề rộng 1km làm máy phải xử lý/vẽ nặng quá.
             // build-239: nền ảnh mảng màu kiểu Waze tối (nước/công viên/khu dân cư) thay nền đen — chỉ
             // đổi màu vẽ, mọi phép chiếu/zoom/xoay giữ nguyên như các nét đường.
+            if (navPanels) { mapClip = c.save(); c.clipRect(mapL, 0f, w.toFloat(), mapB) }
             run {
                 if (snapShot != null) {
                     // Tăng tương phản + bão hoà toàn khung (không tăng dung lượng JPEG đáng kể).
@@ -1700,8 +1706,8 @@ object TftLink {
                 var bestScore = Float.MAX_VALUE
                 val m = 8f
                 search@ for (rad in radii) for (d in dirs) {
-                    val lx0 = (mx + h * rad * d[0]).coerceIn(tw / 2f + padX + 2f, w - tw / 2f - padX - 2f)
-                    val ly0 = (my + h * rad * d[1]).coerceIn(h * 0.1f + padY, h * 0.95f)
+                    val lx0 = (mx + h * rad * d[0]).coerceIn(mapL + tw / 2f + padX + 4f, (w - tw / 2f - padX - 2f).coerceAtLeast(mapL + tw / 2f + padX + 4f))
+                    val ly0 = (my + h * rad * d[1]).coerceIn(h * 0.1f + padY, minOf(h * 0.95f, mapB - h * 0.03f - padY))
                     val left = lx0 - tw / 2f - padX
                     val right = lx0 + tw / 2f + padX
                     val top = ly0 - h * 0.08f - padY
@@ -1744,7 +1750,7 @@ object TftLink {
                         val fm = tp.fontMetrics
                         val textH = fm.descent - fm.ascent
                         val padX = h * 0.025f; val padY = h * 0.012f
-                        val sl = w * 0.05f; val sr = w * 0.95f; val st = h * 0.2f; val sb = h * 0.84f
+                        val sl = mapL + w * 0.05f; val sr = w * 0.95f; val st = h * 0.2f; val sb = minOf(h * 0.84f, mapB - h * 0.06f)
                         fun inSafe(x: Float, y: Float) = x in sl..sr && y in st..sb &&
                             !(x > w * 0.78f && y < h * 0.4f) && !(y > anchorY - h * 0.14f && y < anchorY + h * 0.1f && (x < w * 0.3f || x > w * 0.7f))
                         class Cand(val name: String, val x: Float, val y: Float, val ang: Float, val score: Float)
@@ -1841,8 +1847,8 @@ object TftLink {
             // build-379 (Sếp): góc quẹo VUÔNG đúng hình thật, nét thẳng mịn kiểu Waze — bỏ nối cong qua trung điểm
             // (bản 220 bo tròn mọi góc), lọc điểm lệch nhỏ bằng Douglas–Peucker (≤ 2 px) rồi nối đoạn thẳng, góc nhọn (MITER).
             // build-421 (Sếp: "đường dẫn màu tím như Garmin, mịn"): tím hồng viền tím đậm, nối/đầu bo tròn.
-            val casingPaint = Paint().apply { color = Color.rgb(120, 20, 120); style = Paint.Style.STROKE; strokeWidth = 19f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-            val linePaint = Paint().apply { color = Color.rgb(232, 60, 220); style = Paint.Style.STROKE; strokeWidth = 14f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+            val casingPaint = Paint().apply { color = Color.rgb(120, 20, 120); style = Paint.Style.STROKE; strokeWidth = 13f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND } // build-427: mảnh hơn (Sếp)
+            val linePaint = Paint().apply { color = Color.rgb(232, 60, 220); style = Paint.Style.STROKE; strokeWidth = 9f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
             fun simplifyPx(pts: List<FloatArray>, eps: Float): List<FloatArray> {
                 if (pts.size < 3) return pts
                 val keep = BooleanArray(pts.size); keep[0] = true; keep[pts.size - 1] = true
@@ -1981,6 +1987,7 @@ object TftLink {
         // Biển tốc độ tối đa, góc trên bên phải — theo yêu cầu. Vẽ kiểu biển báo VN (viền đỏ, nền
         // trắng, số đen) để nhận ra ngay là giới hạn tốc độ chứ không phải số liệu khác.
         // build-426: khung đen vẽ TRƯỚC biển tốc độ (biển nằm trong khung, giữa nút + và − của đồng hồ).
+        if (mapClip >= 0) { c.restoreToCount(mapClip); mapClip = -1 }
         val panels = skActive && skRoute != null
         if (panels) drawGarminPanels(c, w, h, dk)
         val lim = skLimitKmh
