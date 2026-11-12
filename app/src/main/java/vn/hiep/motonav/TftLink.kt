@@ -2337,8 +2337,9 @@ object TftLink {
         val km = skRemainingM / 1000.0
         val kmTxt = (if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')) + " km"
         val padX = w * 0.015f
-        c.drawText("Còn lại", padX, labY, lab)
-        c.drawText(kmTxt, padX, valY, v)
+        // build-428 (Sếp): bỏ chữ nhỏ "Còn lại"/"Đến · N ph" — chỉ còn km và giờ tới, căn giữa dải.
+        val valMidY = hb - bh / 2f - (v.fontMetrics.ascent + v.fontMetrics.descent) / 2f
+        c.drawText(kmTxt, padX, valMidY, v)
         var rightUsed = 0f
         if (skEtaMs > 0L) {
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
@@ -2346,11 +2347,10 @@ object TftLink {
             val leftTxt = if (remMin >= 60) String.format(java.util.Locale.US, "%d g %02d", remMin / 60, remMin % 60) else "$remMin ph"
             val etaTxt = String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
             lab.textAlign = Paint.Align.RIGHT; v.textAlign = Paint.Align.RIGHT
-            c.drawText("Đến · $leftTxt", w - padX, labY, lab)
-            c.drawText(etaTxt, w - padX, valY, v)
-            rightUsed = maxOf(lab.measureText("Đến · $leftTxt"), v.measureText(etaTxt))
+            c.drawText(etaTxt, w - padX, valMidY, v)
+            rightUsed = v.measureText(etaTxt)
         }
-        val leftUsed = maxOf(tp(h * 0.052f, false, Paint.Align.LEFT).measureText("Còn lại"), v.apply { textAlign = Paint.Align.LEFT }.measureText(kmTxt))
+        val leftUsed = v.apply { textAlign = Paint.Align.LEFT }.measureText(kmTxt)
         val st: String = skCurrentStreet ?: ""
         if (st.isNotBlank()) {
             val avail = w - 2 * padX - leftUsed - rightUsed - w * 0.06f
@@ -4148,8 +4148,10 @@ object TftLink {
         // dẫn đường hoặc chưa map-match ra tên đường. Tách khỏi "active" ở dưới để vẫn cập nhật được
         // kể cả lúc không dẫn đường, chỉ gửi khi thật sự đổi để không tốn băng thông.
         // build-408 (Sếp): thanh chữ của màn xe không hiện tên đường nữa mà hiện "ETA: giờ đến - thời gian còn lại - km còn lại".
-        val wantName = lastSentName // build-410: không gửi gói tên/ETA nữa
-        if (false) {
+        // build-428 (Sếp): đúng 1 gói tên = TÊN ĐIỂM ĐẾN khi bắt đầu dẫn đường (và 1 lần sau mỗi lần kết nối lại),
+        // thay chữ mặc định "Đường" của đồng hồ. Không gửi gì khác lên thanh firmware.
+        val wantName = if (active) (Live.destName?.trim()?.takeIf { it.isNotEmpty() } ?: lastSentName) else lastSentName
+        if (active && wantName.isNotEmpty() && wantName != lastSentName) {
             send(namePacket(wantName))
             lastSentName = wantName
             try { TripLog.ev("tftNameTx", "len" to wantName.length) } catch (_: Exception) {}
