@@ -1231,7 +1231,7 @@ object TftLink {
             val scale = (h * 0.68f) / maxAhead.toFloat()
             // build-250: nền = ẢNH bản đồ Goong vẽ ngoài nền (MapSnapshotter) như bản đồ trên điện thoại; mọi nét
             // chồng lên (tuyến đỏ, nhãn, tam giác xe) quy đổi qua đúng ảnh đó. Lỗi/quá hạn → null → vector cũ.
-            val snapShot: org.maplibre.android.snapshotter.MapSnapshot? = run {
+            val snapShot: MapSnap.Snap? = run {
                 val st = mapSnapStyle; val cx = appCtx
                 if (st == null || cx == null) return@run null // build-377: nền trơn vẫn chụp ảnh map (bỏ lớp nước/cây) để đường đúng tỉ lệ
                 val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(13.8, 17.8)

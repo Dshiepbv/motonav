@@ -45,10 +45,26 @@ object MapSnap {
 
     /** Hệ số phóng bề rộng đường so với mét thật (xe máy cần thấy rõ cả hẻm nhỏ trên màn bé). */
     const val WIDTH_SCALE = 3.0
+    @Volatile var PIXEL_RATIO = 2.0f
+
+    class Snap(val bitmap: android.graphics.Bitmap, private val raw: MapSnapshot, private val k: Float) {
+        fun pixelForLatLng(ll: org.maplibre.android.geometry.LatLng): android.graphics.PointF =
+            raw.pixelForLatLng(ll).let { android.graphics.PointF(it.x / k, it.y / k) }
+    }
 
     fun render(ctx: Context, styleUrl: String, dark: Boolean, lat: Double, lon: Double, bearing: Double, zoom: Double, tilt: Double,
-               w: Int, h: Int, timeoutMs: Long = 1500, plain: Boolean = false): MapSnapshot? {
-        return try { renderInner(ctx, styleUrl, dark, lat, lon, bearing, zoom, tilt, w, h + EXTRA_H, timeoutMs, plain) } catch (t: Throwable) {
+               w: Int, h: Int, timeoutMs: Long = 1500, plain: Boolean = false): Snap? {
+        return try {
+            val raw = renderInner(ctx, styleUrl, dark, lat, lon, bearing, zoom, tilt, w, h + EXTRA_H, timeoutMs, plain) ?: return null
+            // build-420: dựng ở mật độ 2x rồi thu nhỏ có lọc (siêu lấy mẫu) → nét đường, chữ mịn, hết răng cưa/bệt.
+            val bmp = raw.bitmap
+            val outH = h + EXTRA_H
+            val small = if (bmp.width != w) android.graphics.Bitmap.createScaledBitmap(bmp, w, outH, true) else bmp
+            // pixelForLatLng của MapLibre có thể trả theo pixel ảnh (×pixelRatio) — tự dò bằng tâm camera.
+            val c0 = raw.pixelForLatLng(org.maplibre.android.geometry.LatLng(lat, lon))
+            val k = if (!c0.x.isNaN() && c0.x > w * 0.75f) bmp.width.toFloat() / w else 1f
+            Snap(small, raw, k)
+        } catch (t: Throwable) {
             disable(t.javaClass.simpleName + ": " + (t.message ?: ""))
             null
         }
@@ -104,7 +120,7 @@ object MapSnap {
                     val opts = MapSnapshotter.Options(w, h)
                         .withStyleBuilder(if (sj != null) Style.Builder().fromJson(sj) else Style.Builder().fromUri(styleUrl))
                         .withCameraPosition(cam)
-                        .withPixelRatio(1.0f)
+                        .withPixelRatio(PIXEL_RATIO)
                         .withLogo(false)
                     s = MapSnapshotter(ctx.applicationContext, opts)
                     snapshotter = s; curStyle = styleKey; curW = w; curH = h
@@ -290,8 +306,8 @@ object MapSnap {
                             val plc = lbl("motonav_place", "place", 12.0, "[\"match\",[\"get\",\"class\"],[\"suburb\",\"quarter\",\"neighbourhood\",\"village\",\"hamlet\",\"town\"],true,false]",
                                 if (dark) "#E0E0D8" else "#3A3A36", 12, "Noto Sans Regular")
                             layers.put(plc)
-                            val rn = lbl("motonav_road_name", "transportation_name", 15.0, "[\"match\",[\"geometry-type\"],[\"LineString\",\"MultiLineString\"],true,false]",
-                                if (dark) "#E8E8E0" else "#2F2F2C", 11, "Noto Sans Regular")
+                            val rn = lbl("motonav_road_name", "transportation_name", 13.5, "[\"match\",[\"geometry-type\"],[\"LineString\",\"MultiLineString\"],true,false]",
+                                if (dark) "#F2F2EA" else "#202020", 13, "Noto Sans Bold")
                             rn.getJSONObject("layout").put("symbol-placement", "line").put("text-max-angle", 30).put("symbol-spacing", 260)
                             layers.put(rn)
                             changed += 5
