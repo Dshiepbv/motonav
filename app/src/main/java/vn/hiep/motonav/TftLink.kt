@@ -3553,12 +3553,16 @@ object TftLink {
                 continue
             }
             if (dashPaused) {
-                if (System.currentTimeMillis() - dashPausedAt > PAUSE_MAX_MS) {
-                    dashPaused = false
-                    resumeCount++
-                    try { TripLog.ev("tftResume", "wasPaused" to true, "auto" to true, "pausedMs" to PAUSE_MAX_MS) } catch (_: Exception) {}
-                    sendInitBurst()
-                } else { awaitV2Wake(200); continue }
+                // build-414: log 12/11 — lần nào tự chạy lại sau 20 s (xe chưa gửi 55) cũng bị xe không ACK rồi rớt hẳn.
+                // Giờ: xe tạm dừng thì chờ xe tự gửi 55, không tự chạy lại; chỉ khi xe im hẳn (không gửi tốc độ ≥6 s) mới gọi lại.
+                val s41 = msSinceBike41()
+                if (s41 >= DEAD41_MS && System.currentTimeMillis() - dashPausedAt >= DEAD41_MS) {
+                    try { TripLog.ev("tftDeadReconnect", "since41" to s41, "paused" to true) } catch (_: Exception) {}
+                    deadReconnectAt = System.currentTimeMillis()
+                    try { activeSocket?.close() } catch (_: Exception) {}
+                    break
+                }
+                awaitV2Wake(200); continue
             }
             // build-399 (Sếp): xe vừa cho tiếp tục → khung đang chờ ACK coi như xe đã bỏ; gửi ngay ảnh mới nhất.
             if (resumeCount != resumeSeen) {
@@ -3595,7 +3599,9 @@ object TftLink {
                 // Màn chết (xe ngừng gửi tốc độ 0x41 ≥ 6 s) hoặc chờ ACK ≥ 15 s → đóng socket, gọi lại ngay (19:48 màn chết 7 phút
                 // mà Bluetooth không tự rớt; 20:04 Bluetooth tự rớt thì app nối lại 2 s là có hình).
                 val s41 = msSinceBike41()
-                if ((s41 >= DEAD41_MS && el >= DEAD41_MS) || el >= DEAD_ACK_MS) {
+                // build-414: bỏ "15 s không ACK là gọi lại" — log 12/11 cả 9 lần đều lúc xe vẫn gửi tốc độ (xe còn sống), gọi lại làm xe
+                // không bắt tay nữa (17:42 treo 43 s rồi rớt). Chỉ gọi lại khi xe im hẳn.
+                if (s41 >= DEAD41_MS && el >= DEAD41_MS) {
                     try { TripLog.ev("tftDeadReconnect", "since41" to s41, "waitMs" to el) } catch (_: Exception) {}
                     deadReconnectAt = System.currentTimeMillis()
                     try { activeSocket?.close() } catch (_: Exception) {}
@@ -3940,7 +3946,15 @@ object TftLink {
      * đúng kiểu reset giữa chừng liên tục). Nới lên 15 giây: vẫn bắt được kiểu treo thật kéo dài hàng
      * chục giây, nhưng không đụng tới độ chậm vài giây vốn là bình thường của phần cứng này. */
     private fun writeWatchdog() {
+        val connAt = System.currentTimeMillis()
         while (running.get() && connected) {
+            // build-414: socket mở mà xe không bắt tay trong 8 s (17:42 log 12/11: treo 43 s tới khi Bluetooth tự rớt) → đóng, gọi lại.
+            if (!authed && System.currentTimeMillis() - connAt > 8_000) {
+                try { TripLog.ev("tftNoHandshake", "ms" to (System.currentTimeMillis() - connAt)) } catch (_: Exception) {}
+                deadReconnectAt = System.currentTimeMillis()
+                try { activeSocket?.close() } catch (_: Exception) {}
+                break
+            }
             val started = writeStartedAt
             if (started != 0L && System.currentTimeMillis() - started > 15_000) {
                 lastError = "Gửi treo quá 15 giây (xe không đọc kịp) — ép đóng kết nối để bắt tay lại"
