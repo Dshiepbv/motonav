@@ -134,9 +134,9 @@ object TftLink {
     private fun sendInitBurst() {
         send(gPacket(2, 0))            // chưa dẫn đường
         send(gPacket(31, 1))
-        send(gPacket(10, 0))           // chưa lưu "nhà"
+        send(gPacket(10, if (homeSaved) 1 else 0))  // build-417: báo xe đã lưu "Nhà" → hiện mục Về nhà trong menu xe
         send(menuStringPacket("300 m"))
-        send(gPacket(11, 0))           // chưa lưu "chỗ làm"
+        send(gPacket(11, if (workSaved) 1 else 0))  // build-417: "Chỗ làm"
         send(gPacket(13, 1))
         // build-410 (Sếp): không gửi chữ lên thanh firmware nữa (log 12/11: gói chữ dày → kẹt 70%).
         send(speedPacket(0, 3))
@@ -2119,7 +2119,7 @@ object TftLink {
         // Bố cục theo kiểu Waze (ảnh người dùng gửi): icon bên TRÁI, chữ khoảng cách + tên đường
         // xếp dọc bên PHẢI icon (không còn xếp dọc dưới icon như trước) — chỉ khác Waze ở chỗ KHÔNG
         // có khung nền tối phía sau, theo đúng yêu cầu ban đầu "ko nền".
-        if (skActive && skRoute != null && !skNextStreet.isNullOrBlank()) {
+        if (false && skActive && skRoute != null && !skNextStreet.isNullOrBlank()) { // build-417 (Sếp): tạm ẩn cụm mũi tên (bị nút +/- firmware che)
             // To hơn nữa theo yêu cầu "cho cái icon to to tí" (0.135->0.17).
             val arm = h * 0.17f
             // Đẩy cả bảng sát kịch góc trên-trái theo yêu cầu mới nhất.
@@ -2802,6 +2802,42 @@ object TftLink {
     /** Gọi khi xe gửi cmd 49 (bấm nút "Dừng dẫn đường" trên màn xe) — DriveService gán để dừng
      * dẫn đường thật khi người dùng bấm nút này trên đồng hồ xe thay vì trong app. */
     @Volatile var onStopRequested: (() -> Unit)? = null
+    // build-417 (Sếp: "setup các nút như zin"): menu của màn xe — Về nhà (53), Đi làm (54), Yêu thích (55·3), Trạm xăng (55·4),
+    // chọn 1 mục trong danh sách (48), Dừng dẫn đường (49). Mã lệnh theo tài liệu công khai của NmaxConnect (docs/bike-protocol.md).
+    @Volatile var homeSaved = false
+    @Volatile var workSaved = false
+    @Volatile var onGoHome: (() -> Unit)? = null
+    @Volatile var onGoWork: (() -> Unit)? = null
+    @Volatile var onNavigateTo: ((Double, Double, String) -> Unit)? = null
+    @Volatile var favProvider: (() -> List<Triple<String, Double, Double>>)? = null
+    @Volatile var gasProvider: (() -> List<Triple<String, Double, Double>>)? = null
+    private val menuLists = arrayOfNulls<List<Triple<String, Double, Double>>>(2)
+    private var menuNextList = 0
+
+    private fun le16(v: Int) = byteArrayOf(v.toByte(), (v shr 8).toByte())
+    private fun le32f(f: Float): ByteArray { val b = java.lang.Float.floatToIntBits(f); return byteArrayOf(b.toByte(), (b shr 8).toByte(), (b shr 16).toByte(), (b shr 24).toByte()) }
+
+    /** Gửi danh sách điểm (7/98 = Yêu thích, 8/99 = Trạm xăng) lên menu màn xe: tên, hướng (1 trước … 8 trước-trái), khoảng cách. */
+    private fun sendPoiList(fav: Boolean, items0: List<Triple<String, Double, Double>>) {
+        val here = Live.lat to Live.lon
+        val items = items0.sortedBy { Geo.distance(here.first, here.second, it.second, it.third) }.take(20)
+        val idx = menuNextList; menuNextList = 1 - idx
+        menuLists[idx] = items
+        send(pack(le16(items.size) + byteArrayOf(0), if (fav) 7 else 8, 1))
+        val hd = if (Live.heading >= 0) Live.heading else 0.0
+        items.forEachIndexed { i, (name, la, lo) ->
+            val d = Geo.distance(here.first, here.second, la, lo)
+            val (dist, unit) = if (d < 1000) Math.round(d).toFloat() to "m" else (Math.round(d / 100.0) / 10f) to "km"
+            val brg = Math.toDegrees(Math.atan2(Math.sin(Math.toRadians(lo - here.second)) * Math.cos(Math.toRadians(la)),
+                Math.cos(Math.toRadians(here.first)) * Math.sin(Math.toRadians(la)) - Math.sin(Math.toRadians(here.first)) * Math.cos(Math.toRadians(la)) * Math.cos(Math.toRadians(lo - here.second))))
+            val rel = ((brg - hd + 360 + 22.5) % 360 + 360) % 360
+            val dir = (rel / 45).toInt() + 1
+            val u = asciiBytes(unit, 8); val n = asciiBytes(name, 40)
+            val body = le16(i) + le16(idx) + byteArrayOf(dir.toByte(), n.size.toByte(), u.size.toByte()) + le32f(dist) + u + n
+            send(pack(body, if (fav) 98 else 99, 1))
+        }
+        try { TripLog.ev("tftMenuList", "fav" to fav, "n" to items.size) } catch (_: Exception) {}
+    }
 
     // ---------- Chẩn đoán (xem ở màn Cài đặt khi chưa bắt tay xong được) ----------
     /** Tổng số byte đã đọc được từ socket — 0 nghĩa là xe chưa gửi gì cả (kể cả rác). */
@@ -3293,6 +3329,11 @@ object TftLink {
                         }
                         55 -> {
                             val v = if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else -1
+                            if (v == 3 || v == 4) {
+                                TripLog.ev("tftBtn", "cmd" to "55 list", "v" to v)
+                                val src = if (v == 3) favProvider else gasProvider
+                                Thread { try { sendPoiList(v == 3, src?.invoke() ?: emptyList()) } catch (_: Exception) {} }.start()
+                            }
                             if (v == 1) {
                                 val was = dashPaused
                                 dashPaused = false
@@ -3303,9 +3344,15 @@ object TftLink {
                                 signalV2Wake()
                             }
                         }
-                        48 -> { // menu đồng hồ: chọn mục (zoom +/- cũng gửi qua đây ở một số bản) — chỉ log
-                            TripLog.ev("tftBtn", "cmd" to "48 menu")
+                        48 -> { // build-417: chọn 1 mục trong danh sách Yêu thích / Trạm xăng → dẫn đường tới đó
+                            val item = if (payload.size >= 2) (payload[0].toInt() and 0xFF) or ((payload[1].toInt() and 0xFF) shl 8) else -1
+                            val list = if (payload.size >= 4) (payload[2].toInt() and 0xFF) or ((payload[3].toInt() and 0xFF) shl 8) else -1
+                            val pick = menuLists.getOrNull(list)?.getOrNull(item)
+                            TripLog.ev("tftBtn", "cmd" to "48 pick", "item" to item, "list" to list, "ok" to (pick != null))
+                            if (pick != null) onNavigateTo?.invoke(pick.second, pick.third, pick.first)
                         }
+                        53 -> { TripLog.ev("tftBtn", "cmd" to "53 home"); onGoHome?.invoke() }
+                        54 -> { TripLog.ev("tftBtn", "cmd" to "54 work"); onGoWork?.invoke() }
                         49 -> { // nút "Dừng dẫn đường" trên màn xe
                             TripLog.ev("tftBtn", "cmd" to "49 stop")
                             onStopRequested?.invoke()

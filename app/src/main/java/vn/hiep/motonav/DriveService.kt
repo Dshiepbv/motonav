@@ -127,6 +127,14 @@ class DriveService : Service(), LocationListener {
         nav = NavEngine(this, prefs, navExecutor) { text, speech, urgent -> alert(text, speech, urgent = urgent) }
         // Bấm nút "Dừng dẫn đường" trên màn TFT xe (cmd 49) → dừng dẫn đường thật trong app.
         TftLink.onStopRequested = { handler.post { nav.finish() } }
+        // build-417: menu của màn xe (Về nhà / Đi làm / Yêu thích / Trạm xăng gần đây)
+        TftLink.homeSaved = Places.home(this) != null
+        TftLink.workSaved = Places.work(this) != null
+        TftLink.onGoHome = { Places.home(this)?.let { p -> handler.post { nav.start(p.lat, p.lon, p.name) } } }
+        TftLink.onGoWork = { Places.work(this)?.let { p -> handler.post { nav.start(p.lat, p.lon, p.name) } } }
+        TftLink.onNavigateTo = { la, lo, nm -> handler.post { nav.start(la, lo, nm) } }
+        TftLink.favProvider = { Places.favorites(this).map { Triple(it.name, it.lat, it.lon) } }
+        TftLink.gasProvider = { (Live.osm?.fuel ?: emptyList()).map { Triple("Tram xang", it[0], it[1]) } }
         Live.addListener(overlayListener)
         lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         thread = HandlerThread("drive").also { it.start() }
@@ -312,6 +320,8 @@ class DriveService : Service(), LocationListener {
             if (on) {
                 // build-250: ảnh bản đồ Goong cho TFT (cần Map Tiles Key; bật/tắt trong Cài đặt)
                 TftLink.themeMode = prefs.tftTheme
+                TftLink.homeSaved = Places.home(this@DriveService) != null
+                TftLink.workSaved = Places.work(this@DriveService) != null
                 TftLink.diagMode = prefs.tftDiag
                 TftLink.stepMs = prefs.tftStepMs.toLong().coerceIn(100L, 1200L)
                 run { val m = prefs.tftSendMode.coerceIn(0, 2); TftLink.nmaxStyle = (m == 1); TftLink.send727 = (m == 0); TftLink.FAST400 = (m != 0) }
