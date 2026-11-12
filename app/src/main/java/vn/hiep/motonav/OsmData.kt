@@ -220,6 +220,49 @@ object Overpass {
         return parseElements(listOf(root.optJSONArray("elements") ?: org.json.JSONArray()), lat, lon).fuel
     }
 
+    /**
+     * build-439 (Sếp): "luật cấm rẽ" ở giao lộ (relation type=restriction: no_left_turn / no_right_turn / no_u_turn)
+     * → biển cấm rẽ đặt tại nút giao (via), chỉ áp dụng khi xe đang đi trên đường "from". Bỏ luật chỉ dành cho ô tô
+     * (restriction:motorcar…) và luật có except chứa xe máy.
+     */
+    fun restrictionsNear(lat: Double, lon: Double, radius: Int): List<RoadSign> {
+        val p = String.format(Locale.US, "%.6f,%.6f", lat, lon)
+        val root = raw("[out:json][timeout:20];\nrel(around:$radius,$p)[\"type\"=\"restriction\"][\"restriction\"~\"^no_(left_turn|right_turn|u_turn)$\"]->.r;\n.r out body;\nnode(r.r:\"via\");\nout skel;\n")
+        val els = root.optJSONArray("elements") ?: return emptyList()
+        val nodes = HashMap<Long, DoubleArray>()
+        for (i in 0 until els.length()) {
+            val e = els.getJSONObject(i)
+            if (e.optString("type") == "node") nodes[e.optLong("id")] = doubleArrayOf(e.optDouble("lat"), e.optDouble("lon"))
+        }
+        val out = ArrayList<RoadSign>()
+        for (i in 0 until els.length()) {
+            val e = els.getJSONObject(i)
+            if (e.optString("type") != "relation") continue
+            val tags = e.optJSONObject("tags") ?: continue
+            val ex = tags.optString("except")
+            if (ex.contains("motorcycle") || ex.contains("moped")) continue
+            val t = when (tags.optString("restriction")) {
+                "no_left_turn" -> SignType.NO_LEFT
+                "no_right_turn" -> SignType.NO_RIGHT
+                "no_u_turn" -> SignType.NO_UTURN
+                else -> continue
+            }
+            var from = 0L; var via: DoubleArray? = null
+            val mem = e.optJSONArray("members") ?: continue
+            for (k in 0 until mem.length()) {
+                val m = mem.getJSONObject(k)
+                when (m.optString("role")) {
+                    "from" -> if (m.optString("type") == "way") from = m.optLong("ref")
+                    "via" -> if (m.optString("type") == "node") via = nodes[m.optLong("ref")]
+                }
+            }
+            val v = via ?: continue
+            if (from == 0L) continue
+            out.add(RoadSign("r" + e.optLong("id"), v[0], v[1], t, 0, -1.0, from))
+        }
+        return out
+    }
+
     /** Gửi một truy vấn Overpass bất kỳ, thử lần lượt các máy chủ. */
     fun raw(query: String): JSONObject {
         var lastError: Exception? = null

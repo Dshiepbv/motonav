@@ -841,6 +841,7 @@ class DriveService : Service(), LocationListener {
 
     // ---------- Biển báo phía trước ----------
 
+    private val restrCache = HashMap<Long, List<RoadSign>>()
     private val announcedSigns = HashSet<String>()
     private val activeSigns = HashSet<String>()
 
@@ -870,6 +871,14 @@ class DriveService : Service(), LocationListener {
                 }
                 if (sg.heading >= 0 && Geo.angleDiff(sg.heading, hdg) > 60) continue
                 if (corridor.isEmpty()) { activeSigns.remove(sg.id); continue }
+                if (sg.fromWay != 0L) {
+                    // build-439: luật cấm rẽ — chỉ khi đang đi trên đường "from" (đường hiện tại) và giao lộ ở phía trước.
+                    val brg = Geo.bearing(lat, lon, sg.lat, sg.lon)
+                    val ah = d * kotlin.math.cos(Math.toRadians(Geo.angleDiff(brg, hdg)))
+                    if (way != null && way.id == sg.fromWay && ah >= -5.0 && ah <= 200.0) { found.add(Pair(sg, max(0.0, ah))); activeSigns.add(sg.id) }
+                    else { activeSigns.remove(sg.id); if (ah < -5.0) announcedSigns.remove(sg.id) }
+                    continue
+                }
                 // Đường THỰC SỰ gần biển nhất phải là đường đang đi (phân biệt 2 đường song song,
                 // ví dụ làn xe máy/ô tô tách riêng) — không chỉ "đủ gần" tuyến đang đi
                 var nearestWay: Way? = null
@@ -1427,6 +1436,18 @@ class DriveService : Service(), LocationListener {
                     }
                 } else {
                     Overpass.fetch(lat, lon, WAY_RADIUS, CAM_RADIUS).also { TripLog.ev("osm", "src" to "overpass", "ways" to it.ways.size) }
+                }
+                // build-439: thêm biển cấm rẽ từ luật cấm rẽ ở giao lộ (Overpass, nhớ theo ô ~2 km)
+                snapshot?.let { sn ->
+                    val cell = (Math.round(lat / 0.02) shl 20) xor Math.round(lon / 0.02)
+                    val rs = synchronized(restrCache) { restrCache[cell] } ?: try {
+                        Overpass.restrictionsNear(lat, lon, maxOf(WAY_RADIUS, 2500)).also {
+                            synchronized(restrCache) { restrCache[cell] = it }
+                            TripLog.ev("osm", "restrictions" to it.size)
+                        }
+                    } catch (_: Exception) { null }
+                    if (!rs.isNullOrEmpty()) snapshot = OsmSnapshot(sn.centerLat, sn.centerLon, sn.ways, sn.cameras, sn.urbanArea, sn.areaName,
+                        sn.signs.filter { !it.id.startsWith("r") } + rs, sn.fuel)
                 }
                 Live.osm = snapshot
                 lastFetchFail = 0

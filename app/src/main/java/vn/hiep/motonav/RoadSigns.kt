@@ -8,7 +8,7 @@ import android.graphics.Path
 import android.graphics.Typeface
 
 /** Một biển báo trên OpenStreetMap. */
-class RoadSign(val id: String, val lat: Double, val lon: Double, val type: Int, val value: Int, val heading: Double)
+class RoadSign(val id: String, val lat: Double, val lon: Double, val type: Int, val value: Int, val heading: Double, val fromWay: Long = 0L)
 
 /** Loại biển, giải mã thẻ traffic_sign của OSM (gồm mã biển Việt Nam P./W./R.). */
 object SignType {
