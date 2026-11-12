@@ -1236,10 +1236,12 @@ object TftLink {
                 if (st == null || cx == null) return@run null // build-377: nền trơn vẫn chụp ảnh map (bỏ lớp nước/cây) để đường đúng tỉ lệ
                 val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(13.8, 17.8)
                 val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
-                val aheadM = (0.22 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.15
+                // build-423 (Sếp): nghiêng 60° (trước 45°) cho nhìn xa hơn; hệ số 1.54 = 1.15 × 1.34 (tỉ lệ quãng đất
+                // dưới tâm ảnh khi nghiêng 60° so với 45°, camera MapLibre fov 36,87°) để xe vẫn nằm đúng chỗ cũ.
+                val aheadM = (0.22 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.54
                 val tLat = skLat + cosH * aheadM / 110540.0
                 val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 45.0, w, h, plain = bgPlainNow())
+                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 60.0, w, h, plain = bgPlainNow())
             }
             // rx/ry (mét thật, đã xoay theo hướng xe) -> toạ độ pixel, nén bán kính theo căn bậc hai
             // (mũ 0.55) quanh vị trí xe: gần xe gần như không nén (dễ thấy rẽ), xa xe nén mạnh hơn.
