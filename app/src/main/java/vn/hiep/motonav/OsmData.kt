@@ -213,6 +213,13 @@ object Overpass {
         return snap.urbanArea to snap.areaName
     }
 
+    /** build-436: chỉ trạm xăng quanh điểm (gói ngoại tuyến không có trạm xăng) — truy vấn nhẹ. */
+    fun fuelNear(lat: Double, lon: Double, radius: Int): List<DoubleArray> {
+        val p = String.format(Locale.US, "%.6f,%.6f", lat, lon)
+        val root = raw("[out:json][timeout:15];\n(node(around:$radius,$p)[\"amenity\"=\"fuel\"];way(around:$radius,$p)[\"amenity\"=\"fuel\"];);\nout center;\n")
+        return parseElements(listOf(root.optJSONArray("elements") ?: org.json.JSONArray()), lat, lon).fuel
+    }
+
     /** Gửi một truy vấn Overpass bất kỳ, thử lần lượt các máy chủ. */
     fun raw(query: String): JSONObject {
         var lastError: Exception? = null

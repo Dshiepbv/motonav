@@ -103,6 +103,8 @@ object OfflinePack {
     }
 
     /** Dựng snapshot giống Overpass từ gói. Phường/xã hỏi Overpass riêng (truy vấn rất nhẹ, có bộ nhớ đệm). */
+    private val fuelCache = HashMap<Long, List<DoubleArray>>()
+
     fun snapshot(lat: Double, lon: Double, wayRadius: Int, camRadius: Int): OsmSnapshot {
         val arrays = tiles("w", lat, lon, wayRadius.toDouble()) + tiles("n", lat, lon, camRadius.toDouble())
         val base = Overpass.parseElements(arrays, lat, lon, wayRadius.toDouble())
@@ -112,6 +114,11 @@ object OfflinePack {
         } catch (_: Exception) {
             null to null
         }
-        return OsmSnapshot(lat, lon, base.ways, base.cameras, area.first, area.second, base.signs)
+        // build-436 (Sếp: "không thấy cây xăng"): gói không chứa trạm xăng → hỏi Overpass riêng, nhớ theo ô ~2 km.
+        val fcell = (Math.round(lat / 0.02) shl 20) xor Math.round(lon / 0.02)
+        val fuel = synchronized(fuelCache) { fuelCache[fcell] } ?: try {
+            Overpass.fuelNear(lat, lon, maxOf(wayRadius, 2500)).also { synchronized(fuelCache) { fuelCache[fcell] = it } }
+        } catch (_: Exception) { base.fuel }
+        return OsmSnapshot(lat, lon, base.ways, base.cameras, area.first, area.second, base.signs, fuel)
     }
 }
