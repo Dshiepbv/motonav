@@ -2164,7 +2164,7 @@ object TftLink {
         // A/B phút lẻ "L": ảnh dựng sát mốc 5 s (−800..+400 ms) nén nhẹ hẳn (8) — không né, mà đổi thứ gửi đúng lúc mốc.
         val nowWq = System.currentTimeMillis()
         val offQ = tickOffset(nowWq)
-        val jq = if (send727) 14 else 22 // build-401: chế độ 7.27 dùng JPEG 14 như bản gốc; build-400 (Sếp 10/11): về lại JPEG 22 (80 → khung 20–22 KB, xe tạm dừng liên tục)
+        val jq = if (send727) 14 else jpegQ.coerceIn(10, 60) // build-418: theo Cài đặt (20–50); build-401: chế độ 7.27 dùng JPEG 14 như bản gốc; build-400 (Sếp 10/11): về lại JPEG 22 (80 → khung 20–22 KB, xe tạm dừng liên tục)
         lastJpegQ = jq
         bmp.compress(Bitmap.CompressFormat.JPEG, jq, out)
         // build-390: trần dung lượng — AutoMaxi ghi nhận khung quá lớn làm màn xe đen; maxdash đo tới ~20 KB vẫn ổn.
@@ -2805,6 +2805,7 @@ object TftLink {
     // build-417 (Sếp: "setup các nút như zin"): menu của màn xe — Về nhà (53), Đi làm (54), Yêu thích (55·3), Trạm xăng (55·4),
     // chọn 1 mục trong danh sách (48), Dừng dẫn đường (49). Mã lệnh theo tài liệu công khai của NmaxConnect (docs/bike-protocol.md).
     @Volatile var homeSaved = false
+    @Volatile var jpegQ = 22
     @Volatile var workSaved = false
     @Volatile var onGoHome: (() -> Unit)? = null
     @Volatile var onGoWork: (() -> Unit)? = null

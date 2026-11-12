@@ -320,6 +320,7 @@ class DriveService : Service(), LocationListener {
             if (on) {
                 // build-250: ảnh bản đồ Goong cho TFT (cần Map Tiles Key; bật/tắt trong Cài đặt)
                 TftLink.themeMode = prefs.tftTheme
+                TftLink.jpegQ = prefs.tftJpegQ
                 TftLink.homeSaved = Places.home(this@DriveService) != null
                 TftLink.workSaved = Places.work(this@DriveService) != null
                 TftLink.diagMode = prefs.tftDiag

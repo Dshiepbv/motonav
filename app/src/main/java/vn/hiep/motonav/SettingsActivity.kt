@@ -800,6 +800,16 @@ class SettingsActivity : Activity() {
             prefs.tftDiag,
             note = "Bật khi xe đứng yên cạnh điện thoại vài phút: màn xe chỉ hiện chữ đếm giây. Nếu vẫn đứng hình cỡ 5 giây một lần thì lỗi nằm ở đường truyền/màn xe, không do nội dung bản đồ. Xong nhớ chuyển về Tắt.",
         ) { prefs.tftDiag = it }
+        run {
+            val qs = (20..50 step 5).toList()
+            choice(
+                "Chất lượng ảnh (JPEG)",
+                null,
+                qs.map { if (it == 20) "20 (nhẹ nhất)" else if (it == 50) "50 (mịn nhất)" else "$it" },
+                qs.indexOf((prefs.tftJpegQ / 5) * 5).coerceAtLeast(0),
+                note = "Số càng cao ảnh càng mịn (đỡ bệt màu) nhưng khung càng nặng: 20 ≈ 10 KB, 35 ≈ 15 KB, 50 ≈ 20 KB. Đổi là áp dụng ngay.",
+            ) { prefs.tftJpegQ = qs[it]; TftLink.jpegQ = qs[it] }
+        }
         choice(
             "Cách gửi ảnh",
             null,

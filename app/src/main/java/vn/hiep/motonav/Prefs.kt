@@ -115,6 +115,10 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("tftNmaxStyle", true)
         set(v) = sp.edit().putBoolean("tftNmaxStyle", v).apply()
     /** build-401: 0 = như bản 7.27-v2 (mặc định), 1 = NmaxConnect, 2 = MotoNav (mốc gửi). */
+    /** build-418: chất lượng nén JPEG ảnh gửi màn xe (20–50, Sếp chọn trong Cài đặt). */
+    var tftJpegQ: Int
+        get() = sp.getInt("tftJpegQ", 22)
+        set(v) = sp.edit().putInt("tftJpegQ", v).apply()
     var tftSendMode: Int
         get() = sp.getInt("tftSendMode405", 2) // build-405: về mặc định cách gửi build 400
         set(v) = sp.edit().putInt("tftSendMode405", v).apply()
