@@ -138,7 +138,7 @@ object TftLink {
         send(menuStringPacket("300 m"))
         send(gPacket(11, 0))           // chưa lưu "chỗ làm"
         send(gPacket(13, 1))
-        send(namePacket("MotoNav"))
+        // build-410 (Sếp): không gửi chữ lên thanh firmware nữa (log 12/11: gói chữ dày → kẹt 70%).
         send(speedPacket(0, 3))
         send(gPacket(12, 1))
         lastSentKey = "" // để lần update() kế tiếp gửi lại đúng trạng thái dẫn đường hiện tại
@@ -1985,7 +1985,8 @@ object TftLink {
             val nl = skNextLimit
             val nd = skNextLimitDist
             if (nl != null && nl > 0 && nl < lim && nd in 0..100) {
-                val ncx = cx - r * 2.5f; val ncy = cy; val nr = r * 0.85f
+                // build-410 (Sếp): biển sắp đổi chuyển xuống DƯỚI biển tốc độ (bên cạnh dành cho biển cấm rẽ).
+                val nr = r * 0.8f; val ncx = cx; val ncy = cy + r + h * 0.04f + nr
                 c.drawCircle(ncx, ncy, nr, ringPaint)
                 c.drawCircle(ncx, ncy, nr * 0.78f, facePaint)
                 val np = Paint(numPaint).apply { textSize = nr * 1.15f }
@@ -1995,13 +1996,27 @@ object TftLink {
                 val arcPaint = Paint().apply { color = Color.rgb(255, 196, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
                 c.drawArc(android.graphics.RectF(ncx - arcR, ncy - arcR, ncx + arcR, ncy + arcR), -90f, 360f * nd / 100f, false, arcPaint)
                 val dp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.075f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                c.drawText("$nd m", ncx, ncy + arcR + h * 0.075f, dp)
+                c.drawText("$nd m", ncx - arcR - h * 0.012f - dp.measureText("$nd m") / 2f, ncy + h * 0.025f, dp)
+                limBottomY = ncy + arcR
             }
         }
+        // build-410 (Sếp, giống NConnect): biển cấm rẽ trái/phải/quay đầu phía trước (≤150 m) đặt cạnh biển tốc độ.
+        try {
+            val nt = Live.signsAhead.firstOrNull { (it.first == SignType.NO_LEFT || it.first == SignType.NO_RIGHT || it.first == SignType.NO_UTURN) && it.third <= 150 }
+            if (skActive && nt != null) {
+                val r = h * 0.105f
+                val cx = if (lim != null && lim > 0) w * 0.90f - r * 2.4f else w * 0.90f
+                drawNoTurnSign(c, cx, h * 0.16f, r, nt.first)
+                if (nt.third >= 0) {
+                    val dp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.065f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    c.drawText("${nt.third} m", cx, h * 0.16f + r + h * 0.07f, dp)
+                }
+            }
+        } catch (_: Throwable) {}
         // build-402 (Sếp: "y như Garmin StreetCross"): ô thời tiết nền trắng bo góc bên phải — biểu tượng, nhiệt độ, giờ, "Vị trí hiện tại".
         run {
             val wc = Live.wxHereCat; val wt = Live.wxHereTemp
-            if (skActive && wc != null && wt != null) {
+            if (skActive && wc != null && wt != null && limBottomY + h * 0.33f < h * 0.84f) { // build-410: nhường chỗ ô ETA dưới góc phải
                 val bw = w * 0.22f; val bh = h * 0.30f
                 val right = w - w * 0.02f; val top = limBottomY + h * 0.03f
                 val rect = android.graphics.RectF(right - bw, top, right, top + bh)
@@ -2026,6 +2041,23 @@ object TftLink {
         // (anchorY), theo yêu cầu mới nhất. Trước đây khung còn lại nằm dưới biển tốc độ, dạng chữ
         // trần không khung — nay gộp lại 1 dòng và đóng khung y hệt ETA.
         // build-408 (Sếp): bỏ 2 ô ETA/còn lại khỏi ảnh — ETA, thời gian và km còn lại giờ hiện trên thanh chữ của màn xe (gói tên).
+        if (skActive && skRoute != null && skEtaMs > 0L) {
+            // build-410 (Sếp): nhóm ETA vẽ vào ảnh, góc dưới bên phải (ngay trên thanh firmware), 1 khung gọn.
+            val cal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
+            val remMin = (skEtaMs / 60000L).toInt()
+            val km = skRemainingM / 1000.0
+            val kmTxt = (if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')) + " km"
+            val txt = String.format(java.util.Locale.US, "ETA %02d:%02d · %02d:%02d · ", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), remMin / 60, remMin % 60) + kmTxt
+            val tp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.085f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.RIGHT }
+            val fmT = tp.fontMetrics
+            val padX = h * 0.03f; val padY = h * 0.018f
+            val right = w - w * 0.015f; val bottom = h - h * 0.02f
+            val tw = tp.measureText(txt)
+            val rect = android.graphics.RectF(right - tw - padX * 2f, bottom - (fmT.descent - fmT.ascent) - padY * 2f, right, bottom)
+            c.drawRoundRect(rect, h * 0.025f, h * 0.025f, Paint().apply { color = if (dk) Color.argb(235, 0, 0, 0) else Color.argb(235, 255, 255, 255); style = Paint.Style.FILL; isAntiAlias = true })
+            c.drawRoundRect(rect, h * 0.025f, h * 0.025f, Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.STROKE; strokeWidth = h * 0.012f; isAntiAlias = true })
+            c.drawText(txt, rect.right - padX, rect.centerY() - (fmT.ascent + fmT.descent) / 2f, tp)
+        }
         if (false && skActive && skRoute != null) {
             val remKm = skRemainingM / 1000.0
             val remTxt = if (remKm >= 10) "${remKm.toInt()} km" else String.format("%.1f km", remKm)
@@ -2216,6 +2248,34 @@ object TftLink {
             c.drawRect(x - r * 0.2f, cy - r * 0.5f, x + r * 0.2f, cy - r * 0.3f, wp)
             c.drawCircle(x, cy + r * 0.03f, r * 0.24f, Paint().apply { color = col; style = Paint.Style.FILL; isAntiAlias = true })
         }
+    }
+
+    /** build-410: biển cấm rẽ kiểu VN (P.123a/b, P.124): viền đỏ, nền trắng, mũi tên đen, gạch chéo đỏ. */
+    private fun drawNoTurnSign(c: Canvas, cx: Float, cy: Float, r: Float, type: Int) {
+        c.drawCircle(cx, cy, r, Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.FILL; isAntiAlias = true })
+        c.drawCircle(cx, cy, r * 0.78f, Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true })
+        val sw = r * 0.16f
+        val ap = Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = sw; isAntiAlias = true; strokeJoin = Paint.Join.ROUND }
+        val hp = Paint().apply { color = Color.BLACK; style = Paint.Style.FILL; isAntiAlias = true }
+        val path = android.graphics.Path()
+        val head = android.graphics.Path()
+        val u = r * 0.5f
+        when (type) {
+            SignType.NO_UTURN -> {
+                path.moveTo(cx + u * 0.45f, cy + u); path.lineTo(cx + u * 0.45f, cy - u * 0.2f)
+                path.arcTo(android.graphics.RectF(cx - u * 0.45f, cy - u * 0.65f, cx + u * 0.45f, cy + u * 0.25f), 0f, -180f)
+                path.lineTo(cx - u * 0.45f, cy + u * 0.35f)
+                head.moveTo(cx - u * 0.45f, cy + u * 0.85f); head.lineTo(cx - u * 0.85f, cy + u * 0.3f); head.lineTo(cx - u * 0.05f, cy + u * 0.3f); head.close()
+            }
+            else -> {
+                val s = if (type == SignType.NO_LEFT) -1f else 1f
+                path.moveTo(cx - s * u * 0.25f, cy + u); path.lineTo(cx - s * u * 0.25f, cy - u * 0.15f); path.lineTo(cx + s * u * 0.35f, cy - u * 0.15f)
+                head.moveTo(cx + s * u * 0.9f, cy - u * 0.15f); head.lineTo(cx + s * u * 0.3f, cy - u * 0.6f); head.lineTo(cx + s * u * 0.3f, cy + u * 0.3f); head.close()
+            }
+        }
+        c.drawPath(path, ap); c.drawPath(head, hp)
+        val sl = r * 0.78f * 0.7071f
+        c.drawLine(cx - sl, cy - sl, cx + sl, cy + sl, Paint().apply { color = Color.rgb(220, 30, 30); strokeWidth = r * 0.16f; isAntiAlias = true })
     }
 
     /** build-407: cờ đích ca-rô cắm tại điểm tới, chân cột ở (x, y). */
@@ -3912,8 +3972,8 @@ object TftLink {
         // dẫn đường hoặc chưa map-match ra tên đường. Tách khỏi "active" ở dưới để vẫn cập nhật được
         // kể cả lúc không dẫn đường, chỉ gửi khi thật sự đổi để không tốn băng thông.
         // build-408 (Sếp): thanh chữ của màn xe không hiện tên đường nữa mà hiện "ETA: giờ đến - thời gian còn lại - km còn lại".
-        val wantName = if (active && skEtaMs > 0L) etaBarText() else "MotoNav"
-        if (wantName != lastSentName) {
+        val wantName = lastSentName // build-410: không gửi gói tên/ETA nữa
+        if (false) {
             send(namePacket(wantName))
             lastSentName = wantName
             try { TripLog.ev("tftNameTx", "len" to wantName.length) } catch (_: Exception) {}
