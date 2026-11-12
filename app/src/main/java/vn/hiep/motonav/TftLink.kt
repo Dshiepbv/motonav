@@ -2056,8 +2056,9 @@ object TftLink {
                 String.format(java.util.Locale.US, "ETA %02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE)),
             )
             // build-413 (Sếp): không nền, chữ to hơn (viền tương phản để đọc trên bản đồ), chân khung ngang chân tam giác vị trí xe.
-            val tp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.10f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.RIGHT }
-            val halo = Paint(tp).apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.022f; strokeJoin = Paint.Join.ROUND }
+            val tp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.13f; // build-415: to hơn (Sếp)
+                isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.RIGHT }
+            val halo = Paint(tp).apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
             val fmT = tp.fontMetrics
             val lineH = (fmT.descent - fmT.ascent) * 0.92f
             val right = w - w * 0.02f
