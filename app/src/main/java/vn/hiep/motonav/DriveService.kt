@@ -1035,6 +1035,13 @@ class DriveService : Service(), LocationListener {
     private var signPassAt = 0L
     private var signSide = 0.0
     private val BOARD_REF_RIGHT = 10.0
+    private val STAGGER_M = 8.0
+    /** Khoảng cách dọc theo hướng chạy từ (lat1,lon1) tới (lat2,lon2), m. */
+    private fun alongM(lat1: Double, lon1: Double, lat2: Double, lon2: Double, hdg: Double): Double {
+        val d = Geo.distance(lat1, lon1, lat2, lon2)
+        if (d < 0.5) return 0.0
+        return d * kotlin.math.cos(Math.toRadians(Geo.signedAngle(hdg, Geo.bearing(lat1, lon1, lat2, lon2))))
+    }
 
     /**
      * Biển giới hạn tốc độ vừa đi qua (đúng chiều, bên phải xe) còn hiệu lực: tới khi gặp biển khác,
@@ -1051,7 +1058,10 @@ class DriveService : Service(), LocationListener {
             return d * kotlin.math.sin(Math.toRadians(Geo.signedAngle(hdg, Geo.bearing(lat, lon, o.lat, o.lon))))
         }
         fun facing(o: SpeedSign) = o.dir < 0 || (if (o.src == "osm") Geo.angleDiff(o.dir, hdg) <= 70 else Geo.angleDiff(o.dir, hdg + 180.0) <= 70)
-        val group = cands.filter { o -> !o.end && (o === s || (Geo.distance(o.lat, o.lon, s.lat, s.lon) <= 30 && facing(o))) }
+        // build-442 (Sếp 13/11): biển xếp SOLE (lệch nhau dọc đường > 8 m) không phải cùng một mặt cắt → không gộp;
+        // đi qua biển trong (đứng một mình ở mặt cắt đó) thì lấy luôn biển trong.
+        val group = cands.filter { o -> !o.end && (o === s || (Geo.distance(o.lat, o.lon, s.lat, s.lon) <= 30 && facing(o) &&
+            kotlin.math.abs(alongM(s.lat, s.lon, o.lat, o.lon, hdg)) <= STAGGER_M)) }
             .filter { o -> val sd = sideOf(o); sd >= -14.0 && sd <= 15.0 }
         // build-329 (luật Sếp 3/11): từ đường xe đang đi cộng 10 m sang phải, biển nào gần điểm đó nhất thì lấy
         fun score(o: SpeedSign) = -kotlin.math.abs(sideOf(o) - BOARD_REF_RIGHT)
@@ -1096,7 +1106,8 @@ class DriveService : Service(), LocationListener {
                 // (làn / cột xe máy — quy tắc của Sếp 3/11; số nhỏ nhất thường là của xe tải)
                 val nowMs = SystemClock.elapsedRealtime()
                 val prevLim = signLim
-                val cluster = prevLim != null && !s.end && nowMs - signPassAt < 4000 && Geo.distance(s.lat, s.lon, signLat, signLon) < 40
+                val cluster = prevLim != null && !s.end && nowMs - signPassAt < 4000 && Geo.distance(s.lat, s.lon, signLat, signLon) < 40 &&
+                    kotlin.math.abs(alongM(signLat, signLon, s.lat, s.lon, hdg)) <= STAGGER_M
                 signPassAt = nowMs
                 // build-327: xét cả bảng (các vòng ≤30 m quanh biển vừa qua, cùng hướng mặt) → chọn biển xe máy
                 val (pick, score) = if (s.end) (s to -kotlin.math.abs(side - BOARD_REF_RIGHT)) else boardPick(s, cands, lat, lon, hdg)

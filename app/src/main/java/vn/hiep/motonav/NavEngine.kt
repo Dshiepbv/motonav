@@ -328,9 +328,13 @@ class NavEngine(
                                 val shifted = try {
                                     var raw: List<Route> = emptyList()
                                     for (p in rerouteOrder) {
-                                        try { raw = callAt(p, ap.first, ap.second, false, emptyList()); if (raw.isNotEmpty()) break } catch (_: Exception) {}
+                                        try { raw = callAt(p, ap.first, ap.second, true, emptyList()); if (raw.isNotEmpty()) break } catch (_: Exception) {}
                                     }
-                                    raw.firstOrNull()?.let { if (on != null) RoutePick.prependPath(it, RoutePick.walkPoints(on, 40.0 + dAhead)) else RoutePick.prepend(RoutePick.prepend(it, ap.first, ap.second), startLat, startLon) }
+                                    // build-442 (log 13/11 09:04 Làng ĐH → Cty): trước lấy tuyến ĐẦU TIÊN từ điểm dời → ra vòng
+                                    // Cầu vượt 1 → Đường 400 → Hoàng Hữu Nam → LVV → D2B (19 chỗ rẽ). Nay xin cả tuyến phụ và xếp
+                                    // hạng như mọi lần (phạt rẽ) để chọn tuyến thẳng hơn.
+                                    TripLog.ev("routeShiftCands", "n" to raw.size, "m" to raw.joinToString(",") { it.total.toInt().toString() + "/" + it.steps.count { s -> s.sign != 0 } })
+                                    RoutePick.rank(raw, null, false).firstOrNull()?.let { if (on != null) RoutePick.prependPath(it, RoutePick.walkPoints(on, 40.0 + dAhead)) else RoutePick.prepend(RoutePick.prepend(it, ap.first, ap.second), startLat, startLon) }
                                 } catch (_: Exception) { null }
                                 val sWhy = shifted?.let { RoutePick.rejectReason(it, heading, trailNow) }
                                 if (shifted != null) TripLog.ev("routeShift", "ahead" to dAhead, "why" to (sWhy ?: "ok"))

@@ -1192,10 +1192,26 @@ object TftLink {
                 val hintCum = route.cum[skIdxHint]
                 var bi = skIdxHint
                 var bestCost = Double.MAX_VALUE
+                // build-441 (Sếp: "gần tới điểm quay đầu đường tím biến mất, đi thêm 5–10 m lại hiện", vòng quay đầu D1):
+                // trước đo tới ĐỈNH gần nhất — đoạn thẳng dài thưa đỉnh nên đỉnh của chiều VỀ (bên kia dải phân cách,
+                // sau chỗ quay đầu) lại gần hơn → nhảy qua khúc quay đầu. Giờ đo tới ĐOẠN, phạt đoạn ngược hướng xe
+                // và phạt nhảy tiến trình > 60 m.
+                val hdgK = skHeadingDeg
+                val movingK = skTgtSpeedMps > 1.5 && hdgK >= 0
+                val clK = Math.cos(Math.toRadians(skLat))
                 for (i in lo..hi) {
-                    val d = Geo.distance(skLat, skLon, route.lats[i], route.lons[i])
+                    val j = if (i + 1 < route.lats.size) i + 1 else i
+                    val ax = (route.lons[i] - skLon) * 111320.0 * clK; val ay = (route.lats[i] - skLat) * 110540.0
+                    val bx = (route.lons[j] - skLon) * 111320.0 * clK; val by = (route.lats[j] - skLat) * 110540.0
+                    val sx = bx - ax; val sy = by - ay; val l2 = sx * sx + sy * sy
+                    val u = if (l2 < 0.01) 0.0 else (-(ax * sx + ay * sy) / l2).coerceIn(0.0, 1.0)
+                    val d = Math.hypot(ax + u * sx, ay + u * sy)
                     val jump = Math.abs(route.cum[i] - hintCum)
-                    val penalty = if (jump > 150.0) (jump - 150.0) * 0.6 else 0.0
+                    var penalty = if (jump > 60.0) (jump - 60.0) * 0.6 else 0.0
+                    if (movingK && l2 > 1.0) {
+                        val segBrg = Math.toDegrees(Math.atan2(sx, sy))
+                        if (Geo.angleDiff(segBrg, hdgK) > 100.0) penalty += 40.0
+                    }
                     val cost = d + penalty
                     if (cost < bestCost) { bestCost = cost; bi = i; best = d }
                 }
