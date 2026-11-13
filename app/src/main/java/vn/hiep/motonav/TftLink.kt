@@ -1037,7 +1037,24 @@ object TftLink {
         skTgtLon = pLon
         skTgtSpeedMps = Math.max(speedKmh, 0) / 3.6
         if (skLat == 0.0 && skLon == 0.0) { skLat = pLat; skLon = pLon }
-        skHeadingDeg = headingDeg
+        // build-441 (Sếp): lúc mới xuất phát / đứng yên, hướng GPS chưa có hoặc nhiễu → bản đồ TFT quay ngang, quay ngược.
+        // Đi chậm (<8 km/h) mà đang ở trên tuyến (≤40 m) thì xoay bản đồ theo HƯỚNG TUYẾN phía trước (như điện thoại).
+        var hdgUse = headingDeg
+        if (active && route != null && route.lats.size >= 2 && speedKmh in 0..7) try {
+            var bi = -1; var bd = Double.MAX_VALUE
+            val cl = Math.cos(Math.toRadians(lat))
+            for (k in route.lats.indices) {
+                val dy = (route.lats[k] - lat) * 110540.0; val dx = (route.lons[k] - lon) * 111320.0 * cl
+                val d = dx * dx + dy * dy
+                if (d < bd) { bd = d; bi = k }
+            }
+            if (bi >= 0 && Math.sqrt(bd) <= 40.0) {
+                var j = bi
+                while (j + 1 < route.lats.size && Geo.distance(route.lats[bi], route.lons[bi], route.lats[j], route.lons[j]) < 25.0) j++
+                if (j > bi) hdgUse = Geo.bearing(route.lats[bi], route.lons[bi], route.lats[j], route.lons[j])
+            }
+        } catch (_: Throwable) {}
+        skHeadingDeg = hdgUse
         skManLat = maneuverLat
         skManLon = maneuverLon
         skSign = sign
@@ -1999,7 +2016,7 @@ object TftLink {
             lineTo(carX + carR * 0.7f, anchorY + carR * 0.6f)
             close()
         }
-        if (!navPanels) {
+        if (false) { // build-441 (Sếp): tam giác 3D ở MỌI chế độ (cả bản đồ chờ khi chưa/không dẫn đường)
             c.drawPath(carPath, Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 4f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
             c.drawPath(carPath, carPaint)
         } else drawCar3D(c, carX, anchorY, carR)
@@ -2595,6 +2612,12 @@ object TftLink {
                 // là còn kết nối, chứ không chỉ cần bắt tay xong một lần.
                 // Trừ lúc đang chạy test hiệu chỉnh (runCalibration) — để không chen khung vào giữa,
                 // làm lẫn lộn số thứ tự/ACK của bộ test.
+                // build-441 (Sếp: "đỡ nóng máy"): chỉ dựng ảnh khi sắp cần gửi. Trước dựng ~7,6 ảnh/s mà chỉ gửi ~1/s (87% bỏ).
+                // Hộp thư còn ảnh mới (≤150 ms; ≤400 ms nếu bộ gửi còn chờ ACK) thì chưa dựng.
+                val boxed = if (PIPE_V2) mailbox.get() else null
+                if (boxed != null && android.os.SystemClock.elapsedRealtime() - boxed.createdAtElapsedMs < (if (txAwaitingAck) 400L else 150L)) {
+                    sleepQuiet(30); continue
+                }
                 if (!calibRunning && !routeTestRunning) {
                     // Nhịp B: tránh gửi khung đúng lúc dự đoán xe sắp "đứng" (theo nhịp 10 s học từ lần
                     // đứng gần nhất) — chờ qua cửa sổ rủi ro rồi mới gửi khung mới nhất.
@@ -3716,12 +3739,15 @@ object TftLink {
     private const val DEAD_ACK_MS = 15000L
     @Volatile private var deadReconnectAt = 0L
     @Volatile var safetyMs: Long = 9000L // build-386: chỉnh tay 2–12 s trong Cài đặt
+    /** build-441: bộ gửi đang chờ ACK khung trước — vòng dựng ảnh dựa vào đây để không dựng thừa. */
+    @Volatile private var txAwaitingAck = false
+
     private fun txLoopFast400() {
         var lastJpeg: ByteArray? = null
         var pending: QueuedFrame? = null
         var lastSendAt = 0L
         var sentAt = 0L
-        var inFlight = false
+        var inFlight = false; txAwaitingAck = false
         var didReview400 = false
         var didReview800 = false
         var ackSeen = anyAckCount
@@ -3753,7 +3779,7 @@ object TftLink {
             if (resumeCount != resumeSeen) {
                 resumeSeen = resumeCount
                 if (inFlight) try { TripLog.ev("tftResumeFresh", "droppedWaitMs" to (android.os.SystemClock.elapsedRealtime() - sentAt)) } catch (_: Exception) {}
-                inFlight = false; freezeHold = false; didReview400 = false; didReview800 = false
+                inFlight = false; txAwaitingAck = false; freezeHold = false; didReview400 = false; didReview800 = false
                 f4Series.clear(); ackSeen = anyAckCount; lastSendAt = 0L
             }
             val now = android.os.SystemClock.elapsedRealtime()
@@ -3766,7 +3792,7 @@ object TftLink {
                         TripLog.ev("tftLoadingEnd", "source" to "ack_recovered_proxy", "visualConfirmed" to false)
                     } catch (_: Exception) {}
                     freezeHold = false
-                    inFlight = false; didReview400 = false; didReview800 = false
+                    inFlight = false; txAwaitingAck = false; didReview400 = false; didReview800 = false
                 }
             }
             var tag: String? = null
@@ -3809,7 +3835,7 @@ object TftLink {
             var age = -1L
             if (p0 != null) { jpeg = p0.jpeg; age = (now - p0.createdAtElapsedMs).coerceAtLeast(0L); pending = null; lastJpeg = jpeg }
             else jpeg = lastJpeg ?: continue
-            if (!inFlight) { f4Series.clear(); sentAt = now; inFlight = true }
+            if (!inFlight) { f4Series.clear(); sentAt = now; inFlight = true; txAwaitingAck = true }
             f4Series.add((frameSeq + 1) and 0xFFFF)
             if (!writeFrameOnly(jpeg, if (age < 0 && tag == "next") "nextLast" else tag, age.coerceAtLeast(0L), f4Series.size)) break
             lastSendAt = android.os.SystemClock.elapsedRealtime()

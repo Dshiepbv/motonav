@@ -566,7 +566,7 @@ class DriveService : Service(), LocationListener {
                 // qua lại do GPS nhiễu — chỉ báo khi khớp CHẮC CHẮN (sát đường, nhiều lần liên tiếp)
                 val noMotoHere = m.way.tags["motorcycle"] == "no" || m.way.tags["motor_vehicle"] == "no"
                 if (noMotoHere && m.score < 10.0) noMotoCount++ else noMotoCount = 0
-                if (noMotoCount >= 4 && m.way.id != warnedNoMoto && speedMps > 3) {
+                if (false && noMotoCount >= 4 && m.way.id != warnedNoMoto && speedMps > 3) { // build-441 (Sếp): bỏ — log 13/11 báo sai 12/12 lần (D1, N5 Thủ Đức)
                     warnedNoMoto = m.way.id
                     alert("CẢNH BÁO: đang đi vào làn/đường cấm xe máy!", "Cảnh báo, đang đi vào đường cấm xe máy", urgent = true, showMs = 10000)
                 }
@@ -905,7 +905,7 @@ class DriveService : Service(), LocationListener {
             // Đường phía trước: vòng xuyến, cấm xe máy (từ thẻ của đường trên OSM) — chỉ trong tuyến đang đi
             for (w in corridor) {
                 val ra = w.tags["junction"] == "roundabout" || w.tags["junction"] == "circular"
-                val noMoto = w.tags["motorcycle"] == "no" || w.tags["motor_vehicle"] == "no"
+                val noMoto = false // build-441: bỏ biển "Cấm xe máy" suy từ thẻ OSM của đường (báo sai)
                 if (!ra && !noMoto) continue
                 if (w === way) continue
                 var bi = -1
