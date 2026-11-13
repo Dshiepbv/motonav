@@ -235,9 +235,8 @@ object MapSnap {
                         val kept = org.json.JSONArray()
                         for (li in 0 until allLayers.length()) { val ly = allLayers.getJSONObject(li); val lid = ly.optString("id").lowercase(); val lt = ly.optString("type")
                             // build-387 (Sếp): giữ toà nhà (tô cam) + tên sông/hồ; tên đường vẫn do app tự vẽ.
-                            // build-443 (Sếp: "chữ siêu nét"): bỏ HẾT chữ của nền (vẽ ở 2x rồi thu nhỏ + nghiêng → mềm, nhòe);
-                            // tên đường do app tự vẽ thẳng lên ảnh 480×234, chữ ngang, đậm, đặt tròn điểm ảnh.
-                            val keepSym = false
+                            // build-444 (Sếp: "chữ có hiển thị đâu"): khôi phục chữ của nền (tên đường, quán, khu) — 443 bỏ nhầm.
+                            val keepSym = !plain && (lid.startsWith("water_name") || lid.startsWith("waterway_line_label"))
                             if (lt == "symbol" && !keepSym) continue
                             // build-392 (Sếp): đường vẽ lại y như tối 8/11 (bản 386, đủ mọi cấp đường); chỉ thêm sông + cây, bỏ toà nhà.
                             if (lid.contains("building")) continue
@@ -309,7 +308,7 @@ object MapSnap {
                             }
                         }
                         // build-387 (Sếp): tên công viên, hồ, toà nhà/điểm lớn (Vincom…) — chỉ chữ, không icon.
-                        if (false && !plain) try { // build-443: tắt mọi nhãn chữ của nền
+                        if (!plain) try {
                             fun nameExpr() = org.json.JSONArray("[\"coalesce\",[\"get\",\"name:vi\"],[\"get\",\"name\"]]")
                             fun lbl(id: String, srcLayer: String, minZ: Double, filter: String, color: String, size: Int, font: String) =
                                 org.json.JSONObject().apply {
@@ -320,19 +319,19 @@ object MapSnap {
                                         put("text-size", size); put("text-max-width", 8); put("text-padding", 4)
                                     })
                                     put("paint", org.json.JSONObject().apply {
-                                        put("text-color", color); put("text-halo-color", if (dark) "#000000" else "#FFFFFF"); put("text-halo-width", 2.0); put("text-halo-blur", 0)
+                                        put("text-color", color); put("text-halo-color", if (dark) "#000000" else "#FFFFFF"); put("text-halo-width", 2.4); put("text-halo-blur", 0)
                                     })
                                 }
                             val pt = "[\"match\",[\"geometry-type\"],[\"MultiPoint\",\"Point\"],true,false]"
-                            layers.put(lbl("motonav_park_label", "park", 13.0, pt, if (dark) "#9BE3A8" else "#1E6B2E", 13, "Noto Sans Bold"))
-                            layers.put(lbl("motonav_poi_major", "poi", 13.5, "[\"all\",$pt,[\"<\",[\"get\",\"rank\"],7]]", if (dark) "#F7C08A" else "#8A3F00", 13, "Noto Sans Bold"))
-                            layers.put(lbl("motonav_poi_mid", "poi", 15.0, "[\"all\",$pt,[\">=\",[\"get\",\"rank\"],7],[\"<\",[\"get\",\"rank\"],20]]", if (dark) "#E8E8E8" else "#333333", 12, "Noto Sans Regular"))
+                            layers.put(lbl("motonav_park_label", "park", 13.0, pt, if (dark) "#9BE3A8" else "#1E6B2E", 15, "Noto Sans Bold"))
+                            layers.put(lbl("motonav_poi_major", "poi", 13.5, "[\"all\",$pt,[\"<\",[\"get\",\"rank\"],7]]", if (dark) "#F7C08A" else "#8A3F00", 15, "Noto Sans Bold"))
+                            layers.put(lbl("motonav_poi_mid", "poi", 15.0, "[\"all\",$pt,[\">=\",[\"get\",\"rank\"],7],[\"<\",[\"get\",\"rank\"],20]]", if (dark) "#E8E8E8" else "#333333", 14, "Noto Sans Bold"))
                             // build-402 (kiểu Garmin): tên phường/khu + tên đường chạy dọc theo đường, chữ xám đậm viền trắng.
                             val plc = lbl("motonav_place", "place", 12.0, "[\"match\",[\"get\",\"class\"],[\"suburb\",\"quarter\",\"neighbourhood\",\"village\",\"hamlet\",\"town\"],true,false]",
-                                if (dark) "#E0E0D8" else "#3A3A36", 12, "Noto Sans Regular")
+                                if (dark) "#E0E0D8" else "#3A3A36", 14, "Noto Sans Bold")
                             layers.put(plc)
                             val rn = lbl("motonav_road_name", "transportation_name", 13.5, "[\"match\",[\"geometry-type\"],[\"LineString\",\"MultiLineString\"],true,false]",
-                                if (dark) "#F2F2EA" else "#202020", 13, "Noto Sans Bold")
+                                if (dark) "#F2F2EA" else "#202020", 15, "Noto Sans Bold")
                             rn.getJSONObject("layout").put("symbol-placement", "line").put("text-max-angle", 30).put("symbol-spacing", 260)
                             layers.put(rn)
                             changed += 5
