@@ -235,11 +235,15 @@ object MapSnap {
                         val kept = org.json.JSONArray()
                         for (li in 0 until allLayers.length()) { val ly = allLayers.getJSONObject(li); val lid = ly.optString("id").lowercase(); val lt = ly.optString("type")
                             // build-387 (Sếp): giữ toà nhà (tô cam) + tên sông/hồ; tên đường vẫn do app tự vẽ.
-                            val keepSym = !plain && (lid.startsWith("water_name") || lid.startsWith("waterway_line_label"))
+                            // build-443 (Sếp: "chữ siêu nét"): bỏ HẾT chữ của nền (vẽ ở 2x rồi thu nhỏ + nghiêng → mềm, nhòe);
+                            // tên đường do app tự vẽ thẳng lên ảnh 480×234, chữ ngang, đậm, đặt tròn điểm ảnh.
+                            val keepSym = false
                             if (lt == "symbol" && !keepSym) continue
                             // build-392 (Sếp): đường vẽ lại y như tối 8/11 (bản 386, đủ mọi cấp đường); chỉ thêm sông + cây, bỏ toà nhà.
                             if (lid.contains("building")) continue
                             if (lt == "line" && (lid.contains("rail") || lid.contains("boundary") || lid.contains("aeroway"))) continue
+                            // build-443: bỏ lối đi bộ/đường mòn (nét mảnh lấm tấm, tốn dung lượng JPEG, không dùng cho xe máy)
+                            if (lt == "line" && (lid.contains("path") || lid.contains("track") || lid.contains("pedestrian") || lid.contains("footway"))) continue
                             if ((lt == "fill" || lt == "fill-extrusion") && !(lid.contains("water") || lid.contains("park") || lid.contains("grass") ||
                                     lid.contains("wood") || lid.contains("forest") || lid.contains("green") || lid.contains("garden") ||
                                     lid.contains("pitch") || lid.contains("cemetery") || lid.contains("landcover") || lid.contains("meadow"))) continue
@@ -305,7 +309,7 @@ object MapSnap {
                             }
                         }
                         // build-387 (Sếp): tên công viên, hồ, toà nhà/điểm lớn (Vincom…) — chỉ chữ, không icon.
-                        if (!plain) try {
+                        if (false && !plain) try { // build-443: tắt mọi nhãn chữ của nền
                             fun nameExpr() = org.json.JSONArray("[\"coalesce\",[\"get\",\"name:vi\"],[\"get\",\"name\"]]")
                             fun lbl(id: String, srcLayer: String, minZ: Double, filter: String, color: String, size: Int, font: String) =
                                 org.json.JSONObject().apply {

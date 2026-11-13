@@ -1772,6 +1772,7 @@ object TftLink {
                     if (hits == 0) break@search
                 }
                 val bx = bestBox!!
+                for (k in 0 until 6) bx[k] = Math.round(bx[k]).toFloat() // build-443: đặt tròn điểm ảnh cho chữ nét
                 c.drawLine(mx, my, bx[0], bx[1], leaderPaint)
                 val cxText = (bx[2] + bx[3]) / 2f
                 // Chữ trắng viền đen (không nền): vẽ nét viền đen dày trước rồi chữ trắng đè lên.
@@ -1844,8 +1845,9 @@ object TftLink {
                                 }
                                 half -= d
                             }
-                            if (ang > 90f) ang -= 180f
-                            if (ang < -90f) ang += 180f
+                            // build-443 (Sếp: chữ siêu nét): chữ NGANG, không xoay theo đường (xoay = răng cưa/nhòe sau JPEG)
+                            ang = 0f
+                            cx0 = Math.round(cx0).toFloat(); cy0 = Math.round(cy0).toFloat()
                             val cls = when (wy.highway) { "motorway", "trunk", "primary", "motorway_link", "trunk_link", "primary_link" -> 0; "secondary", "secondary_link" -> 1; "tertiary", "tertiary_link" -> 2; else -> 3 }
                             val onRoute = nextSt != null && nm == nextSt
                             val dist = Math.hypot((cx0 - anchorX).toDouble(), (cy0 - anchorY).toDouble()).toFloat()
@@ -1884,7 +1886,7 @@ object TftLink {
                             c.rotate(cd.ang, cd.x, cd.y)
                             c.drawRoundRect(android.graphics.RectF(cd.x - bw / 2, cd.y - bh / 2, cd.x + bw / 2, cd.y + bh / 2), bh * 0.3f, bh * 0.3f,
                                 Paint().apply { color = plateFill; style = Paint.Style.FILL; isAntiAlias = true })
-                            c.drawText(cd.name, cd.x, cd.y - (fm.ascent + fm.descent) / 2f, tp)
+                            c.drawText(cd.name, cd.x, Math.round(cd.y - (fm.ascent + fm.descent) / 2f).toFloat(), tp)
                             c.restore()
                         }
                     }
@@ -2019,7 +2021,7 @@ object TftLink {
                 if (Live.destFlag && Live.destLat != 0.0) addPin(Live.destLat, Live.destLon, 2)
                 // xa trước, gần sau (ghim gần đè lên ghim xa); tối đa 8 ghim
                 pins.sortBy { it.second }
-                for (pn in pins.takeLast(8)) drawPin(c, pn.first, pn.second, h * 0.06f, pn.third)
+                for (pn in pins.takeLast(8)) drawPin(c, Math.round(pn.first).toFloat(), Math.round(pn.second).toFloat(), Math.round(h * 0.06f).toFloat(), pn.third)
             } catch (_: Throwable) {}
         }
         // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up) — to hơn trước (0.06->0.085) theo yêu

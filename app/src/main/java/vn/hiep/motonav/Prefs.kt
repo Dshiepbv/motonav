@@ -118,8 +118,8 @@ class Prefs(ctx: Context) {
     /** build-418: chất lượng nén JPEG ảnh gửi màn xe (20–50, Sếp chọn trong Cài đặt). */
     var tftJpegQ: Int
         // build-441 (Sếp 13/11): về 25 — đổi khoá để ghi đè mức 40 đang lưu; Sếp vẫn chỉnh lại được trong Cài đặt.
-        get() = sp.getInt("tftJpegQ441", 25)
-        set(v) = sp.edit().putInt("tftJpegQ441", v).apply()
+        get() = sp.getInt("tftJpegQ443", 30) // build-443: 30 (bỏ chữ nền + lối đi bộ → ảnh nhẹ hơn, dồn sang độ nét)
+        set(v) = sp.edit().putInt("tftJpegQ443", v).apply()
     var tftSendMode: Int
         get() = sp.getInt("tftSendMode405", 2) // build-405: về mặc định cách gửi build 400
         set(v) = sp.edit().putInt("tftSendMode405", v).apply()
