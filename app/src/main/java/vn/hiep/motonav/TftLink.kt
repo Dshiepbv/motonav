@@ -3206,7 +3206,12 @@ object TftLink {
                         secureSock.connect()
                         secureSock
                     }
-                    try { TripLog.ev("tftSock", "kind" to (if (sock === insecureSock) "insecure" else "secure"), "fails" to failCount) } catch (_: Exception) {}
+                    try { TripLog.ev("tftSock", "kind" to (if (sock === insecureSock) "insecure" else "secure"), "fails" to failCount, "wasPaused" to dashPaused) } catch (_: Exception) {}
+                    // build-440 (log 13/11 08:3x): phiên mới còn mang cờ "xe tạm dừng" + mốc tốc độ 0x41 của phiên cũ (55 phút trước)
+                    // → luật "tạm dừng mà xe im ≥6 s" đóng socket ngay lập tức, lặp mỗi 0,6 s (155 lần) → lúc được lúc không.
+                    // Mỗi socket mới: xoá cờ tạm dừng, tính mốc im lặng từ lúc nối.
+                    dashPaused = false
+                    last41At = System.currentTimeMillis()
                     onConnected(sock, sock.inputStream, sock.outputStream)
                 } catch (e: SecurityException) {
                     try { secureSock?.close() } catch (_: Exception) {}
