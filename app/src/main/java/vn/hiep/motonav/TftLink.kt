@@ -1102,8 +1102,8 @@ object TftLink {
             // build-368 (Sếp): chế độ chờ = bản đồ quanh xe (không dẫn đường) để đo gửi ảnh độc lập với dẫn đường.
             // Cùng nguồn ảnh MapSnap/vector như khi dẫn đường, heading-up, không có tuyến đỏ/ô ETA.
             val v = skSpeedKmh
-            val spdMul = if (v in 0..47) 0.25 else if (v in 48..61) 0.5 else 1.0
-            val maxAhead = (1800.0 * spdMul / VIEW_SCALE).coerceIn(400.0, 3600.0)
+            val spdMul = if (v in 0..39) 0.15 else if (v in 40..47) 0.25 else if (v in 48..61) 0.5 else 1.0
+            val maxAhead = (1800.0 * spdMul / VIEW_SCALE).coerceIn(250.0, 3600.0)
             val headingNow = if (skHeadingDeg >= 0) { skLastGoodHeadingDeg = skHeadingDeg; skHeadingDeg } else skLastGoodHeadingDeg
             val cosH = Math.cos(Math.toRadians(headingNow)); val sinH = Math.sin(Math.toRadians(headingNow))
             val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(13.8, 17.8)
@@ -1250,20 +1250,23 @@ object TftLink {
             // như đang đi chậm, không nhảy về mức "xa" của khi không có skSpeedKmh hợp lệ.
             val v = skSpeedKmh
             if (v >= 0) {
+                // build-445 (Sếp 14/11): dưới 40 km/h phóng to thêm (mức 3); vào khi <36, ra khi >42 (trễ chống nhảy).
                 skSpdTier = when (skSpdTier) {
-                    2 -> if (v > 52) (if (v > 62) 0 else 1) else 2
+                    3 -> if (v > 42) 2 else 3
+                    2 -> if (v < 36) 3 else if (v > 52) (if (v > 62) 0 else 1) else 2
                     1 -> if (v > 62) 0 else if (v < 48) 2 else 1
                     else -> if (v < 58) (if (v < 48) 2 else 1) else 0
                 }
             }
             val spdMul = when (skSpdTier) {
+                3 -> 0.15 // build-445: <40 km/h ~380 m (zoom ~16,8) — Sếp muốn to thêm
                 2 -> 0.25 // đi chậm: ~450 m (trước 1/3 ≈ 600 m), Sếp muốn zoom to hơn
                 1 -> 0.5
                 else -> 1.0
             }
             // build-364: Sếp "lấy lại zoom cũ nhưng bé đi còn 0.7 để nhìn đường xa hơn" — mọi mức zoom
             // (tốc độ + nút) nhân tỉ lệ 0.7, tức tầm nhìn xa hơn 1/0.7 ≈ 1.43 lần.
-            val baseMaxAhead = (1800.0 * zoomMul * spdMul / VIEW_SCALE).coerceIn(400.0, 3600.0)
+            val baseMaxAhead = (1800.0 * zoomMul * spdMul / VIEW_SCALE).coerceIn(250.0, 3600.0)
             // Theo yêu cầu (27/10): bỏ quy tắc nới khung theo khoảng cách tới chỗ rẽ (turnDist+150) —
             // chỗ rẽ xa vài km làm khung nới tới 3600 m, đường gần xe bị nén ngắn tũn. Tầm nhìn chỉ
             // theo mức zoom tốc độ + nút zoom; đoạn xa hơn vẫn được vẽ (nén) nhờ [drawAhead].
@@ -1322,7 +1325,7 @@ object TftLink {
             // (đã tự zoom theo skSpdTier) làm chuẩn cho cả 2 công thức, chỉ thêm độ "xoè ngang" kiểu
             // phối cảnh camera ảo (lùi sau xe 12m, cao 6m, cúp 50° ở mức nghiêng đầy) rồi TRỘN với
             // công thức phẳng cũ theo [skTiltT] — không chuyển thẳng, tránh giật khung khi đổi tốc độ.
-            val tiltTarget = when (skSpdTier) { 2 -> 1.0; 1 -> 0.55; else -> 0.0 }
+            val tiltTarget = when (skSpdTier) { 3 -> 1.0; 2 -> 1.0; 1 -> 0.55; else -> 0.0 }
             val nowMs = System.currentTimeMillis()
             val dtMs = (if (skTiltLastMs == 0L) 400L else (nowMs - skTiltLastMs)).coerceIn(50L, 2000L)
             skTiltLastMs = nowMs
