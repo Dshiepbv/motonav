@@ -2405,12 +2405,14 @@ object TftLink {
             c.drawText(num, bx, by, big)
             c.drawText(unit, bx + big.measureText(num) + h * 0.01f, by, small)
         }
+        // build-450 (Sếp 15/11): gần tới đích không ghi chữ "Đích" dưới số m (bị nút zoom của đồng hồ che).
+        // Thay ô giờ tới (ETA) bằng hướng điểm đến, chữ trắng to — lúc này ETA không còn quan trọng.
         if (nearDest) {
             val lbl = Live.maneuverLabel ?: ""
-            val side = when { lbl.contains("trái") -> "bên trái"; lbl.contains("phải") -> "bên phải"; else -> "phía trước" }
-            val p = tp(h * 0.075f, true, Paint.Align.CENTER, Color.rgb(255, 205, 60))
-            c.drawText("Đích", cx, h * 0.29f, p)
-            c.drawText(side, cx, h * 0.37f, p)
+            val side = when { lbl.contains("trái") -> "Bên trái"; lbl.contains("phải") -> "Bên phải"; else -> "Phía trước" }
+            val sp = tp(h * 0.12f, true, Paint.Align.CENTER)
+            if (sp.measureText(side) > pw - 6f) sp.textSize *= (pw - 6f) / sp.measureText(side)
+            c.drawText(side, cx, hb - h * 0.004f, sp)
         }
         // build-430 (Sếp): bỏ dải dưới. Giờ tới (ETA) nằm trong khung đen, dưới nút − của đồng hồ;
         // thời gian còn lại + km còn lại ở góc dưới bên phải bản đồ, không nền (viền chữ), trên thanh firmware.
@@ -2419,7 +2421,7 @@ object TftLink {
             val etaTxt = String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
             val ep = tp(h * 0.13f, true, Paint.Align.CENTER) // build-432: to hơn, thấp hơn (Sếp)
             if (ep.measureText(etaTxt) > pw - 6f) ep.textSize *= (pw - 6f) / ep.measureText(etaTxt)
-            c.drawText(etaTxt, cx, hb - h * 0.004f, ep)
+            if (!nearDest) c.drawText(etaTxt, cx, hb - h * 0.004f, ep)
             val remMin = (skEtaMs / 60000L).toInt()
             val leftTxt = if (remMin >= 60) String.format(java.util.Locale.US, "%d g %02d", remMin / 60, remMin % 60) else "$remMin ph"
             val km = skRemainingM / 1000.0
