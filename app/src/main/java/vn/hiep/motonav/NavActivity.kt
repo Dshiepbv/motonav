@@ -889,6 +889,10 @@ class NavActivity : Activity() {
             d.dismiss()
             AppActions.sendTripLogs(this)
         }
+        row(R.drawable.ic_set_flask, "AI phân tích chuyến đi") {
+            d.dismiss()
+            AiAnalyze.open(this)
+        }
         row(R.drawable.ic_set_block, "Báo đường đang đứng bị chặn") {
             d.dismiss()
             reportBlocked()
