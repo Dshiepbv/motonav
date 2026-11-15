@@ -2409,9 +2409,14 @@ object TftLink {
         // Thay ô giờ tới (ETA) bằng hướng điểm đến, chữ trắng to — lúc này ETA không còn quan trọng.
         if (nearDest) {
             val lbl = Live.maneuverLabel ?: ""
-            val side = when { lbl.contains("trái") -> "Bên trái"; lbl.contains("phải") -> "Bên phải"; else -> "Phía trước" }
-            val sp = tp(h * 0.12f, true, Paint.Align.CENTER)
-            if (sp.measureText(side) > pw - 6f) sp.textSize *= (pw - 6f) / sp.measureText(side)
+            // build-451 (Sếp): ghi "Điểm đến" / "bên trái" — 2 dòng để chữ đủ to trong khung hẹp.
+            val side = when { lbl.contains("trái") -> "bên trái"; lbl.contains("phải") -> "bên phải"; else -> "phía trước" }
+            val l1 = "Điểm đến"
+            val sp = tp(h * 0.10f, true, Paint.Align.CENTER)
+            val mw = maxOf(sp.measureText(l1), sp.measureText(side))
+            if (mw > pw - 6f) sp.textSize *= (pw - 6f) / mw
+            val lh = sp.textSize * 1.1f
+            c.drawText(l1, cx, hb - h * 0.004f - lh, sp)
             c.drawText(side, cx, hb - h * 0.004f, sp)
         }
         // build-430 (Sếp): bỏ dải dưới. Giờ tới (ETA) nằm trong khung đen, dưới nút − của đồng hồ;
