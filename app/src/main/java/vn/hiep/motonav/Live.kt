@@ -57,6 +57,13 @@ object Live {
     @Volatile var destFlag = false
     @Volatile var destLon = 0.0
     @Volatile var destName: String? = null
+    // build-454: thông báo cuộc gọi / tin nhắn hiện lên màn xe
+    @Volatile var noticeTitle: String? = null
+    @Volatile var noticeText: String? = null
+    @Volatile var noticeApp: String? = null
+    @Volatile var noticeCall = false
+    @Volatile var noticeAt = 0L
+    @Volatile var noticeKey: String? = null
     @Volatile var remainingM = 0.0
     @Volatile var etaMs = 0L
     @Volatile var snapLat = 0.0

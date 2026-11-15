@@ -2236,6 +2236,7 @@ object TftLink {
                 c.drawText(distTxt, textX, baseLastM, infoPaint)
             }
         }
+        try { drawNotice(c, w, h) } catch (_: Exception) {}
         val out = ByteArrayOutputStream()
         val jpegEncodeStarted = android.os.SystemClock.elapsedRealtime()
         // Hạ tiếp (17→14) theo log thực tế chuyến 115807 (0.205): vẫn ~20% khung timeout ACK dù đã
@@ -2369,6 +2370,39 @@ object TftLink {
         c.drawPath(left, Paint().apply { isAntiAlias = true; shader = android.graphics.LinearGradient(x - hw, baseY, x, tipY, Color.rgb(70, 160, 255), Color.rgb(150, 210, 255), android.graphics.Shader.TileMode.CLAMP) })
         c.drawPath(right, Paint().apply { isAntiAlias = true; shader = android.graphics.LinearGradient(x + hw, baseY, x, tipY, Color.rgb(16, 70, 170), Color.rgb(40, 110, 220), android.graphics.Shader.TileMode.CLAMP) })
         c.drawLine(x, tipY, x, notchY, Paint().apply { color = Color.argb(200, 255, 255, 255); strokeWidth = r * 0.05f; isAntiAlias = true })
+    }
+
+    /**
+     * build-454 (Sếp 15/11): cuộc gọi / tin nhắn (Zalo, SMS, Messenger…) vẽ thẳng vào ảnh — dải đen ở mép trên vùng bản đồ.
+     * Cuộc gọi hiện tới khi hết đổ chuông (tối đa 45 s), tin nhắn 8 s. Nguồn: NoticeListener trong MapsListener.
+     */
+    private fun drawNotice(c: Canvas, w: Int, h: Int) {
+        val title = Live.noticeTitle ?: return
+        val age = System.currentTimeMillis() - Live.noticeAt
+        if (age > (if (Live.noticeCall) 45_000L else 8_000L)) { Live.noticeTitle = null; return }
+        val left = if (skActive && skRoute != null) w * PANEL_W_FRAC + 6f else 6f
+        val right = w * 0.80f
+        val top = h * 0.02f
+        val bh = h * 0.21f
+        val bg = Paint().apply { color = if (Live.noticeCall) Color.rgb(20, 110, 40) else Color.rgb(18, 18, 22); isAntiAlias = true }
+        c.drawRoundRect(android.graphics.RectF(left, top, right, top + bh), 10f, 10f, bg)
+        c.drawRoundRect(android.graphics.RectF(left, top, right, top + bh), 10f, 10f,
+            Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true })
+        val maxW = right - left - 16f
+        fun fit(txt: String, p: Paint): String {
+            if (p.measureText(txt) <= maxW) return txt
+            var t = txt
+            while (t.length > 1 && p.measureText("$t…") > maxW) t = t.dropLast(1)
+            return "$t…"
+        }
+        val tp = Paint().apply { color = Color.WHITE; textSize = h * 0.085f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+        val head = (if (Live.noticeCall) "Gọi: " else (Live.noticeApp?.let { "$it: " } ?: "")) + title
+        c.drawText(fit(head, tp), left + 8f, top + bh * 0.44f, tp)
+        val body = Live.noticeText
+        if (!body.isNullOrBlank()) {
+            val bp = Paint().apply { color = Color.rgb(225, 225, 230); textSize = h * 0.07f; isAntiAlias = true }
+            c.drawText(fit(body.replace('\n', ' '), bp), left + 8f, top + bh * 0.86f, bp)
+        }
     }
 
     /**
@@ -3397,6 +3431,7 @@ object TftLink {
                     }
                     if (cmd == 0x41 && payload.size >= 2) {
                         bikeSpeedKmh = payload[1].toInt() and 0xFF
+                        try { ParkSpot.onBikeAlive(appCtx, bikeSpeedKmh) } catch (_: Exception) {}
                         // build-366: đo xe bận ĐỘC LẬP với ACK — gói tốc độ bình thường cách 1,0–1,1 s; ≥1,6 s là xe đang bận.
                         val n41 = System.currentTimeMillis()
                         val g41 = if (last41At == 0L) 0L else n41 - last41At
