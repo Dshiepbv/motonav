@@ -557,7 +557,7 @@ class SettingsActivity : Activity() {
                     if (!permsOk) warnOrange else null,
                 ) { openPanel(R.drawable.ic_set_background, "Quyền của app") { fillBackground() } },
                 Tile(R.drawable.ic_set_sendlog, "Gửi nhật ký", "3 chuyến gần nhất") { AppActions.sendTripLogs(this) },
-                Tile(R.drawable.ic_set_flask, "AI phân tích", if (prefs.aiUrl.isEmpty()) "Chưa cài" else "Chuyến gần nhất") { AiAnalyze.open(this) },
+                Tile(R.drawable.ic_set_sendlog, "Tóm tắt log", "File nhỏ, 3 giờ gần nhất") { RideDigest.share(this) },
                 Tile(R.drawable.ic_set_settings, "Cấu hình", "Xuất / nhập file") { openPanel(R.drawable.ic_set_settings, "Sao lưu cấu hình") { fillConfig() } },
                 Tile(R.drawable.ic_set_update, "Cập nhật", "Bản ${Updater.currentVersion(this)}") { openUpdatePanel(auto = true) },
             ),

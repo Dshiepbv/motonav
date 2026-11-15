@@ -1,5 +1,0 @@
-name = "motonav-ai"
-main = "src/index.ts"
-compatibility_date = "2025-09-01"
-compatibility_flags = ["nodejs_compat"]
-# Secrets (đặt bằng GitHub Actions, không ghi ở đây): ANTHROPIC_API_KEY, APP_TOKEN

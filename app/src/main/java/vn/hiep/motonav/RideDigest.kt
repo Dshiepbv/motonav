@@ -9,11 +9,37 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * build-452 (Sếp 15/11: "Làm 2 trước" — AI tự đọc log): rút gọn nhật ký các chuyến gần nhất thành một bản tóm tắt chữ
- * (vài chục KB thay vì ~6 MB) để gửi cho Claude phân tích. Chỉ giữ số liệu và sự kiện quan trọng về màn TFT,
+ * build-453 (Sếp 15/11): rút gọn nhật ký các chuyến gần nhất thành một file chữ nhỏ (vài chục KB thay vì ~6 MB)
+ * để gửi thẳng vào chat cho Claude phân tích (không dùng API, không tốn tiền). Chỉ giữ số liệu và sự kiện quan trọng về màn TFT,
  * kết nối, dẫn đường và điện thoại. Không có vị trí GPS thô.
  */
 object RideDigest {
+    /** Tạo file tóm tắt rồi mở bảng chia sẻ (Drive, Zalo, chat Claude…). */
+    fun share(a: android.app.Activity) {
+        android.widget.Toast.makeText(a, "Đang tóm tắt nhật ký…", android.widget.Toast.LENGTH_SHORT).show()
+        Thread {
+            val txt = try { build(a) } catch (e: Exception) { "" }
+            a.runOnUiThread {
+                if (txt.isEmpty()) { android.widget.Toast.makeText(a, "Không có nhật ký trong 3 giờ gần nhất", android.widget.Toast.LENGTH_LONG).show(); return@runOnUiThread }
+                try {
+                    val dir = File(a.filesDir, "trips")
+                    dir.listFiles { f -> f.name.startsWith("MotoNav-tomtat-") }?.forEach { it.delete() }
+                    val f = File(dir, "MotoNav-tomtat-" + SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date()) + ".txt")
+                    f.writeText(txt)
+                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(android.content.Intent.EXTRA_STREAM, TripLogProvider.uri(a, f))
+                        putExtra(android.content.Intent.EXTRA_SUBJECT, f.name)
+                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    a.startActivity(android.content.Intent.createChooser(send, "Gửi tóm tắt log"))
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(a, "Không chia sẻ được: ${e.javaClass.simpleName}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
     private val hm = SimpleDateFormat("HH:mm:ss", Locale.US)
     private val hmm = SimpleDateFormat("HH:mm", Locale.US)
     private val day = SimpleDateFormat("dd/MM HH:mm", Locale.US)

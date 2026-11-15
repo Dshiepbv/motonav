@@ -185,14 +185,6 @@ class Prefs(ctx: Context) {
     /** Mã API REST của Goong (Directions/Geocoding/Places) — dùng để ĐỊNH TUYẾN thay VietMap khi
      * không rỗng (xem GoongMap.kt, NavEngine.findRoutes). Theo yêu cầu "bỏ hẳn VietMap nếu Goong
      * ok": có key này là dùng THẲNG Goong, KHÔNG còn âm thầm rơi về VietMap khi Goong lỗi nữa. */
-    /** build-452: máy chủ trung gian gọi Claude (Cloudflare Worker của Sếp) + mã app tự đặt. Khoá Anthropic KHÔNG nằm trong app. */
-    var aiUrl: String
-        get() = sp.getString("aiUrl", "") ?: ""
-        set(v) = sp.edit().putString("aiUrl", v.trim()).apply()
-    var aiToken: String
-        get() = sp.getString("aiToken", "") ?: ""
-        set(v) = sp.edit().putString("aiToken", v.trim()).apply()
-
     var goongKey: String
         get() = sp.getString("goongKey", "") ?: ""
         set(v) = sp.edit().putString("goongKey", v.trim()).apply()
