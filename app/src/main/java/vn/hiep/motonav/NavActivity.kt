@@ -893,17 +893,13 @@ class NavActivity : Activity() {
             d.dismiss()
             RideDigest.share(this)
         }
-        row(R.drawable.ic_set_offline, "Chỗ đậu xe") {
+        row(R.drawable.ic_set_pin, "Chỗ đậu xe") {
             d.dismiss()
             ParkSpot.open(this)
         }
         row(R.drawable.ic_set_block, "Báo đường đang đứng bị chặn") {
             d.dismiss()
             reportBlocked()
-        }
-        row(R.drawable.ic_set_pin, "Mở Google Maps") {
-            d.dismiss()
-            AppActions.openGoogleMaps(this, prefs)
         }
 
         d.setContentView(outer)

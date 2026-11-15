@@ -31,9 +31,10 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("announceLimit", true)
         set(v) = sp.edit().putBoolean("announceLimit", v).apply()
 
+    /** build-455 (Sếp 15/11: "dùng 100% màn TFT, không dùng màn điện thoại"): ô nổi trên Google Maps đã gỡ — luôn tắt. */
     var overlay: Boolean
-        get() = sp.getBoolean("overlay", true)
-        set(v) = sp.edit().putBoolean("overlay", v).apply()
+        get() = false
+        set(@Suppress("UNUSED_PARAMETER") v) {}
 
     var overlayScale: Float
         get() = sp.getFloat("overlayScale", 1f)

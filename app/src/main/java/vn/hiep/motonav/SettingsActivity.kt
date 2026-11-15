@@ -496,7 +496,7 @@ class SettingsActivity : Activity() {
         val usageOk = ForegroundApp.hasPermission(this)
         val overlayOk = Settings.canDrawOverlays(this)
         val notifOk = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")?.contains(packageName) == true
-        val permsOk = usageOk && overlayOk && notifOk
+        val permsOk = notifOk // build-455: bỏ ô nổi → chỉ cần quyền đọc thông báo (cuộc gọi/tin nhắn lên màn xe)
         val nPoints = CameraStore.all(this).size
         val themes = listOf("Tự động", "Sáng", "Tối")
         val sizes = listOf("Nhỏ", "Vừa", "Lớn")
@@ -541,10 +541,6 @@ class SettingsActivity : Activity() {
         section(
             "Hệ thống",
             listOf(
-                Tile(
-                    R.drawable.ic_set_overlay, "Ô nổi Maps",
-                    if (prefs.overlay) "Bật · ${sizes.getOrElse(scales.indexOf(prefs.overlayScale)) { "Vừa" }}" else "Tắt",
-                ) { openPanel(R.drawable.ic_set_overlay, "Ô nổi trên Google Maps") { fillOverlay() } },
                 Tile(R.drawable.ic_set_battery, "Pin", if (prefs.batterySaver) "Tiết kiệm" else "Bình thường") { openPanel(R.drawable.ic_set_battery, "Pin") { fillBattery() } },
                 Tile(
                     R.drawable.ic_set_offline, "Dữ liệu offline",
@@ -875,21 +871,21 @@ class SettingsActivity : Activity() {
         val usageOk = ForegroundApp.hasPermission(this)
         val overlayOk = Settings.canDrawOverlays(this)
         val notifOk = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")?.contains(packageName) == true
-        if (usageOk && overlayOk && notifOk) {
-            noteRow("✅ Đã cấp đủ quyền (tự bật/tắt ô nổi, hiện ô nổi, đọc chỉ dẫn Google Maps)", okGreen)
+        if (notifOk) {
+            noteRow("✅ Đã cấp đủ quyền (đọc thông báo cuộc gọi, tin nhắn)", okGreen)
         }
-        if (!usageOk) {
+        if (false && !usageOk) {
             action("Quyền tự bật/tắt ô nổi theo Google Maps", status(false), note = "Tìm MotoNav → bật \"Cho phép truy cập dữ liệu sử dụng\"") {
                 startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             }
         }
-        if (!overlayOk) {
+        if (false && !overlayOk) {
             action("Quyền hiện ô nổi", status(false)) {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             }
         }
         if (!notifOk) {
-            action("Quyền đọc chỉ dẫn Google Maps", status(false), note = "Android 13+: Thông tin ứng dụng → ⋮ → Cho phép cài đặt bị hạn chế") {
+            action("Quyền đọc thông báo (cuộc gọi, tin nhắn lên màn xe)", status(false), note = "Android 13+: Thông tin ứng dụng → ⋮ → Cho phép cài đặt bị hạn chế") {
                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
         }

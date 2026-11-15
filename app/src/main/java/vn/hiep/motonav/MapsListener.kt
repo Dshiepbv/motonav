@@ -16,6 +16,7 @@ class MapsListener : NotificationListenerService() {
 
     companion object {
         private const val MAPS = "com.google.android.apps.maps"
+        private const val READ_MAPS_OFF = true
         private val MSG_APPS = mapOf(
             "com.zing.zalo" to "Zalo",
             "com.google.android.apps.messaging" to "SMS",
@@ -75,13 +76,14 @@ class MapsListener : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         if (sbn.key == Live.noticeKey && Live.noticeCall) { Live.noticeTitle = null; Live.noticeKey = null }
-        if (sbn.packageName == MAPS && sbn.key == navKey && !Live.ownNav) {
+        if (!READ_MAPS_OFF && sbn.packageName == MAPS && sbn.key == navKey && !Live.ownNav) {
             navKey = null
             Live.clearNav()
         }
     }
 
     private fun handle(sbn: StatusBarNotification) {
+        if (READ_MAPS_OFF) return // build-455 (Sếp): bỏ đọc chỉ dẫn Google Maps — chỉ dùng dẫn đường của MotoNav trên màn TFT
         if (sbn.packageName != MAPS) return
         if (Live.ownNav) return
         val n = sbn.notification
