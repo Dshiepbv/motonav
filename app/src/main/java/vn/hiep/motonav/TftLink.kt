@@ -139,7 +139,15 @@ object TftLink {
     }
 
     /** Sau khi bắt tay xong (bước 3), gửi một loạt gói cấu hình ban đầu — xe cần thấy đủ bộ này. */
-    private fun sendInitBurst() {
+    /** build-448 (Sếp 15/11: "dis rồi thì gửi 1 lần thôi, các cái thừa bỏ hết"): bộ khởi tạo chỉ gửi MỘT lần mỗi kết nối
+     * (lúc bắt tay). Xe tạm dừng/tiếp tục (56/55) không gửi lại nữa — trước mỗi lần tiếp tục lại gửi cả bộ + tên điểm đến lần 2. */
+    @Volatile private var initSentThisSock = false
+    private fun sendInitBurst(onResume: Boolean = false) {
+        if (onResume && initSentThisSock) {
+            try { TripLog.ev("tftInitSkip") } catch (_: Exception) {}
+            return
+        }
+        initSentThisSock = true
         send(gPacket(2, 0))            // chưa dẫn đường
         send(gPacket(31, 1))
         send(gPacket(10, if (homeSaved) 1 else 0))  // build-417: báo xe đã lưu "Nhà" → hiện mục Về nhà trong menu xe
@@ -150,7 +158,7 @@ object TftLink {
         send(speedPacket(0, 3))
         send(gPacket(12, 1))
         lastSentKey = "" // để lần update() kế tiếp gửi lại đúng trạng thái dẫn đường hiện tại
-        lastSentName = "" // build-407: gói đầu ghi đè tên "MotoNav" → gửi lại ngay tên đường đang đi (trước chờ tới khi đổi đường, có lúc 1 phút)
+        // build-448: không xoá lastSentName ở đây nữa — tên điểm đến chỉ gửi 1 lần mỗi kết nối (lastSentName được đặt lại khi mở socket).
     }
 
     // ---------- Gói tin kênh chữ (sau khi đã bắt tay xong) ----------
@@ -3177,6 +3185,7 @@ object TftLink {
         authed = false
         lastSentKey = ""
         lastSentName = "MotoNav"
+        initSentThisSock = false
         rxBytes = 0
         handshakeStep = 0
         lastCmdSeen = -1
@@ -3304,6 +3313,7 @@ object TftLink {
         failCount = 0
         lastSentKey = ""
         lastSentName = "MotoNav"
+        initSentThisSock = false
         rxBytes = 0
         handshakeStep = 0
         lastCmdSeen = -1
@@ -3514,7 +3524,7 @@ object TftLink {
                                 val was = dashPaused
                                 dashPaused = false
                                 resumeCount++
-                                sendInitBurst()
+                                sendInitBurst(onResume = true)
                                 try { TripLog.ev("tftResume", "wasPaused" to was,
                                     "pausedMs" to (if (was) System.currentTimeMillis() - dashPausedAt else 0L)) } catch (_: Exception) {}
                                 signalV2Wake()
@@ -4011,7 +4021,7 @@ object TftLink {
                 if (System.currentTimeMillis() - dashPausedAt > PAUSE_MAX_MS) {
                     dashPaused = false
                     try { TripLog.ev("tftResume", "wasPaused" to true, "auto" to true, "pausedMs" to PAUSE_MAX_MS) } catch (_: Exception) {}
-                    sendInitBurst()
+                    sendInitBurst(onResume = true)
                 } else {
                     awaitV2Wake(200)
                     lastAt = System.currentTimeMillis() // không tính thời gian tạm dừng vào keepalive
