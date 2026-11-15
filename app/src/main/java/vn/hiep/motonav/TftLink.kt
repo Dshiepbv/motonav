@@ -4257,11 +4257,18 @@ object TftLink {
             return
         }
         // build-447 (Sếp 15/11): log 11 chuyến — 0–6 phút sau khi bật dẫn đường đứng hình ~18%, sau 10 phút ~30%.
-        // Thử gửi LẠI y nguyên gói bật dẫn đường mỗi 5 phút (không tắt rồi bật, không gửi lại tên điểm đến).
+        // build-449 (Sếp 15/11): mỗi 5 phút gửi TẮT rồi ~0,5 s sau BẬT dẫn đường (giống huỷ rồi mở lại chuyến), không gửi tên điểm đến.
         if (lastSentKey != "off" && lastSentKey.isNotEmpty() && System.currentTimeMillis() - navModeSentAt >= NAV_MODE_REFRESH_MS) {
-            send(navActivePacket(true))
             navModeSentAt = System.currentTimeMillis()
-            try { TripLog.ev("tftNavMode", "on" to true, "refresh" to true) } catch (_: Exception) {}
+            Thread {
+                try {
+                    send(navActivePacket(false))
+                    try { TripLog.ev("tftNavMode", "on" to false, "cycle" to true) } catch (_: Exception) {}
+                    Thread.sleep(500)
+                    send(navActivePacket(true))
+                    try { TripLog.ev("tftNavMode", "on" to true, "cycle" to true) } catch (_: Exception) {}
+                } catch (_: Exception) {}
+            }.start()
         }
         val icon = IconMap.from(sign, roundabout)
         // Làm tròn khoảng cách theo bậc 5 m để không gửi lại chỉ vì GPS nhích vài centimet.
