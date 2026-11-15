@@ -419,7 +419,19 @@ class DriveService : Service(), LocationListener {
                     }
                 }
             } catch (_: Throwable) {}
-            TripLog.ev("phone", "dtMs" to dt, "rxKB" to (rx - phRx) / 1024, "txKB" to (tx - phTx) / 1024, "mobRxKB" to (if (mrx >= 0) mrx / 1024 else -1),
+            // build-446 (Sếp 15/11: lag tăng theo thời gian, cần số đối chiếu): nhiệt độ pin, mức nóng máy, bộ nhớ app.
+            var battT = -1.0; var therm = -1; var heapMB = -1L; var nativeMB = -1L; var thr = -1
+            try {
+                val bi = registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                battT = (bi?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1) / 10.0
+            } catch (_: Throwable) {}
+            try { therm = (getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager).currentThermalStatus } catch (_: Throwable) {}
+            try {
+                val rt = Runtime.getRuntime(); heapMB = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024)
+                nativeMB = android.os.Debug.getNativeHeapAllocatedSize() / (1024 * 1024)
+                thr = Thread.getAllStackTraces().size
+            } catch (_: Throwable) {}
+            TripLog.ev("phone", "battT" to battT, "therm" to therm, "heapMB" to heapMB, "nativeMB" to nativeMB, "threads" to thr, "dtMs" to dt, "rxKB" to (rx - phRx) / 1024, "txKB" to (tx - phTx) / 1024, "mobRxKB" to (if (mrx >= 0) mrx / 1024 else -1),
                 "net" to net, "lvl" to lvl, "dbm" to dbm, "cpuPct" to Math.round((cpu - phCpu) * 1000.0 / dt) / 10.0, "frames" to (fr - phFrames))
         }
         phRx = rx; phTx = tx; phCpu = cpu; phFrames = fr
