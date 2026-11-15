@@ -620,6 +620,7 @@ class DriveService : Service(), LocationListener {
         updateAlertIcons(lat, lon)
         updateSigns(lat, lon, movingHeading)
         updateWeather()
+        try { RainAlert.tick(prefs.rainAlert, (speedMps * 3.6).toInt()) { t, sp -> handler.post { alert(t, sp, beep = false, showMs = 8000) } } } catch (_: Exception) {}
         if (!Live.ownNav) checkTurn()
         checkCameras(snap, lat, lon, speedMps, movingHeading)
         Live.changed()

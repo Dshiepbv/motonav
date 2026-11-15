@@ -186,6 +186,11 @@ class Prefs(ctx: Context) {
     /** Mã API REST của Goong (Directions/Geocoding/Places) — dùng để ĐỊNH TUYẾN thay VietMap khi
      * không rỗng (xem GoongMap.kt, NavEngine.findRoutes). Theo yêu cầu "bỏ hẳn VietMap nếu Goong
      * ok": có key này là dùng THẲNG Goong, KHÔNG còn âm thầm rơi về VietMap khi Goong lỗi nữa. */
+    /** build-456: cảnh báo mưa phía trước (Open-Meteo 15 phút). */
+    var rainAlert: Boolean
+        get() = sp.getBoolean("rainAlert", true)
+        set(v) = sp.edit().putBoolean("rainAlert", v).apply()
+
     var goongKey: String
         get() = sp.getString("goongKey", "") ?: ""
         set(v) = sp.edit().putString("goongKey", v.trim()).apply()

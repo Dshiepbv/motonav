@@ -2236,6 +2236,7 @@ object TftLink {
                 c.drawText(distTxt, textX, baseLastM, infoPaint)
             }
         }
+        try { drawRain(c, w, h) } catch (_: Exception) {}
         try { drawNotice(c, w, h) } catch (_: Exception) {}
         val out = ByteArrayOutputStream()
         val jpegEncodeStarted = android.os.SystemClock.elapsedRealtime()
@@ -2376,6 +2377,21 @@ object TftLink {
      * build-454 (Sếp 15/11): cuộc gọi / tin nhắn (Zalo, SMS, Messenger…) vẽ thẳng vào ảnh — dải đen ở mép trên vùng bản đồ.
      * Cuộc gọi hiện tới khi hết đổ chuông (tối đa 45 s), tin nhắn 8 s. Nguồn: NoticeListener trong MapsListener.
      */
+    /** build-456 (Sếp): ô xanh dương "Mưa vừa · 6 km · 12 ph" khi vùng mưa còn ở phía trước (RainAlert). */
+    private fun drawRain(c: Canvas, w: Int, h: Int) {
+        val txt = RainAlert.boxText ?: return
+        val left = if (skActive && skRoute != null) w * PANEL_W_FRAC + 6f else 6f
+        val tp = Paint().apply { color = Color.WHITE; textSize = h * 0.08f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+        val bw = (tp.measureText(txt) + 20f).coerceAtMost(w * 0.80f - left)
+        val top = h * 0.02f
+        val bh = h * 0.12f
+        val col = when (RainAlert.boxLevel) { 3 -> Color.rgb(120, 30, 160); 2 -> Color.rgb(20, 80, 200); else -> Color.rgb(40, 120, 200) }
+        val rect = android.graphics.RectF(left, top, left + bw, top + bh)
+        c.drawRoundRect(rect, 8f, 8f, Paint().apply { color = col; isAntiAlias = true })
+        c.drawRoundRect(rect, 8f, 8f, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true })
+        c.drawText(txt, left + 10f, top + bh * 0.72f, tp)
+    }
+
     private fun drawNotice(c: Canvas, w: Int, h: Int) {
         val title = Live.noticeTitle ?: return
         val age = System.currentTimeMillis() - Live.noticeAt

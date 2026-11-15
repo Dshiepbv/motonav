@@ -509,6 +509,7 @@ class SettingsActivity : Activity() {
                     openPanel(R.drawable.ic_set_map, "Bản đồ") { fillMap() }
                 },
                 Tile(R.drawable.ic_set_routing, "Định tuyến", "Xe: ${prefs.goongVehicle}") { openPanel(R.drawable.ic_set_routing, "Định tuyến") { fillRouting() } },
+                Tile(R.drawable.ic_set_alert, "Cảnh báo mưa", if (prefs.rainAlert) "Bật · báo trước 15 ph" else "Tắt") { prefs.rainAlert = !prefs.rainAlert; build() },
                 Tile(
                     R.drawable.ic_set_tft, "Màn TFT xe",
                     when {
