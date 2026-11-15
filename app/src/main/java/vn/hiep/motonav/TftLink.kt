@@ -4216,6 +4216,9 @@ object TftLink {
         return String.format(java.util.Locale.US, "ETA: %02d:%02d - %02d:%02d - ", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), remMin / 60, remMin % 60) + kmTxt
     }
 
+    @Volatile private var navModeSentAt = 0L
+    private const val NAV_MODE_REFRESH_MS = 5 * 60_000L
+
     fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, currentStreet: String, etaMinutes: Int) {
         if (!authed) return
         if (textOffNow()) { textWasOff = true; return }
@@ -4243,6 +4246,13 @@ object TftLink {
             }
             return
         }
+        // build-447 (Sếp 15/11): log 11 chuyến — 0–6 phút sau khi bật dẫn đường đứng hình ~18%, sau 10 phút ~30%.
+        // Thử gửi LẠI y nguyên gói bật dẫn đường mỗi 5 phút (không tắt rồi bật, không gửi lại tên điểm đến).
+        if (lastSentKey != "off" && lastSentKey.isNotEmpty() && System.currentTimeMillis() - navModeSentAt >= NAV_MODE_REFRESH_MS) {
+            send(navActivePacket(true))
+            navModeSentAt = System.currentTimeMillis()
+            try { TripLog.ev("tftNavMode", "on" to true, "refresh" to true) } catch (_: Exception) {}
+        }
         val icon = IconMap.from(sign, roundabout)
         // Làm tròn khoảng cách theo bậc 5 m để không gửi lại chỉ vì GPS nhích vài centimet.
         // build-289: bớt gói chữ — xa chỗ rẽ (>300 m) chỉ cập nhật mỗi 50 m, gần chỗ rẽ mỗi 10 m; ETA chỉ gửi khi đổi phút
@@ -4253,6 +4263,7 @@ object TftLink {
         if (key == lastSentKey && !etaChanged) return
         if (lastSentKey == "off" || lastSentKey.isEmpty()) {
             send(navActivePacket(true))
+            navModeSentAt = System.currentTimeMillis()
             try { TripLog.ev("tftNavMode", "on" to true) } catch (_: Exception) {}
         }
         if (PIPE_V2 && V2_FUSE_TEXT) {
