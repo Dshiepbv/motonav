@@ -1235,6 +1235,21 @@ class NavActivity : Activity() {
         }
     }
 
+    /** build-472 (Sếp): đang trong ô tìm kiếm thì Back chỉ đóng tìm kiếm, quay về bản đồ — không thoát app. */
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        val searching = searchInput.hasFocus() || results.childCount > 0 || searchInput.text.isNotEmpty() || portraitMap?.visibility == View.GONE
+        if (searching) {
+            ui.removeCallbacks(searchRunnable)
+            results.removeAllViews()
+            searchInput.setText("")
+            hideKeyboard()
+            searchMode(false)
+            return
+        }
+        super.onBackPressed()
+    }
+
     private fun hideKeyboard() {
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
