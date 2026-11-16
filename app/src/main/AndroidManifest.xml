@@ -43,6 +43,7 @@
         <activity
             android:name=".NavActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true"
             android:label="NMAX Navi"
             android:launchMode="singleTask"

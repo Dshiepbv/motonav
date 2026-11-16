@@ -103,6 +103,7 @@ object RideDigest {
                         if (firstT == 0L) firstT = t
                         lastT = maxOf(lastT, t)
                         val m = minutes.getOrPut(t / 60_000L) { Minute() }
+                        if (e == "tftSession" || e == "tftSock" || e == "start") lastAck = 0L // build-466: không tính khoảng trống qua 2 lần kết nối
                         when (e) {
                             "tftAck" -> if (o.optBoolean("accepted", true)) {
                                 m.acks++

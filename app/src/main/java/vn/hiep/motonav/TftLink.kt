@@ -982,6 +982,8 @@ object TftLink {
     @Volatile private var skZoomStep: Int = 0
     /** build-364: tỉ lệ thu nhỏ khung nhìn TFT (1.0 = như cũ; 0.7 = nhìn xa hơn ~1.43 lần). */
     const val VIEW_SCALE = 0.7
+    /** build-466 (Sếp 16/11): khung đen trái LUÔN hiện (cả bản đồ chờ/tới nơi) cho đồng nhất. */
+    const val PANELS_ALWAYS = true
     const val PANEL_W_FRAC = 0.22f   // build-424: khung đen bên trái
     const val BOTTOM_H_FRAC = 0.115f // build-424: dải đen dưới
     const val FW_TOP_FRAC = 0.77f    // build-426: mép trên thanh firmware dưới của đồng hồ (ảnh 12/11: che từ ~0.78h)
@@ -1111,7 +1113,7 @@ object TftLink {
         // đổi theo mức nghiêng camera 3D (skTiltT), xem bên dưới.
         var anchorY = h * 0.72f
         // build-427 (Sếp): khung đen = "dải phân cách cứng" — bản đồ, tuyến, nhãn tên đường chỉ vẽ trong vùng bản đồ.
-        val navPanels = skActive && skRoute != null
+        val navPanels = PANELS_ALWAYS || (skActive && skRoute != null)
         val mapL = if (navPanels) w * PANEL_W_FRAC else 0f
         val mapB = if (navPanels) h * FW_TOP_FRAC - h * 0.24f else h.toFloat() // build-430: nhãn né cụm km/phút góc dưới + thanh firmware
         var mapClip = -1
@@ -1131,10 +1133,11 @@ object TftLink {
                 val aheadM = ((h + MapSnap.EXTRA_H) / 2.0 - 0.72 * h).coerceAtLeast(0.0) * mPerPx
                 val tLat = skLat + cosH * aheadM / 110540.0
                 val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 0.0, w, h, plain = bgPlainNow())
+                val fw = if (PANELS_ALWAYS) (w - (w * PANEL_W_FRAC).toInt()) else w
+                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 0.0, fw, h, plain = bgPlainNow())?.also { it.dx = (w - fw).toFloat() }
             } else null
             if (snap != null) {
-                c.drawBitmap(snap.bitmap, 0f, 0f, null)
+                c.drawBitmap(snap.bitmap, snap.dx, 0f, null)
                 val pt = snap.pixelForLatLng(org.maplibre.android.geometry.LatLng(skLat, skLon))
                 if (!pt.x.isNaN() && !pt.y.isNaN() && pt.y > h * 0.3f && pt.y < h * 0.95f) { carX = pt.x; anchorY = pt.y }
                 // build-435 (Sếp): tới nơi xong (hết dẫn đường) cờ đích của tuyến gần nhất VẪN hiện trên bản đồ.
@@ -2044,12 +2047,16 @@ object TftLink {
             // build-321: ghim nổi kiểu Garmin — cây xăng (xanh) và camera (đỏ) trong tầm nhìn phía trước.
             try {
                 val pins = ArrayList<Triple<Float, Float, Int>>() // sx, sy, loại (0 xăng, 1 camera)
+                val pinCarSy = toScreen(0.0, 0.0)[1]
                 fun addPin(la: Double, lo: Double, kind: Int) {
                     val dx = proj.x(lo); val dy = proj.y(la)
                     val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
-                    if (ry < (if (kind == 2) 0.0 else 15.0) || ry > drawAhead || Math.abs(rx) > drawAhead * 0.8) return
+                    // build-466 (Sếp): cây xăng đi qua không biến mất mà trôi xuống dưới tới khi ra khỏi màn.
+                    val back = kind == 0
+                    if (ry < (if (kind == 2) 0.0 else if (back) -120.0 else 15.0) || ry > drawAhead || Math.abs(rx) > drawAhead * 0.8) return
                     val (sx, sy) = toScreen(rx, ry)
-                    if (sx.isNaN() || sy.isNaN() || sx < h * 0.06f || sx > w - h * 0.06f || sy < h * 0.12f || sy > h * 0.95f) return
+                    if (sx.isNaN() || sy.isNaN() || sx < h * 0.06f || sx > w - h * 0.06f || sy < h * 0.12f || sy > (if (back) h * 1.12f else h * 0.95f)) return
+                    if (back && ry < 0.0 && sy < pinCarSy - 4f) return
                     pins.add(Triple(sx, sy, kind))
                 }
                 Live.osm?.fuel?.forEach { addPin(it[0], it[1], 0) }
@@ -2078,7 +2085,7 @@ object TftLink {
         // trắng, số đen) để nhận ra ngay là giới hạn tốc độ chứ không phải số liệu khác.
         // build-426: khung đen vẽ TRƯỚC biển tốc độ (biển nằm trong khung, giữa nút + và − của đồng hồ).
         if (mapClip >= 0) { c.restoreToCount(mapClip); mapClip = -1 }
-        val panels = skActive && skRoute != null
+        val panels = PANELS_ALWAYS || (skActive && skRoute != null)
         if (panels) drawGarminPanels(c, w, h, dk)
         val lim = skLimitKmh
         var limBottomY = h * 0.03f
@@ -2433,7 +2440,7 @@ object TftLink {
     /** build-456 (Sếp): ô xanh dương "Mưa vừa · 6 km · 12 ph" khi vùng mưa còn ở phía trước (RainAlert). */
     private fun drawRain(c: Canvas, w: Int, h: Int) {
         val txt = RainAlert.boxText ?: return
-        val left = if (skActive && skRoute != null) w * PANEL_W_FRAC + 6f else 6f
+        val left = if (PANELS_ALWAYS || (skActive && skRoute != null)) w * PANEL_W_FRAC + 6f else 6f
         val tp = Paint().apply { color = Color.WHITE; textSize = h * 0.08f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
         val bw = (tp.measureText(txt) + 20f).coerceAtMost(w * 0.80f - left)
         val top = h * 0.02f
@@ -2449,7 +2456,7 @@ object TftLink {
         val title = Live.noticeTitle ?: return
         val age = System.currentTimeMillis() - Live.noticeAt
         if (age > (if (Live.noticeCall) 45_000L else 8_000L)) { Live.noticeTitle = null; return }
-        val left = if (skActive && skRoute != null) w * PANEL_W_FRAC + 6f else 6f
+        val left = if (PANELS_ALWAYS || (skActive && skRoute != null)) w * PANEL_W_FRAC + 6f else 6f
         val right = w * 0.80f
         val top = h * 0.02f
         val bh = h * 0.21f
@@ -2492,6 +2499,15 @@ object TftLink {
             typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         }
         val gray = Color.rgb(170, 170, 178)
+        // build-466: không dẫn đường (bản đồ chờ / đã tới nơi) → khung đen giữ nguyên, ô giờ tới hiện giờ hiện tại.
+        if (!(skActive && skRoute != null)) {
+            val cal = java.util.Calendar.getInstance()
+            val t = String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
+            val ep = tp(h * 0.13f, true, Paint.Align.CENTER)
+            if (ep.measureText(t) > pw - 6f) ep.textSize *= (pw - 6f) / ep.measureText(t)
+            c.drawText(t, pw / 2f, hb - h * 0.004f, ep)
+            return
+        }
         // --- góc trên khung trái: khoảng cách tới chỗ rẽ / đích bên nào ---
         val cx = pw / 2f
         val dM = skDistanceM

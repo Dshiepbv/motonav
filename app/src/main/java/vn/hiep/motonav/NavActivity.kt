@@ -614,6 +614,15 @@ class NavActivity : Activity() {
     }
     private lateinit var nextBox: LinearLayout
     private lateinit var hubCard: TextView
+    private var portraitMap: View? = null
+    private var hubScroll: ScrollView? = null
+    /** build-466 (Sếp): bấm ô tìm kiếm thì ẩn bản đồ, hub kéo lên trên, bàn phím không che. */
+    private fun searchMode(on: Boolean) {
+        val m = portraitMap ?: return
+        val want = if (on) View.GONE else View.VISIBLE
+        if (m.visibility != want) m.visibility = want
+        if (on) hubScroll?.post { hubScroll?.smoothScrollTo(0, maxOf(0, searchBox.top - dp(6f))) }
+    }
     private lateinit var signsBox: LinearLayout
     private var shownSigns: List<Triple<Int, Int, Int>>? = null
     private lateinit var nextSign: SpeedSignView
@@ -951,6 +960,7 @@ class NavActivity : Activity() {
             // ---- Màn hình dọc (build 462, Sếp 16/11): bản đồ 50% phía trên; nửa dưới là hub (tìm kiếm, chọn tuyến, mô tả tuyến, mưa, thông số) ----
             val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             val mapBox = FrameLayout(this)
+            portraitMap = mapBox; hubScroll = null
             mapBox.addView(mapView, FrameLayout.LayoutParams(-1, -1))
             mapBox.addView(carView, FrameLayout.LayoutParams(dp(60f), dp(60f)))
             mapBox.addView(
@@ -967,6 +977,7 @@ class NavActivity : Activity() {
             col.addView(mapBox, LinearLayout.LayoutParams(-1, 0, 1f))
 
             val hub = ScrollView(this).apply { setBackgroundColor(Color.parseColor("#12161B")); isFillViewport = true }
+            hubScroll = hub
             val inner = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(10f), dp(8f), dp(10f), dp(6f))
@@ -1066,7 +1077,7 @@ class NavActivity : Activity() {
                 }
             }
         })
-        searchInput.setOnFocusChangeListener { _, has -> if (has && searchInput.text.isEmpty()) showHistory() }
+        searchInput.setOnFocusChangeListener { _, has -> searchMode(has); if (has && searchInput.text.isEmpty()) showHistory() }
         searchInput.setOnEditorActionListener { _, _, _ ->
             ui.removeCallbacks(searchRunnable)
             doSearch(searchInput.text.toString())
