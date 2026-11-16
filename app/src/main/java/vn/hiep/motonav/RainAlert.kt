@@ -32,6 +32,25 @@ object RainAlert {
     // Trạng thái cho màn xe
     @Volatile var boxText: String? = null
     @Volatile var boxLevel = 0 // 1 nhỏ, 2 vừa, 3 to
+    /** build-457: biểu tượng thời tiết dưới biển tốc độ (WxCat) + điểm bắt đầu vùng mưa phía trước để đếm ngược km. */
+    @Volatile var iconCat: Int? = null
+    @Volatile private var rainStartAbs = -1.0          // dẫn đường: vị trí trên tuyến (m)
+    @Volatile private var rainLat = 0.0; @Volatile private var rainLon = 0.0 // đi tự do
+    @Volatile private var rainNav = false
+
+    fun distToRainM(): Int? {
+        if (rainStartAbs < 0) return null
+        val d = if (rainNav) rainStartAbs - Live.routeProgress else Geo.distance(Live.lat, Live.lon, rainLat, rainLon)
+        return d.toInt().takeIf { it > 0 }
+    }
+
+    private fun codeCat(code: Int): Int = when {
+        code >= 95 -> WxCat.STORM
+        code in 51..67 || code in 80..82 -> WxCat.RAIN
+        code == 3 || code == 45 || code == 48 -> WxCat.CLOUDY
+        code == 1 || code == 2 -> WxCat.PARTLY
+        else -> WxCat.CLEAR
+    }
 
     private var lastFetch = 0L
     private var busy = false
@@ -55,7 +74,7 @@ object RainAlert {
 
     /** Gọi mỗi lần có vị trí mới. [say] = hiện + đọc cảnh báo. */
     fun tick(enabled: Boolean, speedKmh: Int, say: (String, String) -> Unit) {
-        if (!enabled) { boxText = null; return }
+        if (!enabled) { boxText = null; iconCat = null; rainStartAbs = -1.0; return }
         if (busy || !Live.gpsOk) return
         val now = SystemClock.elapsedRealtime()
         val routeChanged = Live.ownNav && Live.routeVersion != lastRouteVer
@@ -108,7 +127,7 @@ object RainAlert {
         val lats = s.joinToString(",") { String.format(Locale.US, "%.4f", it.lat) }
         val lons = s.joinToString(",") { String.format(Locale.US, "%.4f", it.lon) }
         val url = "https://api.open-meteo.com/v1/forecast?latitude=$lats&longitude=$lons" +
-            "&minutely_15=precipitation&forecast_minutely_15=10&past_minutely_15=1&timeformat=unixtime&timezone=GMT"
+            "&current=weather_code&minutely_15=precipitation&forecast_minutely_15=10&past_minutely_15=1&timeformat=unixtime&timezone=GMT"
         val body = get(url)
         val arr = if (body.trim().startsWith("[")) JSONArray(body) else JSONArray().put(JSONObject(body))
         // tốc độ dùng để tính giờ tới: tốc độ tuyến (nếu có) hoặc tốc độ hiện tại, tối thiểu 20 km/h
@@ -118,8 +137,10 @@ object RainAlert {
         val nowS = System.currentTimeMillis() / 1000
         val lv = IntArray(s.size)
         val mm = DoubleArray(s.size)
+        val codes = IntArray(s.size)
         for (k in s.indices) {
             val o = arr.optJSONObject(k) ?: continue
+            codes[k] = o.optJSONObject("current")?.optInt("weather_code", 0) ?: 0
             val m = o.optJSONObject("minutely_15") ?: continue
             val times = m.optJSONArray("time") ?: continue
             val pr = m.optJSONArray("precipitation") ?: continue
@@ -138,9 +159,19 @@ object RainAlert {
 
         val hereWet = lv[0] > 0
         val first = lv.indexOfFirst { it > 0 }
-        if (first < 0) { boxText = null; boxLevel = 0; zoneKey = null; nearSaid = false; exitSaid = false; return }
+        rainStartAbs = -1.0
+        if (first < 0) {
+            iconCat = codeCat(codes[0]).let { if (WxCat.wet(it)) WxCat.CLOUDY else it } // dự báo 15 ph không mưa → không vẽ mưa
+            boxText = null; boxLevel = 0; zoneKey = null; nearSaid = false; exitSaid = false; return
+        }
         var last = first
         while (last + 1 < lv.size && lv[last + 1] > 0) last++
+        iconCat = if ((first..last).any { codes[it] >= 95 }) WxCat.STORM else WxCat.RAIN
+        if (!hereWet && minutes(first) <= 25) {
+            rainNav = Live.ownNav
+            rainLat = s[first].lat; rainLon = s[first].lon
+            rainStartAbs = if (rainNav) Live.routeProgress + s[first].distM else 0.0
+        } else if (!hereWet) iconCat = codeCat(codes[0]).let { if (WxCat.wet(it)) WxCat.CLOUDY else it }
         val maxL = (first..last).maxOf { lv[it] }
         val startM = s[first].distM
         val lenM = s[last].distM - startM + 1500.0

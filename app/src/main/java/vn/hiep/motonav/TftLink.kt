@@ -2060,19 +2060,26 @@ object TftLink {
         if (lim != null && lim > 0) {
             // build-433 (Sếp): sắp đổi tốc độ → biển hiện tại ngang nút +, biển kế tiếp ngang nút −.
             val nextOn = skNextLimit.let { it != null && it > 0 && it < lim } && skNextLimitDist in 0..100
-            val cx = if (panels) w * 0.158f else w * 0.90f; val cy = if (panels) (if (nextOn) h * 0.34f else h * 0.45f) else h * 0.16f; val r = if (panels) h * 0.10f else h * 0.105f
+            // build-457 (Sếp 16/11): chỉ 1 biển, luôn ở vị trí cao; sắp đổi tốc độ thì biển MỚI đè lên + vòng vàng đếm ngược.
+            val cx = if (panels) w * 0.158f else w * 0.90f; val cy = if (panels) h * 0.34f else h * 0.16f; val r = if (panels) h * 0.10f else h * 0.105f
             val ringPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.FILL; isAntiAlias = true }
             val facePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
             val numPaint = Paint().apply { color = Color.BLACK; textSize = r * 1.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             c.drawCircle(cx, cy, r, ringPaint)
             c.drawCircle(cx, cy, r * 0.78f, facePaint)
             val fm = numPaint.fontMetrics
-            c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
+            c.drawText((if (nextOn) skNextLimit!! else lim).toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
             limBottomY = cy + r
+            if (nextOn) {
+                val arcR = r + h * 0.022f
+                val arcPaint = Paint().apply { color = Color.rgb(255, 196, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+                c.drawArc(android.graphics.RectF(cx - arcR, cy - arcR, cx + arcR, cy + arcR), -90f, 360f * skNextLimitDist / 100f, false, arcPaint)
+                limBottomY = cy + arcR
+            }
             // build-320: biển GIẢM tốc phía trước ≤100 m → biển mới cạnh biển hiện tại + vòng vàng đếm mét + số mét.
             val nl = skNextLimit
             val nd = skNextLimitDist
-            if (nl != null && nl > 0 && nl < lim && nd in 0..100) {
+            if (false && nl != null && nl > 0 && nl < lim && nd in 0..100) { // build-457: bỏ biển thứ 2
                 // build-410 (Sếp): biển sắp đổi chuyển xuống DƯỚI biển tốc độ (bên cạnh dành cho biển cấm rẽ).
                 val nr = r * 0.8f; val ncx = cx; val ncy = if (panels) h * 0.555f else cy + r + h * 0.04f + nr
                 c.drawCircle(ncx, ncy, nr, ringPaint)
@@ -2088,6 +2095,28 @@ object TftLink {
                 limBottomY = ncy + arcR
             }
         }
+        // build-457 (Sếp 16/11): dưới biển tốc độ = biểu tượng thời tiết (nắng/mây/mưa/bão); có mưa phía trước thì
+        // dưới biểu tượng đếm ngược km tới vùng mưa.
+        try {
+            val wc = RainAlert.iconCat
+            val nearDest2 = Live.maneuverSign == 4
+            if (wc != null && !(panels && nearDest2)) {
+                val ir = if (panels) h * 0.085f else h * 0.08f
+                val icx = if (panels) w * 0.158f else w * 0.90f
+                val icy = if (panels) h * 0.555f else limBottomY + h * 0.03f + ir
+                if (panels) c.drawCircle(icx, icy, ir * 1.05f, Paint().apply { color = Color.rgb(40, 44, 52); isAntiAlias = true })
+                drawWxIcon(c, icx, icy, ir * 1.7f, wc, RouteWeather.isNightAt(0), true)
+                val dM = RainAlert.distToRainM()
+                if (WxCat.wet(wc) && dM != null && dM > 0) {
+                    val txt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000.0).replace('.', ',') else "${(dM / 50) * 50} m"
+                    val kp = Paint().apply { color = Color.WHITE; textSize = h * 0.075f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    if (panels && kp.measureText(txt) > w * PANEL_W_FRAC - 6f) kp.textSize *= (w * PANEL_W_FRAC - 6f) / kp.measureText(txt)
+                    val halo = Paint(kp).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.02f; strokeJoin = Paint.Join.ROUND }
+                    val ky = icy + ir + h * 0.07f
+                    c.drawText(txt, icx, ky, halo); c.drawText(txt, icx, ky, kp)
+                }
+            }
+        } catch (_: Throwable) {}
         // build-410 (Sếp, giống NConnect): biển cấm rẽ trái/phải/quay đầu phía trước (≤150 m) đặt cạnh biển tốc độ.
         try {
             val nt = Live.signsAhead.firstOrNull { (it.first == SignType.NO_LEFT || it.first == SignType.NO_RIGHT || it.first == SignType.NO_UTURN) && it.third <= 150 }
@@ -2236,7 +2265,6 @@ object TftLink {
                 c.drawText(distTxt, textX, baseLastM, infoPaint)
             }
         }
-        try { drawRain(c, w, h) } catch (_: Exception) {}
         try { drawNotice(c, w, h) } catch (_: Exception) {}
         val out = ByteArrayOutputStream()
         val jpegEncodeStarted = android.os.SystemClock.elapsedRealtime()
@@ -2465,9 +2493,11 @@ object TftLink {
             val sp = tp(h * 0.10f, true, Paint.Align.CENTER)
             val mw = maxOf(sp.measureText(l1), sp.measureText(side))
             if (mw > pw - 6f) sp.textSize *= (pw - 6f) / mw
-            val lh = sp.textSize * 1.1f
-            c.drawText(l1, cx, hb - h * 0.004f - lh, sp)
-            c.drawText(side, cx, hb - h * 0.004f, sp)
+            val lh = sp.textSize * 1.05f
+            // build-457 (Sếp): dịch xuống chút — dòng trên bị cấn nút zoom (−) của đồng hồ.
+            val base = hb + h * 0.012f
+            c.drawText(l1, cx, base - lh, sp)
+            c.drawText(side, cx, base, sp)
         }
         // build-430 (Sếp): bỏ dải dưới. Giờ tới (ETA) nằm trong khung đen, dưới nút − của đồng hồ;
         // thời gian còn lại + km còn lại ở góc dưới bên phải bản đồ, không nền (viền chữ), trên thanh firmware.
