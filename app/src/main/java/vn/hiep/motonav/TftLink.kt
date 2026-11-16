@@ -285,7 +285,7 @@ object TftLink {
     private const val V2_KEEPALIVE_MS = 450L
     /** build-462 (Sếp 16/11): chuỗi gửi không bao giờ chờ điện thoại (reroute, tuyến mới…): ACK xong mà chưa có ảnh mới trong 300 ms
      * thì gửi ngay ảnh gần nhất (nền bản đồ), không để trống tới 1 s. */
-    private const val NMAX_FILL_MS = 300L
+    private const val NMAX_FILL_MS = 40L
     /** build-367: TẮT việc giữ ảnh né mốc 5 s (366 gây đói ảnh → xoay liên tục). Bộ học pha vẫn chạy để ghi log. */
     private const val TICK_HOLD = false
     /** build-368: chưa dẫn đường mà có GPS → TFT hiện bản đồ quanh xe thay cho logo. */
@@ -2772,10 +2772,9 @@ object TftLink {
                 // build-441 (Sếp: "đỡ nóng máy"): chỉ dựng ảnh khi sắp cần gửi. Trước dựng ~7,6 ảnh/s mà chỉ gửi ~1/s (87% bỏ).
                 // Hộp thư còn ảnh mới (≤150 ms; ≤400 ms nếu bộ gửi còn chờ ACK) thì chưa dựng.
                 val boxed = if (PIPE_V2) mailbox.get() else null
-                // build-469 (Sếp 16/11 "đỡ nóng, không đói ảnh, không teleport"): xe kẹt (chờ ACK > 1,5 s) thì ảnh trong hộp thư đủ mới, dựng lại thưa hơn
-                // (900 ms thay vì 400 ms) — trước đó dựng bỏ ~38% ảnh. Bình thường (ACK nhanh) vẫn giữ 400/150 ms → không đói ảnh.
-                val stalled = txAwaitingAck && System.currentTimeMillis() - v2LastTxAt > 1500L
-                if (boxed != null && android.os.SystemClock.elapsedRealtime() - boxed.createdAtElapsedMs < (if (stalled) 900L else if (txAwaitingAck) 400L else 150L)) {
+                // build-470 (Sếp 16/11 "không bao giờ để đói ảnh"): bỏ giãn 900 ms của 469. Hộp thư luôn có ảnh ≤250 ms khi chờ ACK;
+                // ACK về là gửi NGAY (ảnh mới nếu có, không thì ảnh gần nhất sau ≤40 ms). Chuỗi gửi không bao giờ chờ dựng ảnh.
+                if (boxed != null && android.os.SystemClock.elapsedRealtime() - boxed.createdAtElapsedMs < (if (txAwaitingAck) 250L else 150L)) {
                     sleepQuiet(30); continue
                 }
                 if (!calibRunning && !routeTestRunning) {
