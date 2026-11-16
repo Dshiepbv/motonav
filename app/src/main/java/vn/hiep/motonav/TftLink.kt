@@ -2079,7 +2079,7 @@ object TftLink {
             // build-320: biển GIẢM tốc phía trước ≤100 m → biển mới cạnh biển hiện tại + vòng vàng đếm mét + số mét.
             val nl = skNextLimit
             val nd = skNextLimitDist
-            if (false && nl != null && nl > 0 && nl < lim && nd in 0..100) { // build-457: bỏ biển thứ 2
+            if (nl != null && nl > 0 && nl < lim && nd in 0..100 && NEXT_SIGN_2) { // build-457: bỏ biển thứ 2
                 // build-410 (Sếp): biển sắp đổi chuyển xuống DƯỚI biển tốc độ (bên cạnh dành cho biển cấm rẽ).
                 val nr = r * 0.8f; val ncx = cx; val ncy = if (panels) h * 0.555f else cy + r + h * 0.04f + nr
                 c.drawCircle(ncx, ncy, nr, ringPaint)
@@ -4315,6 +4315,7 @@ object TftLink {
     }
 
     @Volatile private var navModeSentAt = 0L
+    private val NEXT_SIGN_2 = false // build-457: bỏ biển tốc độ thứ 2
     private const val NAV_MODE_REFRESH_MS = 5 * 60_000L
 
     fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, currentStreet: String, etaMinutes: Int) {
