@@ -2772,7 +2772,10 @@ object TftLink {
                 // build-441 (Sếp: "đỡ nóng máy"): chỉ dựng ảnh khi sắp cần gửi. Trước dựng ~7,6 ảnh/s mà chỉ gửi ~1/s (87% bỏ).
                 // Hộp thư còn ảnh mới (≤150 ms; ≤400 ms nếu bộ gửi còn chờ ACK) thì chưa dựng.
                 val boxed = if (PIPE_V2) mailbox.get() else null
-                if (boxed != null && android.os.SystemClock.elapsedRealtime() - boxed.createdAtElapsedMs < (if (txAwaitingAck) 400L else 150L)) {
+                // build-469 (Sếp 16/11 "đỡ nóng, không đói ảnh, không teleport"): xe kẹt (chờ ACK > 1,5 s) thì ảnh trong hộp thư đủ mới, dựng lại thưa hơn
+                // (900 ms thay vì 400 ms) — trước đó dựng bỏ ~38% ảnh. Bình thường (ACK nhanh) vẫn giữ 400/150 ms → không đói ảnh.
+                val stalled = txAwaitingAck && System.currentTimeMillis() - v2LastTxAt > 1500L
+                if (boxed != null && android.os.SystemClock.elapsedRealtime() - boxed.createdAtElapsedMs < (if (stalled) 900L else if (txAwaitingAck) 400L else 150L)) {
                     sleepQuiet(30); continue
                 }
                 if (!calibRunning && !routeTestRunning) {
