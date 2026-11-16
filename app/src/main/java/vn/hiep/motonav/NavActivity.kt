@@ -249,6 +249,11 @@ class NavActivity : Activity() {
 
     private fun makeViews() {
         carView = CarMarkerView(this, carIcon()).apply { visibility = View.INVISIBLE }
+        hubCard = tv(14f, Color.parseColor("#C9CED6"), false).apply {
+            background = rounded(Color.parseColor("#181B20"), 12f)
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+            setLineSpacing(0f, 1.15f)
+        }
         turnCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(green)
@@ -608,6 +613,7 @@ class NavActivity : Activity() {
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
     }
     private lateinit var nextBox: LinearLayout
+    private lateinit var hubCard: TextView
     private lateinit var signsBox: LinearLayout
     private var shownSigns: List<Triple<Int, Int, Int>>? = null
     private lateinit var nextSign: SpeedSignView
@@ -942,73 +948,40 @@ class NavActivity : Activity() {
         root.setBackgroundColor(bg)
 
         if (!landscape) {
-            // ---- Màn hình dọc: thẻ rẽ trên, bản đồ giữa, thanh dưới ----
-            root.addView(mapView, FrameLayout.LayoutParams(-1, -1))
-            root.addView(carView, FrameLayout.LayoutParams(dp(60f), dp(60f)))
-            // Hàng trên: nút ☰ + (thẻ rẽ / ô tìm kiếm)
-            val topRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(dp(10f), dp(10f), dp(10f), 0)
-            }
-            val top = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            top.addView(turnCard, LinearLayout.LayoutParams(-1, -2))
-            top.addView(streetNowText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6f); gravity = Gravity.CENTER_HORIZONTAL })
-            top.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
-            top.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
-            // Chừa chỗ bên phải cho cột nút ☰/◎/⏹ nổi, không để thẻ rẽ đè lên
-            topRow.addView(top, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = dp(64f) })
-            root.addView(topRow, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
-            // ☰, ◎, ⏹ thẳng hàng một cột bên phải, cùng kích thước, cách thưa để không bấm nhầm
-            root.addView(
+            // ---- Màn hình dọc (build 462, Sếp 16/11): bản đồ 50% phía trên; nửa dưới là hub (tìm kiếm, chọn tuyến, mô tả tuyến, mưa, thông số) ----
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            val mapBox = FrameLayout(this)
+            mapBox.addView(mapView, FrameLayout.LayoutParams(-1, -1))
+            mapBox.addView(carView, FrameLayout.LayoutParams(dp(60f), dp(60f)))
+            mapBox.addView(
                 menuBtn,
-                FrameLayout.LayoutParams(dp(52f), dp(52f), Gravity.TOP or Gravity.END).apply {
-                    topMargin = dp(10f); rightMargin = dp(16f)
-                },
+                FrameLayout.LayoutParams(dp(52f), dp(52f), Gravity.TOP or Gravity.END).apply { topMargin = dp(10f); rightMargin = dp(16f) },
             )
-            root.addView(
+            mapBox.addView(
                 recenterStack,
-                FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
-                    topMargin = dp(10f + 52f + 14f)
-                    rightMargin = dp(16f)
-                },
+                FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { topMargin = dp(10f + 52f + 14f); rightMargin = dp(16f) },
             )
+            mapBox.addView(speedBox, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { leftMargin = dp(10f); topMargin = dp(10f) })
+            mapBox.addView(reportBtn, FrameLayout.LayoutParams(dp(60f), dp(56f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(14f); bottomMargin = dp(10f) })
+            mapBox.addView(urbanSign, FrameLayout.LayoutParams(dp(46f), dp(46f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(21f); bottomMargin = dp(10f + 56f + 8f) })
+            col.addView(mapBox, LinearLayout.LayoutParams(-1, 0, 1f))
 
-            bottomBar.background = rounded(Color.argb(242, 22, 26, 32), 0f)
-            root.addView(bottomBar, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM))
-
-            // Ô biển giới hạn + tốc độ: sát cạnh trái, ở khoảng 1/3 màn hình từ trên xuống,
-            // nhưng không bao giờ đè lên ô tìm kiếm/lịch sử phía trên (tính lại mỗi khi ô tìm
-            // kiếm đổi chiều cao, vd lúc xổ ra danh sách "Tìm gần đây").
-            root.addView(speedBox, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { leftMargin = dp(10f) })
-            val repositionSpeedBox = {
-                val h = root.height
-                val want = (h / 3) - speedBox.height / 2
-                val minTop = topRow.bottom + dp(8f)
-                val top = maxOf(want, minTop)
-                val lp = speedBox.layoutParams as FrameLayout.LayoutParams
-                if (lp.topMargin != top) {
-                    lp.topMargin = top
-                    speedBox.requestLayout()
-                }
+            val hub = ScrollView(this).apply { setBackgroundColor(Color.parseColor("#12161B")); isFillViewport = true }
+            val inner = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10f), dp(8f), dp(10f), dp(6f))
             }
-            root.post { repositionSpeedBox() }
-            topRow.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> repositionSpeedBox() }
-
-            // Nút "!" góc dưới phải, nằm trên thanh dưới
-            root.addView(reportBtn, FrameLayout.LayoutParams(dp(68f), dp(62f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(14f) })
-            // Biển khu dân cư ngay trên nút tam giác (nhỏ hơn 20% so với trước)
-            root.addView(urbanSign, FrameLayout.LayoutParams(dp(50f), dp(50f), Gravity.BOTTOM or Gravity.END).apply { rightMargin = dp(23f) })
-            bottomBar.addOnLayoutChangeListener { _, _, top2, _, bottom2, _, _, _, _ ->
-                val lp = reportBtn.layoutParams as FrameLayout.LayoutParams
-                val m = (bottom2 - top2) + dp(14f)
-                if (lp.bottomMargin != m) {
-                    lp.bottomMargin = m
-                    reportBtn.requestLayout()
-                    val up = urbanSign.layoutParams as FrameLayout.LayoutParams
-                    up.bottomMargin = m + dp(50f) + dp(10f)
-                    urbanSign.requestLayout()
-                }
-            }
+            inner.addView(turnCard, LinearLayout.LayoutParams(-1, -2))
+            inner.addView(streetNowText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6f); gravity = Gravity.CENTER_HORIZONTAL })
+            inner.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
+            inner.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
+            inner.addView(hubCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) })
+            inner.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
+            bottomBar.setPadding(dp(2f), dp(8f), dp(2f), dp(4f))
+            inner.addView(bottomBar, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
+            hub.addView(inner, FrameLayout.LayoutParams(-1, -1))
+            col.addView(hub, LinearLayout.LayoutParams(-1, 0, 1f))
+            root.addView(col, FrameLayout.LayoutParams(-1, -1))
         } else {
             // ---- Màn hình ngang: bảng thông tin trái, bản đồ phải ----
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -2303,6 +2276,18 @@ class NavActivity : Activity() {
             etaText.text = Live.destName ?: "Đang dẫn đường"
         } else {
             etaText.text = Live.street ?: "Chọn điểm đến"
+        }
+        // Hub (nửa dưới màn dọc): mô tả tuyến, mưa, thời tiết
+        if (::hubCard.isInitialized) {
+            val lines = ArrayList<String>()
+            if (nav && Live.route != null) {
+                val min = Live.etaMs / 60000
+                lines.add("➜ " + (Live.destName ?: "Điểm đến") + " · " + NavEngine.fmtDist(Live.remainingM) + " · " + (if (min < 1) "<1" else min.toString()) + " phút")
+                Live.street?.let { lines.add("Đang đi: $it") }
+            } else lines.add("Chưa dẫn đường — chọn điểm đến ở ô tìm kiếm")
+            lines.add("☂ " + (RainAlert.boxText ?: "Không có mưa phía trước"))
+            Live.wxSummary?.let { lines.add(it) }
+            hubCard.text = lines.joinToString("\n")
         }
         // Đã chuyển bản đồ nền VietMap sang ảnh raster .png (phương án B, tạm) — mảnh không còn là
         // protobuf nên hết cần xem byte thô để chẩn đoán gzip/"invalid tag" như lúc còn dùng mảnh
