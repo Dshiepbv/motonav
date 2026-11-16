@@ -44,12 +44,19 @@ object RainAlert {
         return d.toInt().takeIf { it > 0 }
     }
 
+    @Volatile private var skyCat = WxCat.CLEAR
     private fun codeCat(code: Int): Int = when {
         code >= 95 -> WxCat.STORM
         code in 51..67 || code in 80..82 -> WxCat.RAIN
-        code == 3 || code == 45 || code == 48 -> WxCat.CLOUDY
-        code == 1 || code == 2 -> WxCat.PARTLY
-        else -> WxCat.CLEAR
+        else -> skyCat
+    }
+    /** build-460 (Sếp: "trời nắng mà hiện mây"): ban ngày dựa vào bức xạ mặt trời thực (W/m²), ban đêm / không có thì dùng độ phủ mây. */
+    private fun sky(coverPct: Int, radWm2: Double, night: Boolean): Int = when {
+        !night && radWm2 >= 450.0 -> WxCat.CLEAR
+        !night && radWm2 >= 250.0 -> WxCat.PARTLY
+        coverPct <= 65 -> WxCat.CLEAR
+        coverPct <= 88 -> WxCat.PARTLY
+        else -> WxCat.CLOUDY
     }
 
     private var lastFetch = 0L
@@ -127,7 +134,7 @@ object RainAlert {
         val lats = s.joinToString(",") { String.format(Locale.US, "%.4f", it.lat) }
         val lons = s.joinToString(",") { String.format(Locale.US, "%.4f", it.lon) }
         val url = "https://api.open-meteo.com/v1/forecast?latitude=$lats&longitude=$lons" +
-            "&current=weather_code&minutely_15=precipitation&forecast_minutely_15=10&past_minutely_15=1&timeformat=unixtime&timezone=GMT"
+            "&current=weather_code,cloud_cover,shortwave_radiation&minutely_15=precipitation&forecast_minutely_15=10&past_minutely_15=1&timeformat=unixtime&timezone=GMT"
         val body = get(url)
         val arr = if (body.trim().startsWith("[")) JSONArray(body) else JSONArray().put(JSONObject(body))
         // tốc độ dùng để tính giờ tới: tốc độ tuyến (nếu có) hoặc tốc độ hiện tại, tối thiểu 20 km/h
@@ -138,9 +145,13 @@ object RainAlert {
         val lv = IntArray(s.size)
         val mm = DoubleArray(s.size)
         val codes = IntArray(s.size)
+        val cover = IntArray(s.size)
+        val rad = DoubleArray(s.size)
         for (k in s.indices) {
             val o = arr.optJSONObject(k) ?: continue
             codes[k] = o.optJSONObject("current")?.optInt("weather_code", 0) ?: 0
+            cover[k] = o.optJSONObject("current")?.optInt("cloud_cover", 0) ?: 0
+            rad[k] = o.optJSONObject("current")?.optDouble("shortwave_radiation", 0.0) ?: 0.0
             val m = o.optJSONObject("minutely_15") ?: continue
             val times = m.optJSONArray("time") ?: continue
             val pr = m.optJSONArray("precipitation") ?: continue
@@ -157,6 +168,7 @@ object RainAlert {
         val minutes = { k: Int -> ((s[k].distM / ms) / 60).roundToInt() }
         try { TripLog.ev("rain", "n" to s.size, "lv" to lv.joinToString(""), "nav" to Live.ownNav) } catch (_: Exception) {}
 
+        skyCat = sky(cover[0], rad[0], RouteWeather.isNightAt(0))
         val hereWet = lv[0] > 0
         val first = lv.indexOfFirst { it > 0 }
         rainStartAbs = -1.0

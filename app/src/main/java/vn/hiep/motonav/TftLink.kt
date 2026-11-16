@@ -2083,7 +2083,7 @@ object TftLink {
             // build-433 (Sếp): sắp đổi tốc độ → biển hiện tại ngang nút +, biển kế tiếp ngang nút −.
             val nextOn = skNextLimit.let { it != null && it > 0 && it < lim } && skNextLimitDist in 0..100
             // build-457 (Sếp 16/11): chỉ 1 biển, luôn ở vị trí cao; sắp đổi tốc độ thì biển MỚI đè lên + vòng vàng đếm ngược.
-            val cx = if (panels) w * 0.158f else w * 0.90f; val cy = if (panels) h * 0.34f else h * 0.16f; val r = if (panels) h * 0.10f else h * 0.105f
+            val cx = if (panels) w * 0.158f else w * 0.90f; val cy = if (panels) h * 0.565f else h * 0.50f; val r = if (panels) h * 0.09f else h * 0.105f // build-460: biển tốc độ xuống dưới, thời tiết lên trên (Sếp)
             val ringPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.FILL; isAntiAlias = true }
             val facePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
             val numPaint = Paint().apply { color = Color.BLACK; textSize = r * 1.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
@@ -2122,19 +2122,19 @@ object TftLink {
         try {
             val wc = RainAlert.iconCat
             val nearDest2 = Live.maneuverSign == 4
-            if (wc != null && !(panels && nearDest2)) {
-                val ir = if (panels) h * 0.085f else h * 0.08f
+            if (wc != null) {
+                // build-460 (Sếp 16/11): biểu tượng thời tiết TO hơn, ở vị trí cao (đổi chỗ với biển tốc độ).
+                val ir = h * 0.135f
                 val icx = if (panels) w * 0.158f else w * 0.90f
-                val icy = if (panels) h * 0.555f else limBottomY + h * 0.03f + ir
-                if (panels) c.drawCircle(icx, icy, ir * 1.05f, Paint().apply { color = Color.rgb(40, 44, 52); isAntiAlias = true })
-                drawWxIcon(c, icx, icy, ir * 1.7f, wc, RouteWeather.isNightAt(0), true)
+                val icy = if (panels) h * 0.31f else h * 0.17f
+                drawWxIcon(c, icx, icy, h * 0.24f, wc, RouteWeather.isNightAt(0), true)
                 val dM = RainAlert.distToRainM()
                 if (WxCat.wet(wc) && dM != null && dM > 0) {
                     val txt = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000.0).replace('.', ',') else "${(dM / 50) * 50} m"
-                    val kp = Paint().apply { color = Color.WHITE; textSize = h * 0.075f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    val kp = Paint().apply { color = Color.WHITE; textSize = h * 0.06f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
                     if (panels && kp.measureText(txt) > w * PANEL_W_FRAC - 6f) kp.textSize *= (w * PANEL_W_FRAC - 6f) / kp.measureText(txt)
                     val halo = Paint(kp).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.02f; strokeJoin = Paint.Join.ROUND }
-                    val ky = icy + ir + h * 0.07f
+                    val ky = icy + ir
                     c.drawText(txt, icx, ky, halo); c.drawText(txt, icx, ky, kp)
                 }
             }
@@ -3964,7 +3964,7 @@ object TftLink {
                 // build-459 (Sếp 16/11): log 15/11 — ~4,6 ảnh/s nhưng chỉ ~1 ảnh mới/s (4–5 ảnh liền giống hệt nhau).
                 // Ảnh giống hệt ảnh vừa gửi → bỏ; vẫn gửi lại 1 lần/giây (keepalive) để giữ kết nối như NmaxConnect gốc.
                 val pj = pending
-                if (pj != null && lastJpeg != null && pj.jpeg.contentEquals(lastJpeg)) {
+                if (DUP_SKIP && pj != null && lastJpeg != null && pj.jpeg.contentEquals(lastJpeg)) {
                     pending = null; dupSkipped++
                     if (dupSkipped % 200 == 0) try { TripLog.ev("tftDupSkip", "n" to dupSkipped) } catch (_: Exception) {}
                 }
@@ -4345,6 +4345,8 @@ object TftLink {
 
     @Volatile private var navModeSentAt = 0L
     @Volatile private var dupSkipped = 0
+    // build-460 (Sếp 16/11 14:21): ride b459 với lọc ảnh trùng (~55 ảnh/phút thay vì ~270) đứng hình 27% (b456 sáng nay 3%) → tắt lại.
+    private const val DUP_SKIP = false
     private val NEXT_SIGN_2 = false // build-457: bỏ biển tốc độ thứ 2
     private const val NAV_MODE_REFRESH_MS = 5 * 60_000L
 
