@@ -946,6 +946,7 @@ object TftLink {
         skLon += (tLon - skLon) * f
     }
     @Volatile private var skHeadingDeg = -1.0
+    @Volatile private var skMovingHeading = -1.0
     // Hướng hợp lệ gần nhất (khi xe đứng yên/chạy chậm, Live.heading = -1 vì GPS course không đáng
     // tin ở tốc độ thấp — DriveService.onLocation dòng ~401). Trước đây lúc đó khung lấy mặc định
     // 0° (coi như hướng Bắc) làm bản đồ đột ngột "xoay ngang" mỗi lần dừng xe rồi lại đúng khi chạy
@@ -1062,6 +1063,12 @@ object TftLink {
                 if (j > bi) hdgUse = Geo.bearing(route.lats[bi], route.lons[bi], route.lats[j], route.lons[j])
             }
         } catch (_: Throwable) {}
+        // build-459 (Sếp 16/11: đèn đỏ tam giác quay chéo): không lấy được hướng tuyến mà xe gần như đứng yên (<5 km/h)
+        // → giữ hướng lúc đang chạy (≥8 km/h) thay vì hướng GPS nhảy lung tung.
+        if (hdgUse == headingDeg) {
+            if (speedKmh >= 8 && headingDeg >= 0) skMovingHeading = headingDeg
+            else if (speedKmh < 5 && skMovingHeading >= 0) hdgUse = skMovingHeading
+        }
         skHeadingDeg = hdgUse
         skManLat = maneuverLat
         skManLon = maneuverLon
@@ -1640,6 +1647,13 @@ object TftLink {
             val path = android.graphics.Path()
             // Toạ độ màn hình của tuyến đỏ — để nhãn tên đường tự né, không đè lên tuyến.
             val routePx = ArrayList<FloatArray>()
+            // build-459 (Sếp 16/11: đường tím chéo màn hình ở chỗ vòng cung/quay đầu): điểm tuyến nằm SAU camera bị bản đồ
+            // 3D chiếu ngược lên trên màn hình. Loại các điểm đó (ry < 0 mà lại nằm cao hơn xe) và NGẮT nét ở chỗ đó.
+            val routeBreaks = ArrayList<Int>()
+            val carSyRoute = toScreen(0.0, 0.0)[1]
+            fun badPt(ry: Double, sx: Float, sy: Float): Boolean =
+                sx.isNaN() || sy.isNaN() || ry < behindLimit || (ry < 0.0 && sy < carSyRoute - 4f) || sy > h * 2f || sy < -h * 2f
+            var penUp = false
             var started = false
             var i = idx0
             // Tuyến đỏ phải bắt đầu ĐÚNG tại mũi tên xe (phản hồi thực tế: "mất đường đỏ chỗ định
@@ -1702,8 +1716,10 @@ object TftLink {
                 val rx = dx * cosH - dy * sinH
                 val ry = dx * sinH + dy * cosH
                 val (sx, sy) = toScreen(rx, ry)
-                if (sx.isNaN() || sy.isNaN()) { if (started) break else { i += pathStep; continue } }
-                if (!started) { path.moveTo(sx, sy); started = true } else path.lineTo(sx, sy)
+                if (badPt(ry, sx, sy)) { if (started) penUp = true; i += pathStep; continue }
+                if (!started) { path.moveTo(sx, sy); started = true }
+                else if (penUp) { path.moveTo(sx, sy); routeBreaks.add(routePx.size); penUp = false }
+                else path.lineTo(sx, sy)
                 routePx.add(floatArrayOf(sx, sy))
                 i += pathStep
             }
@@ -1714,8 +1730,8 @@ object TftLink {
                 val dx = shl[0]; val dy = shl[1]
                 val rx = dx * cosH - dy * sinH; val ry = dx * sinH + dy * cosH
                 val (lx, ly) = toScreen(rx, ry)
-                if (!lx.isNaN() && !ly.isNaN()) {
-                    path.lineTo(lx, ly)
+                if (!badPt(ry, lx, ly)) {
+                    if (penUp) { path.moveTo(lx, ly); routeBreaks.add(routePx.size); penUp = false } else path.lineTo(lx, ly)
                     routePx.add(floatArrayOf(lx, ly))
                 }
             }
@@ -1931,11 +1947,17 @@ object TftLink {
                 }
                 return pts.filterIndexed { k, _ -> keep[k] }
             }
-            val sp = simplifyPx(routePx, 2f)
-            val drawPath = if (sp.size >= 2) {
+            val drawPath = if (routePx.size >= 2) {
                 android.graphics.Path().apply {
-                    moveTo(sp[0][0], sp[0][1])
-                    for (k in 1 until sp.size) lineTo(sp[k][0], sp[k][1])
+                    var s0 = 0
+                    for (e in routeBreaks + routePx.size) {
+                        if (e - s0 >= 2) {
+                            val sp = simplifyPx(routePx.subList(s0, e), 2f)
+                            moveTo(sp[0][0], sp[0][1])
+                            for (k in 1 until sp.size) lineTo(sp[k][0], sp[k][1])
+                        }
+                        s0 = e
+                    }
                 }
             } else path
             c.drawPath(drawPath, casingPaint)
@@ -1980,7 +2002,7 @@ object TftLink {
                             val rx = m[0] * cosH - m[1] * sinH; val ry = m[0] * sinH + m[1] * cosH
                             if (ry < behindLimit) continue
                             val (sx, sy) = toScreen(rx, ry)
-                            if (sx.isNaN() || sy.isNaN()) continue
+                            if (badPt(ry, sx, sy)) continue
                             val last = ap.lastOrNull()
                             if (last == null || Math.hypot((sx - last[0]).toDouble(), (sy - last[1]).toDouble()) >= 1.0) ap.add(floatArrayOf(sx, sy))
                         }
@@ -3939,6 +3961,13 @@ object TftLink {
                 }
             } else if (nmaxStyle) {
                 review()
+                // build-459 (Sếp 16/11): log 15/11 — ~4,6 ảnh/s nhưng chỉ ~1 ảnh mới/s (4–5 ảnh liền giống hệt nhau).
+                // Ảnh giống hệt ảnh vừa gửi → bỏ; vẫn gửi lại 1 lần/giây (keepalive) để giữ kết nối như NmaxConnect gốc.
+                val pj = pending
+                if (pj != null && lastJpeg != null && pj.jpeg.contentEquals(lastJpeg)) {
+                    pending = null; dupSkipped++
+                    if (dupSkipped % 200 == 0) try { TripLog.ev("tftDupSkip", "n" to dupSkipped) } catch (_: Exception) {}
+                }
                 tag = if (pending != null) "next" else if (lastJpeg != null && now - lastSendAt >= 1000L) "keepalive" else null
             } else if (lastSendAt == 0L || now - lastSendAt >= stepMs) {
                 review()
@@ -4315,6 +4344,7 @@ object TftLink {
     }
 
     @Volatile private var navModeSentAt = 0L
+    @Volatile private var dupSkipped = 0
     private val NEXT_SIGN_2 = false // build-457: bỏ biển tốc độ thứ 2
     private const val NAV_MODE_REFRESH_MS = 5 * 60_000L
 
