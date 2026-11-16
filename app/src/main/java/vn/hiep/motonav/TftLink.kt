@@ -283,6 +283,9 @@ object TftLink {
     /** build-367: TFT tự xoay khi ~0,5–1 s không có ảnh mới (log 366: nghỉ >1,2 s → 8/8 trễ; nhả ngay sau
      * cửa sổ né → 48% trễ). Nên giữ TFT luôn có ảnh: sau ACK mà mailbox chưa có ảnh mới thì gửi lại ảnh cũ. */
     private const val V2_KEEPALIVE_MS = 450L
+    /** build-462 (Sếp 16/11): chuỗi gửi không bao giờ chờ điện thoại (reroute, tuyến mới…): ACK xong mà chưa có ảnh mới trong 300 ms
+     * thì gửi ngay ảnh gần nhất (nền bản đồ), không để trống tới 1 s. */
+    private const val NMAX_FILL_MS = 300L
     /** build-367: TẮT việc giữ ảnh né mốc 5 s (366 gây đói ảnh → xoay liên tục). Bộ học pha vẫn chạy để ghi log. */
     private const val TICK_HOLD = false
     /** build-368: chưa dẫn đường mà có GPS → TFT hiện bản đồ quanh xe thay cho logo. */
@@ -3968,7 +3971,7 @@ object TftLink {
                     pending = null; dupSkipped++
                     if (dupSkipped % 200 == 0) try { TripLog.ev("tftDupSkip", "n" to dupSkipped) } catch (_: Exception) {}
                 }
-                tag = if (pending != null) "next" else if (lastJpeg != null && now - lastSendAt >= 1000L) "keepalive" else null
+                tag = if (pending != null) "next" else if (lastJpeg != null && now - lastSendAt >= NMAX_FILL_MS) "keepalive" else null
             } else if (lastSendAt == 0L || now - lastSendAt >= stepMs) {
                 review()
                 tag = if (pending != null) "next" else if (lastJpeg != null) "keepalive" else null
