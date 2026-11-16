@@ -2290,7 +2290,7 @@ object TftLink {
                 c.drawText(distTxt, textX, baseLastM, infoPaint)
             }
         }
-        try { drawNotice(c, w, h) } catch (_: Exception) {}
+        if (!pureMode) try { drawNotice(c, w, h) } catch (_: Exception) {}
         val out = ByteArrayOutputStream()
         val jpegEncodeStarted = android.os.SystemClock.elapsedRealtime()
         // Hạ tiếp (17→14) theo log thực tế chuyến 115807 (0.205): vẫn ~20% khung timeout ACK dù đã
@@ -3502,7 +3502,7 @@ object TftLink {
                     }
                     if (cmd == 0x41 && payload.size >= 2) {
                         bikeSpeedKmh = payload[1].toInt() and 0xFF
-                        try { ParkSpot.onBikeAlive(appCtx, bikeSpeedKmh) } catch (_: Exception) {}
+                        if (!pureMode) try { ParkSpot.onBikeAlive(appCtx, bikeSpeedKmh) } catch (_: Exception) {}
                         // build-366: đo xe bận ĐỘC LẬP với ACK — gói tốc độ bình thường cách 1,0–1,1 s; ≥1,6 s là xe đang bận.
                         val n41 = System.currentTimeMillis()
                         val g41 = if (last41At == 0L) 0L else n41 - last41At
@@ -3672,7 +3672,7 @@ object TftLink {
                         badMinutes = 0
                         resetPhaseLearning()
                         dashPaused = false
-                        try { TripLog.ev("tftSession", "phase" to "reset", "dupSkip" to dupSkipOn, "origin" to "post-handshake",
+                        try { TripLog.ev("tftSession", "phase" to "reset", "dupSkip" to dupSkipOn, "pure" to pureMode, "origin" to "post-handshake",
                             "jpegQuality" to 22, "nmaxStyle" to nmaxStyle, "stepMs" to stepMs, "safetyMs" to safetyMs, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
                         sendInitBurst()
                     }
@@ -4350,6 +4350,8 @@ object TftLink {
     @Volatile private var dupSkipped = 0
     // build-460 (Sếp 16/11 14:21): ride b459 với lọc ảnh trùng (~55 ảnh/phút thay vì ~270) đứng hình 27% (b456 sáng nay 3%) → tắt lại.
     @Volatile var dupSkipOn = false
+    /** build-465: chế độ thuần — tắt cảnh báo mưa (mạng), banner cuộc gọi/tin nhắn, lưu chỗ đậu xe để so sánh độ lag. */
+    @Volatile var pureMode = false
     private val NEXT_SIGN_2 = false // build-457: bỏ biển tốc độ thứ 2
     private const val NAV_MODE_REFRESH_MS = 5 * 60_000L
 
