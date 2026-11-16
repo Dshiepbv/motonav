@@ -57,6 +57,10 @@ object Live {
     @Volatile var destFlag = false
     @Volatile var destLon = 0.0
     @Volatile var destName: String? = null
+    /** build-466 (Sếp): điểm dừng giữa đường (theo thứ tự đi), trước điểm đến cuối [destLat]/[destLon]. */
+    data class Stop(val lat: Double, val lon: Double, val name: String?)
+    val stops = java.util.concurrent.CopyOnWriteArrayList<Stop>()
+    @Volatile var stopsVersion = 0
     // build-454: thông báo cuộc gọi / tin nhắn hiện lên màn xe
     @Volatile var noticeTitle: String? = null
     @Volatile var noticeText: String? = null

@@ -40,6 +40,7 @@ class DriveService : Service(), LocationListener {
         const val ACTION_NAV_ALTS = "vn.hiep.motonav.NAV_ALTS"
         const val ACTION_NAV_CHOOSE = "vn.hiep.motonav.NAV_CHOOSE"
         const val ACTION_NAV_CHOICES_DONE = "vn.hiep.motonav.NAV_CHOICES_DONE"
+        const val ACTION_STOPS_CHANGED = "vn.hiep.motonav.STOPS_CHANGED"
 
         fun send(ctx: Context, action: String, idx: Int = -1) {
             ctx.startService(Intent(ctx, DriveService::class.java).setAction(action).putExtra("idx", idx))
@@ -229,6 +230,7 @@ class DriveService : Service(), LocationListener {
                 handler.post { nav.choose(i) }
             }
             ACTION_NAV_CHOICES_DONE -> handler.post { nav.closeChoices() }
+            ACTION_STOPS_CHANGED -> handler.post { nav.stopsDirty = true }
         }
         return START_STICKY
     }

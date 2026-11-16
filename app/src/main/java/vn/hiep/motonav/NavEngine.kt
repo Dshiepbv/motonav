@@ -63,13 +63,19 @@ class NavEngine(
     @Volatile private var destChanged = false
     private val DEST_SNAP = false
     private val VALHALLA_ONLY = true
+    /** build-466 (Sếp): bỏ bảng chọn tuyến lúc đầu (luôn tìm lại theo hướng xe) → thay bằng điểm dừng. */
+    private val OFFER_CHOICES = false
     private val BRIDGE_HINT = false // build-331: Sếp: "lên cầu / dưới cầu" toàn sai, tắt — tính sau
     // build-323: sau khi chốt điểm đến vào cổng/lối vào, tuyến mới dài hơn tuyến đang chạy > 300 m → bỏ, giữ điểm gốc
     @Volatile private var destCheckRemain = -1.0
     private var origDestLat = 0.0
     private var origDestLon = 0.0
 
+    /** build-466: danh sách điểm dừng đổi (thêm/xoá/đổi thứ tự) → tìm lại tuyến ở lần cập nhật vị trí kế tiếp. */
+    @Volatile var stopsDirty = false
+
     fun start(lat: Double, lon: Double, name: String?) {
+        Live.stops.clear(); Live.stopsVersion++
         prefs.saveTrip(lat, lon, name)
         tripStartAt = 0L
         Live.ownNav = true
@@ -234,10 +240,11 @@ class NavEngine(
                 val dual = provAvail.size > 1
                 val rerouteOrder = (listOf("vh", winnerProvider) + provAvail).distinct().filter { it in provAvail }
                 val vhHeading = if (moving) heading else null
-                fun callAt(p: String, fLat: Double, fLon: Double, alt: Boolean, via: List<Pair<Double, Double>>): List<Route> = when (p) {
-                    "goong" -> { countGoongCall(); GoongMap.routes(goongKey, fLat, fLon, dLat, dLon, prefs.goongVehicle, alt, via) }
-                    "vm" -> { countVmCall(); VietMap.routes(vmKey, fLat, fLon, heading, dLat, dLon, prefs.traffic, alt, via, prefs.avoidHighway) }
-                    else -> Valhalla.routes(fLat, fLon, vhHeading, dLat, dLon, alt, via)
+                val userStops = Live.stops.map { it.lat to it.lon }
+                fun callAt(p: String, fLat: Double, fLon: Double, alt: Boolean, via0: List<Pair<Double, Double>>): List<Route> = when (p) {
+                    "goong" -> { countGoongCall(); GoongMap.routes(goongKey, fLat, fLon, dLat, dLon, prefs.goongVehicle, alt, via0 + userStops) }
+                    "vm" -> { countVmCall(); VietMap.routes(vmKey, fLat, fLon, heading, dLat, dLon, prefs.traffic, alt, via0 + userStops, prefs.avoidHighway) }
+                    else -> Valhalla.routes(fLat, fLon, vhHeading, dLat, dLon, alt && userStops.isEmpty(), via0 + userStops)
                 }
                 fun callProv(p: String, alt: Boolean, via: List<Pair<Double, Double>>): List<Route> = callAt(p, origin.first, origin.second, alt, via)
                 fun fromOrigin(alt: Boolean, via: List<Pair<Double, Double>> = emptyList()): List<Route> {
@@ -399,11 +406,11 @@ class NavEngine(
                     } catch (_: Exception) {}
                 }
                 if (Live.ownNav) {
-                    if (offerChoice && list.size > 1) {
+                    if (OFFER_CHOICES && offerChoice && list.size > 1) {
                         Live.routeChoices = list
                         Live.choiceSelected = 0
                     } else {
-                        if (offerChoice && Live.route != null) Live.routeError = "VietMap không có tuyến khác cho đoạn này"
+                        if (OFFER_CHOICES && offerChoice && Live.route != null) Live.routeError = "VietMap không có tuyến khác cho đoạn này"
                         Live.routeChoices = emptyList()
                     }
                     Live.choicesVersion++
@@ -465,6 +472,20 @@ class NavEngine(
                 trail.addLast(doubleArrayOf(lat, lon, if (heading != null && speedMps > 1.5) heading else -1.0, nowT))
             }
             while (trail.isNotEmpty() && nowT - trail.first()[3] > 120_000) trail.removeFirst()
+        }
+        // build-466: đi qua điểm dừng (≤60 m) → bỏ khỏi danh sách; đổi danh sách → tìm lại tuyến.
+        Live.stops.firstOrNull()?.let { s0 ->
+            if (Geo.distance(lat, lon, s0.lat, s0.lon) < 60.0) {
+                Live.stops.remove(s0); Live.stopsVersion++
+                TripLog.ev("stopPassed", "name" to (s0.name ?: ""), "left" to Live.stops.size)
+                Live.changed()
+            }
+        }
+        if (stopsDirty && !routing) {
+            stopsDirty = false
+            TripLog.ev("stopsReroute", "n" to Live.stops.size)
+            requestRoute(lat, lon, heading, force = true)
+            return
         }
         if (destChanged && !routing && Live.route != null) {
             destChanged = false

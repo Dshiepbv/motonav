@@ -249,6 +249,7 @@ class NavActivity : Activity() {
 
     private fun makeViews() {
         carView = CarMarkerView(this, carIcon()).apply { visibility = View.INVISIBLE }
+        stopsPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
         hubCard = tv(14f, Color.parseColor("#C9CED6"), false).apply {
             background = rounded(Color.parseColor("#181B20"), 12f)
             setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
@@ -558,6 +559,8 @@ class NavActivity : Activity() {
 
     /** Bảng chọn tuyến: mỗi dòng một tuyến (thời gian, quãng đường), chạm để đổi. */
     private fun renderChoices() {
+        // build-466 (Sếp): luôn tìm lại theo hướng xe nên không cần chọn tuyến lúc đầu → ẩn bảng chọn tuyến, thay bằng điểm dừng.
+        if (HIDE_CHOICES) { if (choicesPanel.visibility != View.GONE) choicesPanel.visibility = View.GONE; return }
         if (shownChoices == Live.choicesVersion) return
         shownChoices = Live.choicesVersion
         val list = Live.routeChoices
@@ -614,6 +617,62 @@ class NavActivity : Activity() {
     }
     private lateinit var nextBox: LinearLayout
     private lateinit var hubCard: TextView
+    private val HIDE_CHOICES = true
+    private lateinit var stopsPanel: LinearLayout
+    private var shownStops = -1
+    private var shownStopsNav = false
+
+    /** Danh sách điểm dừng + điểm đến; ↑ ↓ đổi thứ tự (cả điểm đến), ✕ xoá. */
+    private fun renderStops() {
+        if (!::stopsPanel.isInitialized) return
+        val nav = Live.ownNav && Live.destFlag && !Live.userStopped
+        if (shownStops == Live.stopsVersion && shownStopsNav == nav) return
+        shownStops = Live.stopsVersion; shownStopsNav = nav
+        stopsPanel.removeAllViews()
+        if (!nav) { stopsPanel.visibility = View.GONE; return }
+        stopsPanel.visibility = View.VISIBLE
+        val items = ArrayList<Live.Stop>(Live.stops)
+        items.add(Live.Stop(Live.destLat, Live.destLon, Live.destName))
+        stopsPanel.addView(tv(12f, muted).apply { text = "Lộ trình (tìm địa điểm khác để thêm điểm dừng):" })
+        fun apply(list: List<Live.Stop>) {
+            if (list.isEmpty()) return
+            val last = list.last()
+            Live.destLat = last.lat; Live.destLon = last.lon; Live.destName = last.name
+            Live.stops.clear(); Live.stops.addAll(list.dropLast(1)); Live.stopsVersion++
+            DriveService.send(this, DriveService.ACTION_STOPS_CHANGED)
+            renderStops()
+        }
+        items.forEachIndexed { i, st ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = rounded(Color.parseColor("#2C343E"), 10f)
+                setPadding(dp(10f), dp(4f), dp(4f), dp(4f))
+            }
+            val isDest = i == items.size - 1
+            row.addView(tv(14f, Color.WHITE, isDest).apply {
+                text = (if (isDest) "🏁 " else "${i + 1}. ") + (st.name ?: "Điểm ${i + 1}")
+                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            fun btn(t: String, on: Boolean, f: () -> Unit) = tv(18f, if (on) Color.WHITE else Color.parseColor("#555C66"), true).apply {
+                text = t; gravity = Gravity.CENTER
+                if (on) setOnClickListener { f() }
+            }
+            row.addView(btn("↑", i > 0) { val l = ArrayList(items); java.util.Collections.swap(l, i, i - 1); apply(l) }, LinearLayout.LayoutParams(dp(40f), dp(40f)))
+            row.addView(btn("↓", i < items.size - 1) { val l = ArrayList(items); java.util.Collections.swap(l, i, i + 1); apply(l) }, LinearLayout.LayoutParams(dp(40f), dp(40f)))
+            row.addView(btn("✕", items.size > 1) { val l = ArrayList(items); l.removeAt(i); apply(l) }, LinearLayout.LayoutParams(dp(40f), dp(40f)))
+            stopsPanel.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4f) })
+        }
+    }
+
+    private fun addStop(lat: Double, lon: Double, name: String?) {
+        results.removeAllViews(); searchInput.setText(""); hideKeyboard()
+        Live.stops.add(Live.Stop(lat, lon, name)); Live.stopsVersion++
+        if (!name.isNullOrBlank()) SearchHistory.add(this, name, lat, lon)
+        DriveService.send(this, DriveService.ACTION_STOPS_CHANGED)
+        toast("Đã thêm điểm dừng: ${name ?: ""}")
+        renderStops()
+    }
     private var portraitMap: View? = null
     private var hubScroll: ScrollView? = null
     /** build-466 (Sếp): bấm ô tìm kiếm thì ẩn bản đồ, hub kéo lên trên, bàn phím không che. */
@@ -987,6 +1046,7 @@ class NavActivity : Activity() {
             inner.addView(alertBanner, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             inner.addView(searchBox, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
             inner.addView(hubCard, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) })
+            inner.addView(stopsPanel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) })
             inner.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
             bottomBar.setPadding(dp(2f), dp(8f), dp(2f), dp(4f))
             inner.addView(bottomBar, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
@@ -1231,9 +1291,18 @@ class NavActivity : Activity() {
             .show()
     }
 
-    private fun startNavTo(lat: Double, lon: Double, name: String?) {
+    private fun startNavTo(lat: Double, lon: Double, name: String?, ask: Boolean = true) {
+        if (ask && Live.ownNav && Live.destFlag && Live.route != null && !Live.userStopped) {
+            AlertDialog.Builder(this)
+                .setTitle(name ?: "Địa điểm")
+                .setPositiveButton("Thêm điểm dừng") { _, _ -> addStop(lat, lon, name) }
+                .setNeutralButton("Đi thẳng tới đây") { _, _ -> startNavTo(lat, lon, name, false) }
+                .setNegativeButton("Huỷ", null)
+                .show()
+            return
+        }
         if (prefs.goongKey.isBlank() && prefs.vietmapKey.isBlank()) {
-            askKey { startNavTo(lat, lon, name) }
+            askKey { startNavTo(lat, lon, name, false) }
             return
         }
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -2288,6 +2357,7 @@ class NavActivity : Activity() {
         } else {
             etaText.text = Live.street ?: "Chọn điểm đến"
         }
+        renderStops()
         // Hub (nửa dưới màn dọc): mô tả tuyến, mưa, thời tiết
         if (::hubCard.isInitialized) {
             val lines = ArrayList<String>()
