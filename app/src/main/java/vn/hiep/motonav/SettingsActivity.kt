@@ -815,6 +815,12 @@ class SettingsActivity : Activity() {
             prefs.tftSendMode.coerceIn(0, 2),
             note = "7.27-v2: chờ ACK 300 ms, khung mất thì gửi lại 1 lần, màn kẹt thì ngừng gửi chờ màn tỉnh (không ngắt kết nối), áp dụng ở lần kết nối kế tiếp. NmaxConnect: có ACK là gửi ảnh mới ngay, ảnh không đổi gửi lại mỗi 1 giây, ghi cả khung một lần. MotoNav: dùng \"Mốc gửi ảnh\" bên dưới, ghi giãn 15 ms/KB. Cả hai đều chỉ 1 khung chờ ACK. Đổi là áp dụng ngay.",
         ) { prefs.tftSendMode = it; prefs.tftNmaxStyle = (it == 1); TftLink.nmaxStyle = (it == 1); TftLink.send727 = (it == 0); TftLink.FAST400 = (it != 0) }
+        toggle(
+            "Bỏ ảnh trùng",
+            null,
+            prefs.tftDupSkip,
+            note = "Chỉ áp dụng kiểu NmaxConnect. Bật: ảnh giống hệt ảnh vừa gửi thì bỏ, chỉ gửi lại 1 lần/giây để giữ kết nối; ảnh mới vẫn gửi ngay khi có ACK (đổi tuyến, sang đường mới vẫn gửi đều). Tắt: gửi mọi ảnh như hiện tại. Đổi là áp dụng ngay.",
+        ) { prefs.tftDupSkip = it; TftLink.dupSkipOn = it }
         run {
             val steps = (1..12).map { it * 100 }
             choice(

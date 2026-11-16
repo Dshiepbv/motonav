@@ -325,6 +325,7 @@ class DriveService : Service(), LocationListener {
                 TftLink.workSaved = Places.work(this@DriveService) != null
                 TftLink.diagMode = prefs.tftDiag
                 TftLink.stepMs = prefs.tftStepMs.toLong().coerceIn(100L, 1200L)
+                TftLink.dupSkipOn = prefs.tftDupSkip
                 run { val m = prefs.tftSendMode.coerceIn(0, 2); TftLink.nmaxStyle = (m == 1); TftLink.send727 = (m == 0); TftLink.FAST400 = (m != 0) }
                 TftLink.safetyMs = prefs.tftSafetyS.toLong().coerceIn(2L, 12L) * 1000L
                 TftLink.mapSnapStyle = when {

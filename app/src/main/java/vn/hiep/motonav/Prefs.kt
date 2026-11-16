@@ -121,6 +121,11 @@ class Prefs(ctx: Context) {
         // build-441 (Sếp 13/11): về 25 — đổi khoá để ghi đè mức 40 đang lưu; Sếp vẫn chỉnh lại được trong Cài đặt.
         get() = sp.getInt("tftJpegQ443", 30) // build-443: 30 (bỏ chữ nền + lối đi bộ → ảnh nhẹ hơn, dồn sang độ nét)
         set(v) = sp.edit().putInt("tftJpegQ443", v).apply()
+    /** build-461 (Sếp 16/11): bỏ ảnh giống hệt ảnh vừa gửi (chế độ NmaxConnect); vẫn gửi lại 1 lần/giây. Mặc định tắt. */
+    var tftDupSkip: Boolean
+        get() = sp.getBoolean("tftDupSkip", false)
+        set(v) = sp.edit().putBoolean("tftDupSkip", v).apply()
+
     var tftSendMode: Int
         get() = sp.getInt("tftSendMode405", 2) // build-405: về mặc định cách gửi build 400
         set(v) = sp.edit().putInt("tftSendMode405", v).apply()

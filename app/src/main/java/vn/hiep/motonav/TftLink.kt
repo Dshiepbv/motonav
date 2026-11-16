@@ -3964,7 +3964,7 @@ object TftLink {
                 // build-459 (Sếp 16/11): log 15/11 — ~4,6 ảnh/s nhưng chỉ ~1 ảnh mới/s (4–5 ảnh liền giống hệt nhau).
                 // Ảnh giống hệt ảnh vừa gửi → bỏ; vẫn gửi lại 1 lần/giây (keepalive) để giữ kết nối như NmaxConnect gốc.
                 val pj = pending
-                if (DUP_SKIP && pj != null && lastJpeg != null && pj.jpeg.contentEquals(lastJpeg)) {
+                if (dupSkipOn && pj != null && lastJpeg != null && pj.jpeg.contentEquals(lastJpeg)) {
                     pending = null; dupSkipped++
                     if (dupSkipped % 200 == 0) try { TripLog.ev("tftDupSkip", "n" to dupSkipped) } catch (_: Exception) {}
                 }
@@ -4346,7 +4346,7 @@ object TftLink {
     @Volatile private var navModeSentAt = 0L
     @Volatile private var dupSkipped = 0
     // build-460 (Sếp 16/11 14:21): ride b459 với lọc ảnh trùng (~55 ảnh/phút thay vì ~270) đứng hình 27% (b456 sáng nay 3%) → tắt lại.
-    private const val DUP_SKIP = false
+    @Volatile var dupSkipOn = false
     private val NEXT_SIGN_2 = false // build-457: bỏ biển tốc độ thứ 2
     private const val NAV_MODE_REFRESH_MS = 5 * 60_000L
 
