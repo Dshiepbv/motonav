@@ -3672,7 +3672,7 @@ object TftLink {
                         badMinutes = 0
                         resetPhaseLearning()
                         dashPaused = false
-                        try { TripLog.ev("tftSession", "phase" to "reset", "origin" to "post-handshake",
+                        try { TripLog.ev("tftSession", "phase" to "reset", "dupSkip" to dupSkipOn, "origin" to "post-handshake",
                             "jpegQuality" to 22, "nmaxStyle" to nmaxStyle, "stepMs" to stepMs, "safetyMs" to safetyMs, "minIntervalMs" to V2_MIN_INTERVAL_MS, "ackSoftMs" to V2_ACK_WAIT_MS, "ackMaxMs" to V2_MAX_ACK_WAIT_MS) } catch (_: Exception) {}
                         sendInitBurst()
                     }
