@@ -816,6 +816,12 @@ class SettingsActivity : Activity() {
             note = "7.27-v2: chờ ACK 300 ms, khung mất thì gửi lại 1 lần, màn kẹt thì ngừng gửi chờ màn tỉnh (không ngắt kết nối), áp dụng ở lần kết nối kế tiếp. NmaxConnect: có ACK là gửi ảnh mới ngay, ảnh không đổi gửi lại mỗi 1 giây, ghi cả khung một lần. MotoNav: dùng \"Mốc gửi ảnh\" bên dưới, ghi giãn 15 ms/KB. Cả hai đều chỉ 1 khung chờ ACK. Đổi là áp dụng ngay.",
         ) { prefs.tftSendMode = it; prefs.tftNmaxStyle = (it == 1); TftLink.nmaxStyle = (it == 1); TftLink.send727 = (it == 0); TftLink.FAST400 = (it != 0) }
         toggle(
+            "Làm mới chuyến mỗi 3 phút",
+            null,
+            prefs.autoRestart,
+            note = "Bật: khi đang chạy, mỗi 3 phút app tự làm như bấm dừng rồi chọn lại điểm đến (tuyến mới hoàn toàn, màn xe có thể trống 1–2 giây). Giữ nguyên các điểm dừng. Tìm tuyến không tốn tiền. Không làm khi sắp tới nơi (<600 m) hoặc đang đứng yên.",
+        ) { prefs.autoRestart = it }
+        toggle(
             "Bỏ ảnh trùng",
             null,
             prefs.tftDupSkip,

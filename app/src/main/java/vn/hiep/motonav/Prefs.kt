@@ -125,6 +125,10 @@ class Prefs(ctx: Context) {
     var pureMode: Boolean
         get() = sp.getBoolean("pureMode", false)
         set(v) = sp.edit().putBoolean("pureMode", v).apply()
+    /** build-471: tự "dừng rồi dẫn đường lại" như bấm tay mỗi 3 phút (Sếp: lag xong bấm lại là hết). */
+    var autoRestart: Boolean
+        get() = sp.getBoolean("autoRestart", true)
+        set(v) = sp.edit().putBoolean("autoRestart", v).apply()
     var tftDupSkip: Boolean
         get() = sp.getBoolean("tftDupSkip", false)
         set(v) = sp.edit().putBoolean("tftDupSkip", v).apply()
