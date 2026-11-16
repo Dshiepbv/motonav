@@ -2383,6 +2383,7 @@ class NavActivity : Activity() {
             } else lines.add("Chưa dẫn đường — chọn điểm đến ở ô tìm kiếm")
             lines.add("☂ " + (RainAlert.boxText ?: "Không có mưa phía trước"))
             Live.wxSummary?.let { lines.add(it) }
+            if (nav && Live.destFlag) TripStats.hint(this, Live.destLat, Live.destLon)?.let { lines.add("📊 $it") }
             hubCard.text = lines.joinToString("\n")
         }
         // Đã chuyển bản đồ nền VietMap sang ảnh raster .png (phương án B, tạm) — mảnh không còn là

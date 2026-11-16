@@ -121,6 +121,7 @@ class DriveService : Service(), LocationListener {
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
+        TripStatsCtx.ctx = applicationContext
         SpeedSigns.init(this)
         try { TripLog.start(this) } catch (_: Exception) {}
         voice = Voice(this)

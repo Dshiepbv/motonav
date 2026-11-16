@@ -88,11 +88,12 @@ class NavEngine(
         val stops = ArrayList(Live.stops)
         val lat = Live.destLat; val lon = Live.destLon; val name = Live.destName
         TripLog.ev("tripRestart", "remaining" to (r.total - Live.routeProgress), "stops" to stops.size)
-        start(lat, lon, name)
+        start(lat, lon, name, internal = true)
         Live.stops.addAll(stops); Live.stopsVersion++
     }
 
-    fun start(lat: Double, lon: Double, name: String?) {
+    fun start(lat: Double, lon: Double, name: String?, internal: Boolean = false) {
+        if (!internal) TripStats.begin(ctx, lat, lon, name)
         Live.stops.clear(); Live.stopsVersion++
         lastTripRestart = SystemClock.elapsedRealtime()
         prefs.saveTrip(lat, lon, name)
@@ -484,6 +485,7 @@ class NavEngine(
 
     fun onLocation(lat: Double, lon: Double, heading: Double?, speedMps: Double, acc: Double = 10.0) {
         if (!Live.ownNav) return
+        TripStats.onLocation(ctx, lat, lon, speedMps * 3.6)
         synchronized(trail) {
             val nowT = SystemClock.elapsedRealtime().toDouble()
             val last = trail.lastOrNull()
@@ -614,6 +616,7 @@ class NavEngine(
             // biệt được với các nguyên nhân khác (bấm nút Kết thúc, bấm nút Dừng trên màn xe...).
             TripLog.ev("arrived", "remaining" to remaining, "straight" to straightDist)
             learnEta()
+            TripStats.finish(ctx)
             alert("Đã đến nơi${Live.destName?.let { ": $it" } ?: ""}", "Đã đến nơi", false)
             finish()
             return
@@ -631,6 +634,7 @@ class NavEngine(
             if (now2 - nearDestSince > 30_000) {
                 TripLog.ev("arrived", "remaining" to remaining, "straight" to straightDist, "why" to "stationaryNearDest")
                 learnEta()
+                TripStats.finish(ctx)
                 alert("Đã đến nơi${Live.destName?.let { ": $it" } ?: ""}", "Đã đến nơi", false)
                 finish()
                 return

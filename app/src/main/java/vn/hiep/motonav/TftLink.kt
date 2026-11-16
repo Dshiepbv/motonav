@@ -1291,7 +1291,10 @@ object TftLink {
             // Theo yêu cầu (27/10): bỏ quy tắc nới khung theo khoảng cách tới chỗ rẽ (turnDist+150) —
             // chỗ rẽ xa vài km làm khung nới tới 3600 m, đường gần xe bị nén ngắn tũn. Tầm nhìn chỉ
             // theo mức zoom tốc độ + nút zoom; đoạn xa hơn vẫn được vẽ (nén) nhờ [drawAhead].
-            val maxAhead = baseMaxAhead
+            // build-473 (Sếp 16/11, ý số 2): gần khúc rẽ thật (≤200 m) phóng to dần để thấy rõ ngã tư (đến ~0,6 lần tầm nhìn tại 40 m).
+            val realTurn = skRoundabout || skSign in intArrayOf(-3, -2, 2, 3, 6, -8, 8, -98)
+            val turnZoom = if (realTurn && skDistanceM in 0..200) 1.0 - 0.4 * ((200 - maxOf(skDistanceM, 40)) / 160.0).coerceIn(0.0, 1.0) else 1.0
+            val maxAhead = (baseMaxAhead * turnZoom).coerceIn(250.0, 3600.0)
             // Theo phản hồi thực tế nhiều lần "đường xanh chỉ tô khi chạy gần tới": mức zoom lúc đi
             // chậm (<50km/h → maxAhead còn 1/3, tức ~600m) trước đây bị dùng LUÔN làm luôn cả khoảng
             // vẽ tuyến (iEnd0) lẫn lưới nhánh đường — nghĩa là đoạn đường xa hơn 600m KHÔNG hề được
@@ -3110,6 +3113,7 @@ object TftLink {
     /** Gọi khi xe gửi cmd 49 (bấm nút "Dừng dẫn đường" trên màn xe) — DriveService gán để dừng
      * dẫn đường thật khi người dùng bấm nút này trên đồng hồ xe thay vì trong app. */
     @Volatile var onStopRequested: (() -> Unit)? = null
+    @Volatile private var textDeferred = false
     // build-417 (Sếp: "setup các nút như zin"): menu của màn xe — Về nhà (53), Đi làm (54), Yêu thích (55·3), Trạm xăng (55·4),
     // chọn 1 mục trong danh sách (48), Dừng dẫn đường (49). Mã lệnh theo tài liệu công khai của NmaxConnect (docs/bike-protocol.md).
     @Volatile var homeSaved = false
@@ -3654,6 +3658,7 @@ object TftLink {
                             if (v == 1) {
                                 val was = dashPaused
                                 dashPaused = false
+                                if (textDeferred) { textDeferred = false; lastSentKey = ""; lastSentName = ""; lastSentEta = -1; try { TripLog.ev("tftTextAfterResume") } catch (_: Exception) {} }
                                 resumeCount++
                                 sendInitBurst(onResume = true)
                                 try { TripLog.ev("tftResume", "wasPaused" to was,
@@ -4375,6 +4380,9 @@ object TftLink {
 
     fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, currentStreet: String, etaMinutes: Int) {
         if (!authed) return
+        // build-473 (Sếp 16/11, ý số 5): bấm Home/Work trên tay lái làm xe vào menu (tạm dừng) — không gửi gói chữ/bật dẫn đường lúc đó
+        // (nghi gây rớt 1 lần); gửi sau khi xe cho tiếp tục (55 v=1).
+        if (dashPaused) { textDeferred = true; return }
         if (textOffNow()) { textWasOff = true; return }
         if (textWasOff) { textWasOff = false; lastSentKey = ""; lastSentName = ""; lastSentEta = -1 }
         // Nhãn nguồn dưới tam giác vị trí trên xe: đã đổi qua lại vài lần qua các bản (tên đường

@@ -92,7 +92,10 @@ object RoutePick {
         fun turnCostM(r: Route): Double = r.steps.sumOf { st ->
             when (st.sign) { -3, -2, 2, 3, 6 -> 300.0; -98, -8, 8 -> 600.0; -1, 1, -7, 7 -> 60.0; else -> 0.0 }
         }
-        fun cost(r: Route): Double = (if (traffic) trafficTime(r) + turnCostM(r) / 10.0 else r.total + turnCostM(r)) * (1.0 + (if (carOnlyM(r, 3000.0) >= 40.0) 1.0 else 0.0) + (if (detourM(r) > 0) 0.3 else 0.0))
+        // build-473 (Sếp, ý 4): tuyến đi qua nhiều đoạn đường Sếp đã đi (≥2 chuyến) được giảm tới 15% chi phí.
+        val appCtx = TripStatsCtx.ctx
+        fun fam(r: Route): Double = if (appCtx == null) 0.0 else try { TripStats.familiarity(appCtx, r) } catch (_: Exception) { 0.0 }
+        fun cost(r: Route): Double = (if (traffic) trafficTime(r) + turnCostM(r) / 10.0 else r.total + turnCostM(r)) * (1.0 + (if (carOnlyM(r, 3000.0) >= 40.0) 1.0 else 0.0) + (if (detourM(r) > 0) 0.3 else 0.0) - 0.15 * fam(r))
         // Ưu tiên số 1: tuyến không có đoạn nào cấm xe máy (luật); sau đó mới so thời gian/quãng đường.
         val sorted = list.sortedWith(compareBy<Route>({ if (carOnlyM(it, 3000.0) >= 40.0) 1 else 0 }, { cost(it) })).toMutableList()
         // Thời gian gần bằng nhau (chênh < 5%) → chọn tuyến ngắn hơn
@@ -416,3 +419,6 @@ object RoutePick {
         return Route(la, lo, steps, r.distance + d0, r.timeMs, r.congestion)
     }
 }
+
+/** build-473: ngữ cảnh ứng dụng cho TripStats trong RoutePick (đặt ở DriveService.onCreate). */
+object TripStatsCtx { @Volatile var ctx: android.content.Context? = null }
