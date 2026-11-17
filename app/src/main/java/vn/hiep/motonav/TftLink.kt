@@ -2589,22 +2589,14 @@ object TftLink {
             c.drawText(l1, cx, base - lh, sp)
             c.drawText(side, cx, base, sp)
         }
-        // build-430 (Sếp): bỏ dải dưới. Giờ tới (ETA) nằm trong khung đen, dưới nút − của đồng hồ;
-        // thời gian còn lại + km còn lại ở góc dưới bên phải bản đồ, không nền (viền chữ), trên thanh firmware.
+        // build-430 (Sếp): bỏ dải dưới. Giờ tới (ETA) nằm trong khung đen, dưới nút − của đồng hồ.
+        // build-486 (Sếp 17/11): bỏ hẳn số km góc dưới phải — bên trái (ô vuông) đã có km còn lại rồi.
         if (skEtaMs > 0L) {
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
             val etaTxt = String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
             val ep = tp(h * 0.13f, true, Paint.Align.CENTER) // build-432: to hơn, thấp hơn (Sếp)
             if (ep.measureText(etaTxt) > pw - 6f) ep.textSize *= (pw - 6f) / ep.measureText(etaTxt)
             if (!nearDest) c.drawText(etaTxt, cx, hb - h * 0.004f, ep)
-            // build-485 (Sếp 17/11): bỏ số phút còn lại — chỉ còn km, để ô tin nhắn rảnh chỗ mở rộng xuống.
-            val km = skRemainingM / 1000.0
-            val kmTxt = (if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')) + " km"
-            val rp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.10f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.RIGHT }
-            val halo = Paint(rp).apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
-            val right = w - w * 0.02f
-            val y = hb - h * 0.03f
-            c.drawText(kmTxt, right, y, halo); c.drawText(kmTxt, right, y, rp)
         }
     }
 
