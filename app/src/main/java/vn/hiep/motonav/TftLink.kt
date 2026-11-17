@@ -3658,7 +3658,7 @@ object TftLink {
                             if (v == 1) {
                                 val was = dashPaused
                                 dashPaused = false
-                                if (textDeferred) { textDeferred = false; lastSentKey = ""; lastSentName = ""; lastSentEta = -1; try { TripLog.ev("tftTextAfterResume") } catch (_: Exception) {} }
+                                if (textDeferred) { textDeferred = false; try { TripLog.ev("tftTextAfterResume") } catch (_: Exception) {} } // build-474: không gửi lại tên điểm đến/bật dẫn đường lần 2
                                 resumeCount++
                                 sendInitBurst(onResume = true)
                                 try { TripLog.ev("tftResume", "wasPaused" to was,
@@ -4369,6 +4369,7 @@ object TftLink {
         return String.format(java.util.Locale.US, "ETA: %02d:%02d - %02d:%02d - ", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), remMin / 60, remMin % 60) + kmTxt
     }
 
+    private const val NAV_CYCLE_5MIN = false
     @Volatile private var navModeSentAt = 0L
     @Volatile private var dupSkipped = 0
     // build-460 (Sếp 16/11 14:21): ride b459 với lọc ảnh trùng (~55 ảnh/phút thay vì ~270) đứng hình 27% (b456 sáng nay 3%) → tắt lại.
@@ -4410,7 +4411,7 @@ object TftLink {
         }
         // build-447 (Sếp 15/11): log 11 chuyến — 0–6 phút sau khi bật dẫn đường đứng hình ~18%, sau 10 phút ~30%.
         // build-449 (Sếp 15/11): mỗi 5 phút gửi TẮT rồi ~0,5 s sau BẬT dẫn đường (giống huỷ rồi mở lại chuyến), không gửi tên điểm đến.
-        if (lastSentKey != "off" && lastSentKey.isNotEmpty() && System.currentTimeMillis() - navModeSentAt >= NAV_MODE_REFRESH_MS) {
+        if (NAV_CYCLE_5MIN && lastSentKey != "off" && lastSentKey.isNotEmpty() && System.currentTimeMillis() - navModeSentAt >= NAV_MODE_REFRESH_MS) { // build-474: tắt — chu kỳ này làm vòng xoay nháy, đã có "làm mới chuyến" 3 phút
             navModeSentAt = System.currentTimeMillis()
             Thread {
                 try {
