@@ -2157,16 +2157,18 @@ object TftLink {
                 if (panels) {
                     val pw2 = w * PANEL_W_FRAC
                     val left = 4f; val right = pw2 - 4f
-                    val top = h * 0.04f; val bottom = h * FW_TOP_FRAC
+                    // build-492 (Sếp 17/11): hạ cạnh dưới khung xuống chút — vẫn trên thanh firmware nhưng khỏi cấn dòng giờ đến.
+                    val top = h * 0.04f; val bottom = h * (FW_TOP_FRAC + 0.02f)
                     val rad = h * 0.02f
                     val cx2 = (left + right) / 2f
                     countdownFrame(left, top, right, bottom, rad, cx2)
-                    // build-491 (Sếp 17/11): số cỡ tự nhiên như số mét tới chỗ quẹo (h*0.15, không co theo khung), km vẫn ở dưới số.
-                    val numPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                    val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.07f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                    val cy2 = h * 0.40f
-                    c.drawText(kmNum, cx2, cy2 + h * 0.03f, numPaint2)
-                    c.drawText("km", cx2, cy2 + h * 0.12f, unitPaint2)
+                    // Số km nằm ngay dưới biển tốc độ (cùng trục x w*0.158, ngay dưới đáy biển ở h*0.40) — không
+                    // còn căn theo tâm khung (trước đó bay ra giữa, lệch khỏi biển tốc độ phía trên).
+                    val signCx = w * 0.158f
+                    val numPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.055f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    c.drawText(kmNum, signCx, h * 0.515f, numPaint2)
+                    c.drawText("km", signCx, h * 0.605f, unitPaint2)
                 } else {
                     val bcx = w * 0.90f; val bcy = h * 0.50f; val br = h * 0.105f
                     val s = br * 2.0f
