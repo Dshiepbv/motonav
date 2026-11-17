@@ -2481,29 +2481,46 @@ object TftLink {
         val title = Live.noticeTitle ?: return
         val age = System.currentTimeMillis() - Live.noticeAt
         if (age > (if (Live.noticeCall) 45_000L else 8_000L)) { Live.noticeTitle = null; return }
-        val left = if (PANELS_ALWAYS || (skActive && skRoute != null)) w * PANEL_W_FRAC + 6f else 6f
-        val right = w * 0.80f
-        val top = h * 0.02f
-        val bh = h * 0.21f
-        val bg = Paint().apply { color = if (Live.noticeCall) Color.rgb(20, 110, 40) else Color.rgb(18, 18, 22); isAntiAlias = true }
-        c.drawRoundRect(android.graphics.RectF(left, top, right, top + bh), 10f, 10f, bg)
-        c.drawRoundRect(android.graphics.RectF(left, top, right, top + bh), 10f, 10f,
-            Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true })
-        val maxW = right - left - 16f
-        fun fit(txt: String, p: Paint): String {
-            if (p.measureText(txt) <= maxW) return txt
-            var t = txt
-            while (t.length > 1 && p.measureText("$t…") > maxW) t = t.dropLast(1)
-            return "$t…"
+        // build-477 (Sếp 17/11): khung bên PHẢI, rộng ~40% phần bản đồ (đường tím ở giữa vẫn thấy), cao co giãn theo nội dung,
+        // tối đa tới trên dòng "số phút còn lại" ở góc dưới phải.
+        val mapL = if (PANELS_ALWAYS || (skActive && skRoute != null)) w * PANEL_W_FRAC else 0f
+        val right = w - 6f
+        val left = right - (w - mapL) * 0.40f
+        val top = h * 0.03f
+        val bottomMax = h * FW_TOP_FRAC - h * 0.03f - h * 0.10f * 2.1f
+        val pad = 8f
+        val maxW = right - left - pad * 2
+        val tp = Paint().apply { color = Color.WHITE; textSize = h * 0.075f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+        val bp = Paint().apply { color = Color.rgb(225, 225, 230); textSize = h * 0.065f; isAntiAlias = true }
+        fun wrap(txt: String, p: Paint): List<String> {
+            val out = ArrayList<String>(); var line = ""
+            for (word in txt.replace('\n', ' ').split(' ').filter { it.isNotEmpty() }) {
+                val cand = if (line.isEmpty()) word else "$line $word"
+                if (p.measureText(cand) <= maxW) line = cand
+                else {
+                    if (line.isNotEmpty()) out.add(line)
+                    var wd = word
+                    while (p.measureText(wd) > maxW && wd.length > 1) { var k = wd.length; while (k > 1 && p.measureText(wd.substring(0, k)) > maxW) k--; out.add(wd.substring(0, k)); wd = wd.substring(k) }
+                    line = wd
+                }
+            }
+            if (line.isNotEmpty()) out.add(line)
+            return out
         }
-        val tp = Paint().apply { color = Color.WHITE; textSize = h * 0.085f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
         val head = (if (Live.noticeCall) "Gọi: " else (Live.noticeApp?.let { "$it: " } ?: "")) + title
-        c.drawText(fit(head, tp), left + 8f, top + bh * 0.44f, tp)
-        val body = Live.noticeText
-        if (!body.isNullOrBlank()) {
-            val bp = Paint().apply { color = Color.rgb(225, 225, 230); textSize = h * 0.07f; isAntiAlias = true }
-            c.drawText(fit(body.replace('\n', ' '), bp), left + 8f, top + bh * 0.86f, bp)
-        }
+        val hl = wrap(head, tp).take(2)
+        val th = tp.textSize * 1.15f; val bhL = bp.textSize * 1.15f
+        val room = ((bottomMax - top - pad * 2 - hl.size * th) / bhL).toInt().coerceAtLeast(0)
+        var bl = Live.noticeText?.takeIf { it.isNotBlank() }?.let { wrap(it, bp) } ?: emptyList()
+        if (bl.size > room) { bl = bl.take(room); if (bl.isNotEmpty()) bl = bl.dropLast(1) + (bl.last().dropLast(1) + "…") }
+        val boxH = pad * 2 + hl.size * th + bl.size * bhL
+        val rect = android.graphics.RectF(left, top, right, top + boxH)
+        c.drawRoundRect(rect, 10f, 10f, Paint().apply { color = if (Live.noticeCall) Color.rgb(20, 110, 40) else Color.argb(235, 18, 18, 22); isAntiAlias = true })
+        c.drawRoundRect(rect, 10f, 10f, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true })
+        var y = top + pad - tp.fontMetrics.ascent * 0.95f
+        for (l in hl) { c.drawText(l, left + pad, y, tp); y += th }
+        y += (bhL - th)
+        for (l in bl) { c.drawText(l, left + pad, y, bp); y += bhL }
     }
 
     /**

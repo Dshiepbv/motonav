@@ -25,6 +25,8 @@ class MapsListener : NotificationListenerService() {
             "com.coloros.mms" to "SMS",
             "com.oplus.mms" to "SMS",
             "com.facebook.orca" to "Messenger",
+            "com.facebook.mlite" to "Messenger",
+            "com.facebook.katana" to "Facebook",
             "org.telegram.messenger" to "Telegram",
             "com.whatsapp" to "WhatsApp",
         )

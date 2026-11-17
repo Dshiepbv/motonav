@@ -90,7 +90,7 @@ object RoutePick {
         // build-311: Sếp "ưu tiên đường thẳng, không chấp nhận nhiều chỗ rẽ" — mỗi chỗ rẽ thật tính như đi thêm 300 m
         // (≈30 s), chếch/đi về bên trái-phải 60 m, quay đầu 600 m (thay cho phạt nhẹ ≤12% theo mật độ rẽ trước đây).
         fun turnCostM(r: Route): Double = r.steps.sumOf { st ->
-            when (st.sign) { -3, -2, 2, 3, 6 -> 300.0; -98, -8, 8 -> 600.0; -1, 1, -7, 7 -> 60.0; else -> 0.0 }
+            when (st.sign) { -3, -2, 2, 3, 6 -> 150.0; -98, -8, 8 -> 600.0; -1, 1, -7, 7 -> 40.0; else -> 0.0 } // build-477: 300→150 m (đã có phạt rẽ 12 s trong Valhalla)
         }
         // build-473 (Sếp, ý 4): tuyến đi qua nhiều đoạn đường Sếp đã đi (≥2 chuyến) được giảm tới 15% chi phí.
         val appCtx = TripStatsCtx.ctx
