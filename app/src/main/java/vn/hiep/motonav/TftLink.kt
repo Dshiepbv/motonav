@@ -944,10 +944,20 @@ object TftLink {
         // build-475 (Sếp 17/11 "giật"): GPS 1 lần/giây → ảnh chỉ đổi 1 lần/giây. Nội suy vị trí theo tốc độ + hướng
         // giữa hai lần GPS (tối đa 1,2 s) để mỗi ảnh xe tiến một chút, chuyển động mượt.
         if (skTgtSpeedMps > 1.7 && skTgtHdg >= 0 && skTgtAt > 0L) {
-            val ex = Math.min((now - skTgtAt) / 1000.0, 1.2) * skTgtSpeedMps
+            // build-476 (Sếp): đoán THIẾU (85% tốc độ, tối đa 1 s) để khi chạy chậm lại không phải kéo lùi.
+            val ex = Math.min((now - skTgtAt) / 1000.0, 1.0) * skTgtSpeedMps * 0.85
             val hr = Math.toRadians(skTgtHdg)
             tLat += Math.cos(hr) * ex / 110540.0
             tLon += Math.sin(hr) * ex / (111320.0 * Math.cos(Math.toRadians(tLat)))
+            // Không bao giờ lùi: GPS mới nằm SAU vị trí đang vẽ (đã đoán lố vì giảm tốc) → giữ nguyên tiến độ dọc đường,
+            // chỉ chỉnh lệch ngang; xe "đứng chờ" vài trăm ms cho GPS đuổi kịp thay vì giật ngược.
+            val cl = Math.cos(Math.toRadians(skLat))
+            val dyM = (tLat - skLat) * 110540.0; val dxM = (tLon - skLon) * 111320.0 * cl
+            val along = dyM * Math.cos(hr) + dxM * Math.sin(hr)
+            if (along < 0.0 && along > -30.0) {
+                tLat -= Math.cos(hr) * along / 110540.0
+                tLon -= Math.sin(hr) * along / (111320.0 * cl)
+            }
         }
         val d = Geo.distance(skLat, skLon, tLat, tLon)
         val cap = skTgtSpeedMps * 2.5 * Math.max(dt, 0.4) + 3.0
