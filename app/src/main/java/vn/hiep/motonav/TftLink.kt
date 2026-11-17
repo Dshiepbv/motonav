@@ -2131,42 +2131,54 @@ object TftLink {
                 limBottomY = ncy + arcR
             }
         }
-        // build-489 (Sếp 17/11): ô km còn lại — chỉ 1 viền CAM (đếm ngược), bỏ viền trắng tĩnh bên trong để
-        // nhường chỗ cho số to hơn. Bắt đầu từ đỉnh 12h chạy theo chiều kim đồng hồ, co dần theo % đường còn lại.
+        // build-490 (Sếp 17/11): km còn lại — khung cam đếm ngược to bằng NGUYÊN dải đen bên trái (chỉ chừa 2
+        // thanh firmware trên/dưới), giữ viền trắng tĩnh; bắt đầu từ đỉnh 12h chạy theo chiều kim đồng hồ.
         try {
             if (skActive && skRoute != null && Live.maneuverSign != 4) {
-                val bcx = if (panels) w * 0.158f else w * 0.90f
-                val bcy = if (panels) h * 0.565f else h * 0.50f
-                val br = if (panels) h * 0.09f else h * 0.105f
-                val s = br * 2.0f // hình vuông, cỡ bằng đúng đường kính biển tốc độ cũ (không lấn xuống số dưới)
-                val left = bcx - s / 2f; val top = bcy - s / 2f; val right = bcx + s / 2f; val bottom = bcy + s / 2f
-                val rect = android.graphics.RectF(left, top, right, bottom)
-                val rad = br * 0.14f
-                c.drawRoundRect(rect, rad, rad, Paint().apply { color = Color.rgb(18, 18, 22); style = Paint.Style.FILL; isAntiAlias = true })
-                // Viền đếm ngược: path thủ công bắt đầu đúng điểm 12h (giữa cạnh trên), chạy theo kim đồng hồ hết chu vi.
                 val totalM = skRoute?.total ?: 0.0
                 val frac = (if (totalM > 0.0) skRemainingM / totalM else 1.0).coerceIn(0.0, 1.0)
-                val borderPath = android.graphics.Path().apply {
-                    moveTo(bcx, top)
-                    lineTo(right - rad, top); arcTo(android.graphics.RectF(right - 2 * rad, top, right, top + 2 * rad), -90f, 90f)
-                    lineTo(right, bottom - rad); arcTo(android.graphics.RectF(right - 2 * rad, bottom - 2 * rad, right, bottom), 0f, 90f)
-                    lineTo(left + rad, bottom); arcTo(android.graphics.RectF(left, bottom - 2 * rad, left + 2 * rad, bottom), 90f, 90f)
-                    lineTo(left, top + rad); arcTo(android.graphics.RectF(left, top, left + 2 * rad, top + 2 * rad), 180f, 90f)
-                    lineTo(bcx, top)
-                }
-                val pm = android.graphics.PathMeasure(borderPath, false)
-                val segLen = (pm.length * frac).toFloat()
-                val seg = android.graphics.Path()
-                pm.getSegment(0f, segLen, seg, true)
-                c.drawPath(seg, Paint().apply { color = Color.rgb(255, 140, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.022f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND })
                 val km = skRemainingM / 1000.0
                 val kmNum = if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')
-                val numPaint2 = Paint().apply { color = Color.WHITE; textSize = s * 0.80f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                val maxTextW = s * 0.84f
-                if (numPaint2.measureText(kmNum) > maxTextW) numPaint2.textSize *= maxTextW / numPaint2.measureText(kmNum)
-                val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = s * 0.16f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                c.drawText(kmNum, bcx, bcy + s * 0.12f, numPaint2)
-                c.drawText("km", bcx, bcy + s * 0.44f, unitPaint2)
+                fun countdownFrame(left: Float, top: Float, right: Float, bottom: Float, rad: Float, cxTop: Float) {
+                    c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), rad, rad, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.007f; isAntiAlias = true })
+                    val borderPath = android.graphics.Path().apply {
+                        moveTo(cxTop, top)
+                        lineTo(right - rad, top); arcTo(android.graphics.RectF(right - 2 * rad, top, right, top + 2 * rad), -90f, 90f)
+                        lineTo(right, bottom - rad); arcTo(android.graphics.RectF(right - 2 * rad, bottom - 2 * rad, right, bottom), 0f, 90f)
+                        lineTo(left + rad, bottom); arcTo(android.graphics.RectF(left, bottom - 2 * rad, left + 2 * rad, bottom), 90f, 90f)
+                        lineTo(left, top + rad); arcTo(android.graphics.RectF(left, top, left + 2 * rad, top + 2 * rad), 180f, 90f)
+                        lineTo(cxTop, top)
+                    }
+                    val pm = android.graphics.PathMeasure(borderPath, false)
+                    val seg = android.graphics.Path()
+                    pm.getSegment(0f, (pm.length * frac).toFloat(), seg, true)
+                    c.drawPath(seg, Paint().apply { color = Color.rgb(255, 140, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.016f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND })
+                }
+                if (panels) {
+                    val pw2 = w * PANEL_W_FRAC
+                    val left = 4f; val right = pw2 - 4f
+                    val top = h * 0.04f; val bottom = h * FW_TOP_FRAC
+                    val rad = h * 0.02f
+                    val cx2 = (left + right) / 2f
+                    countdownFrame(left, top, right, bottom, rad, cx2)
+                    // build-491 (Sếp 17/11): số cỡ tự nhiên như số mét tới chỗ quẹo (h*0.15, không co theo khung), km vẫn ở dưới số.
+                    val numPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.07f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    val cy2 = h * 0.40f
+                    c.drawText(kmNum, cx2, cy2 + h * 0.03f, numPaint2)
+                    c.drawText("km", cx2, cy2 + h * 0.12f, unitPaint2)
+                } else {
+                    val bcx = w * 0.90f; val bcy = h * 0.50f; val br = h * 0.105f
+                    val s = br * 2.0f
+                    val left = bcx - s / 2f; val top = bcy - s / 2f; val right = bcx + s / 2f; val bottom = bcy + s / 2f
+                    val rad = br * 0.14f
+                    c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), rad, rad, Paint().apply { color = Color.rgb(18, 18, 22); style = Paint.Style.FILL; isAntiAlias = true })
+                    countdownFrame(left, top, right, bottom, rad, bcx)
+                    val numPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.07f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    c.drawText(kmNum, bcx, bcy + h * 0.04f, numPaint2)
+                    c.drawText("km", bcx, bcy + h * 0.14f, unitPaint2)
+                }
             }
         } catch (_: Throwable) {}
         // build-457 (Sếp 16/11): dưới biển tốc độ = biểu tượng thời tiết (nắng/mây/mưa/bão); có mưa phía trước thì
