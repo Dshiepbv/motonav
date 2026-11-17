@@ -285,7 +285,7 @@ object TftLink {
     private const val V2_KEEPALIVE_MS = 450L
     /** build-462 (Sếp 16/11): chuỗi gửi không bao giờ chờ điện thoại (reroute, tuyến mới…): ACK xong mà chưa có ảnh mới trong 300 ms
      * thì gửi ngay ảnh gần nhất (nền bản đồ), không để trống tới 1 s. */
-    private const val NMAX_FILL_MS = 40L
+    private const val NMAX_FILL_MS = 300L
     /** build-367: TẮT việc giữ ảnh né mốc 5 s (366 gây đói ảnh → xoay liên tục). Bộ học pha vẫn chạy để ghi log. */
     private const val TICK_HOLD = false
     /** build-368: chưa dẫn đường mà có GPS → TFT hiện bản đồ quanh xe thay cho logo. */
@@ -939,8 +939,16 @@ object TftLink {
         val now = System.currentTimeMillis()
         val dt = if (skStepAt == 0L) 0.0 else Math.min((now - skStepAt) / 1000.0, 10.0)
         skStepAt = now
-        val tLat = skTgtLat; val tLon = skTgtLon
+        var tLat = skTgtLat; var tLon = skTgtLon
         if (tLat == 0.0 && tLon == 0.0) return
+        // build-475 (Sếp 17/11 "giật"): GPS 1 lần/giây → ảnh chỉ đổi 1 lần/giây. Nội suy vị trí theo tốc độ + hướng
+        // giữa hai lần GPS (tối đa 1,2 s) để mỗi ảnh xe tiến một chút, chuyển động mượt.
+        if (skTgtSpeedMps > 1.7 && skTgtHdg >= 0 && skTgtAt > 0L) {
+            val ex = Math.min((now - skTgtAt) / 1000.0, 1.2) * skTgtSpeedMps
+            val hr = Math.toRadians(skTgtHdg)
+            tLat += Math.cos(hr) * ex / 110540.0
+            tLon += Math.sin(hr) * ex / (111320.0 * Math.cos(Math.toRadians(tLat)))
+        }
         val d = Geo.distance(skLat, skLon, tLat, tLon)
         val cap = skTgtSpeedMps * 2.5 * Math.max(dt, 0.4) + 3.0
         if (d <= cap || d > 150.0) { skLat = tLat; skLon = tLon; return }
@@ -949,6 +957,8 @@ object TftLink {
         skLon += (tLon - skLon) * f
     }
     @Volatile private var skHeadingDeg = -1.0
+    @Volatile private var skTgtAt = 0L
+    @Volatile private var skTgtHdg = -1.0
     @Volatile private var skMovingHeading = -1.0
     // Hướng hợp lệ gần nhất (khi xe đứng yên/chạy chậm, Live.heading = -1 vì GPS course không đáng
     // tin ở tốc độ thấp — DriveService.onLocation dòng ~401). Trước đây lúc đó khung lấy mặc định
@@ -1049,6 +1059,8 @@ object TftLink {
         }
         skTgtLat = pLat
         skTgtLon = pLon
+        skTgtAt = System.currentTimeMillis()
+        skTgtHdg = if (speedKmh > 6 && headingDeg >= 0) headingDeg else -1.0
         skTgtSpeedMps = Math.max(speedKmh, 0) / 3.6
         if (skLat == 0.0 && skLon == 0.0) { skLat = pLat; skLon = pLon }
         // build-441 (Sếp): lúc mới xuất phát / đứng yên, hướng GPS chưa có hoặc nhiễu → bản đồ TFT quay ngang, quay ngược.

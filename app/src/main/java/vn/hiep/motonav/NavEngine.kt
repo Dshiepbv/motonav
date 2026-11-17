@@ -103,9 +103,9 @@ class NavEngine(
         Live.destLon = lon
         Live.destName = name
         Live.destFlag = true
-        Live.route = null
+        // build-475: làm mới chuyến (internal) giữ tuyến cũ trên màn tới khi có tuyến mới — không để mất đường tím.
+        if (!internal) { Live.route = null; seg = 0 }
         Live.routeError = null
-        seg = 0
         lastTraceRoute = null
         lastTraceStepIndex = -1
         nearDestSince = 0L
