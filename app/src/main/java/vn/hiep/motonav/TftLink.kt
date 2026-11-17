@@ -939,26 +939,9 @@ object TftLink {
         val now = System.currentTimeMillis()
         val dt = if (skStepAt == 0L) 0.0 else Math.min((now - skStepAt) / 1000.0, 10.0)
         skStepAt = now
-        var tLat = skTgtLat; var tLon = skTgtLon
+        val tLat = skTgtLat; val tLon = skTgtLon
         if (tLat == 0.0 && tLon == 0.0) return
-        // build-475 (Sếp 17/11 "giật"): GPS 1 lần/giây → ảnh chỉ đổi 1 lần/giây. Nội suy vị trí theo tốc độ + hướng
-        // giữa hai lần GPS (tối đa 1,2 s) để mỗi ảnh xe tiến một chút, chuyển động mượt.
-        if (skTgtSpeedMps > 1.7 && skTgtHdg >= 0 && skTgtAt > 0L) {
-            // build-476 (Sếp): đoán THIẾU (85% tốc độ, tối đa 1 s) để khi chạy chậm lại không phải kéo lùi.
-            val ex = Math.min((now - skTgtAt) / 1000.0, 1.0) * skTgtSpeedMps * 0.85
-            val hr = Math.toRadians(skTgtHdg)
-            tLat += Math.cos(hr) * ex / 110540.0
-            tLon += Math.sin(hr) * ex / (111320.0 * Math.cos(Math.toRadians(tLat)))
-            // Không bao giờ lùi: GPS mới nằm SAU vị trí đang vẽ (đã đoán lố vì giảm tốc) → giữ nguyên tiến độ dọc đường,
-            // chỉ chỉnh lệch ngang; xe "đứng chờ" vài trăm ms cho GPS đuổi kịp thay vì giật ngược.
-            val cl = Math.cos(Math.toRadians(skLat))
-            val dyM = (tLat - skLat) * 110540.0; val dxM = (tLon - skLon) * 111320.0 * cl
-            val along = dyM * Math.cos(hr) + dxM * Math.sin(hr)
-            if (along < 0.0 && along > -30.0) {
-                tLat -= Math.cos(hr) * along / 110540.0
-                tLon -= Math.sin(hr) * along / (111320.0 * cl)
-            }
-        }
+        // build-479 (Sếp 17/11): bỏ nội suy/ngoại suy build-475/476 — về đúng gửi ảnh như chuyến tối 16/11.
         val d = Geo.distance(skLat, skLon, tLat, tLon)
         val cap = skTgtSpeedMps * 2.5 * Math.max(dt, 0.4) + 3.0
         if (d <= cap || d > 150.0) { skLat = tLat; skLon = tLon; return }
@@ -967,8 +950,6 @@ object TftLink {
         skLon += (tLon - skLon) * f
     }
     @Volatile private var skHeadingDeg = -1.0
-    @Volatile private var skTgtAt = 0L
-    @Volatile private var skTgtHdg = -1.0
     @Volatile private var skMovingHeading = -1.0
     // Hướng hợp lệ gần nhất (khi xe đứng yên/chạy chậm, Live.heading = -1 vì GPS course không đáng
     // tin ở tốc độ thấp — DriveService.onLocation dòng ~401). Trước đây lúc đó khung lấy mặc định
@@ -1069,8 +1050,6 @@ object TftLink {
         }
         skTgtLat = pLat
         skTgtLon = pLon
-        skTgtAt = System.currentTimeMillis()
-        skTgtHdg = if (speedKmh > 6 && headingDeg >= 0) headingDeg else -1.0
         skTgtSpeedMps = Math.max(speedKmh, 0) / 3.6
         if (skLat == 0.0 && skLon == 0.0) { skLat = pLat; skLon = pLon }
         // build-441 (Sếp): lúc mới xuất phát / đứng yên, hướng GPS chưa có hoặc nhiễu → bản đồ TFT quay ngang, quay ngược.
