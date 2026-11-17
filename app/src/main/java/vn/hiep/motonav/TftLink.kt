@@ -2131,18 +2131,18 @@ object TftLink {
                 limBottomY = ncy + arcR
             }
         }
-        // build-485 (Sếp 17/11): chỗ biển tốc độ cũ (vị trí thấp) nay là km còn lại — khung trắng, viền cam rút dần
-        // theo kim đồng hồ (kiểu đếm ngược) khi đi được bao nhiêu phần đường.
+        // build-486 (Sếp 17/11): ô km còn lại — vuông, thấp hơn (khỏi che số bên dưới), nền đen chữ trắng, chỉ
+        // viền trắng (bỏ nền trắng); viền cam đè lên viền trắng, rút dần theo kim đồng hồ theo % đường còn lại.
         try {
             if (skActive && skRoute != null && Live.maneuverSign != 4) {
                 val bcx = if (panels) w * 0.158f else w * 0.90f
                 val bcy = if (panels) h * 0.565f else h * 0.50f
                 val br = if (panels) h * 0.09f else h * 0.105f
-                val bw = br * 2.3f; val bh = br * 2.7f
-                val rect = android.graphics.RectF(bcx - bw / 2f, bcy - bh / 2f, bcx + bw / 2f, bcy + bh / 2f)
-                val rad = br * 0.22f
-                c.drawRoundRect(rect, rad, rad, Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true })
-                c.drawRoundRect(rect, rad, rad, Paint().apply { color = Color.rgb(210, 210, 214); style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true })
+                val s = br * 2.0f // hình vuông, cỡ bằng đúng đường kính biển tốc độ cũ (không lấn xuống số dưới)
+                val rect = android.graphics.RectF(bcx - s / 2f, bcy - s / 2f, bcx + s / 2f, bcy + s / 2f)
+                val rad = br * 0.14f
+                c.drawRoundRect(rect, rad, rad, Paint().apply { color = Color.rgb(18, 18, 22); style = Paint.Style.FILL; isAntiAlias = true })
+                c.drawRoundRect(rect, rad, rad, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.009f; isAntiAlias = true })
                 val totalM = skRoute?.total ?: 0.0
                 val frac = (if (totalM > 0.0) skRemainingM / totalM else 1.0).coerceIn(0.0, 1.0)
                 val borderPath = android.graphics.Path().apply { addRoundRect(rect, rad, rad, android.graphics.Path.Direction.CW) }
@@ -2150,13 +2150,13 @@ object TftLink {
                 val segLen = (pm.length * frac).toFloat()
                 val seg = android.graphics.Path()
                 pm.getSegment(0f, segLen, seg, true)
-                c.drawPath(seg, Paint().apply { color = Color.rgb(255, 140, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.016f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND })
+                c.drawPath(seg, Paint().apply { color = Color.rgb(255, 140, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.018f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND })
                 val km = skRemainingM / 1000.0
                 val kmNum = if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')
-                val numPaint2 = Paint().apply { color = Color.BLACK; textSize = br * 0.95f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                val unitPaint2 = Paint().apply { color = Color.rgb(90, 90, 90); textSize = br * 0.5f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                c.drawText(kmNum, bcx, bcy - br * 0.05f, numPaint2)
-                c.drawText("km", bcx, bcy + br * 0.62f, unitPaint2)
+                val numPaint2 = Paint().apply { color = Color.WHITE; textSize = s * 0.52f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = s * 0.22f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                c.drawText(kmNum, bcx, bcy - s * 0.02f, numPaint2)
+                c.drawText("km", bcx, bcy + s * 0.37f, unitPaint2)
             }
         } catch (_: Throwable) {}
         // build-457 (Sếp 16/11): dưới biển tốc độ = biểu tượng thời tiết (nắng/mây/mưa/bão); có mưa phía trước thì
