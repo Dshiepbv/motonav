@@ -2795,7 +2795,7 @@ object TftLink {
                 val boxed = if (PIPE_V2) mailbox.get() else null
                 // build-470 (Sếp 16/11 "không bao giờ để đói ảnh"): bỏ giãn 900 ms của 469. Hộp thư luôn có ảnh ≤250 ms khi chờ ACK;
                 // ACK về là gửi NGAY (ảnh mới nếu có, không thì ảnh gần nhất sau ≤40 ms). Chuỗi gửi không bao giờ chờ dựng ảnh.
-                if (boxed != null && android.os.SystemClock.elapsedRealtime() - boxed.createdAtElapsedMs < (if (txAwaitingAck) 250L else 150L)) {
+                if (boxed != null && android.os.SystemClock.elapsedRealtime() - boxed.createdAtElapsedMs < (if (txAwaitingAck) 400L else 150L)) { // build-482: về đúng 400/150 ms như chuyến tối 16/11 (build 465)
                     sleepQuiet(30); continue
                 }
                 if (!calibRunning && !routeTestRunning) {
