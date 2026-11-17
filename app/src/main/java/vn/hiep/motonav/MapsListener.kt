@@ -67,6 +67,8 @@ class MapsListener : NotificationListenerService() {
             val ringing = n.fullScreenIntent != null || (n.actions?.size ?: 0) >= 2
             if (!ringing) { if (sbn.key == Live.noticeKey) { Live.noticeTitle = null; Live.noticeKey = null }; return }
         } else if (sbn.isOngoing) return
+        // build-478 (Sếp 17/11): bỏ "bong bóng trò chuyện" (Messenger chat-head bubble) — không đọc.
+        if (android.os.Build.VERSION.SDK_INT >= 29 && n.bubbleMetadata != null) return
         Live.noticeTitle = title
         Live.noticeText = if (isCall) null else text
         Live.noticeApp = app
