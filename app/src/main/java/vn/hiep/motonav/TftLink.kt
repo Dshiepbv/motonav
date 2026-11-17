@@ -2096,8 +2096,8 @@ object TftLink {
         if (lim != null && lim > 0) {
             // build-433 (Sếp): sắp đổi tốc độ → biển hiện tại ngang nút +, biển kế tiếp ngang nút −.
             val nextOn = skNextLimit.let { it != null && it > 0 && it < lim } && skNextLimitDist in 0..100
-            // build-457 (Sếp 16/11): chỉ 1 biển, luôn ở vị trí cao; sắp đổi tốc độ thì biển MỚI đè lên + vòng vàng đếm ngược.
-            val cx = if (panels) w * 0.158f else w * 0.90f; val cy = if (panels) h * 0.565f else h * 0.50f; val r = if (panels) h * 0.09f else h * 0.105f // build-460: biển tốc độ xuống dưới, thời tiết lên trên (Sếp)
+            // build-485 (Sếp 17/11): biển tốc độ về lại vị trí CAO (chỗ ô thời tiết cũ) — chỗ thấp nay là ô km còn lại đếm ngược.
+            val cx = if (panels) w * 0.158f else w * 0.90f; val cy = if (panels) h * 0.31f else h * 0.17f; val r = if (panels) h * 0.09f else h * 0.105f
             val ringPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.FILL; isAntiAlias = true }
             val facePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
             val numPaint = Paint().apply { color = Color.BLACK; textSize = r * 1.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
@@ -2131,6 +2131,34 @@ object TftLink {
                 limBottomY = ncy + arcR
             }
         }
+        // build-485 (Sếp 17/11): chỗ biển tốc độ cũ (vị trí thấp) nay là km còn lại — khung trắng, viền cam rút dần
+        // theo kim đồng hồ (kiểu đếm ngược) khi đi được bao nhiêu phần đường.
+        try {
+            if (skActive && skRoute != null && Live.maneuverSign != 4) {
+                val bcx = if (panels) w * 0.158f else w * 0.90f
+                val bcy = if (panels) h * 0.565f else h * 0.50f
+                val br = if (panels) h * 0.09f else h * 0.105f
+                val bw = br * 2.3f; val bh = br * 2.7f
+                val rect = android.graphics.RectF(bcx - bw / 2f, bcy - bh / 2f, bcx + bw / 2f, bcy + bh / 2f)
+                val rad = br * 0.22f
+                c.drawRoundRect(rect, rad, rad, Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true })
+                c.drawRoundRect(rect, rad, rad, Paint().apply { color = Color.rgb(210, 210, 214); style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true })
+                val totalM = skRoute?.total ?: 0.0
+                val frac = (if (totalM > 0.0) skRemainingM / totalM else 1.0).coerceIn(0.0, 1.0)
+                val borderPath = android.graphics.Path().apply { addRoundRect(rect, rad, rad, android.graphics.Path.Direction.CW) }
+                val pm = android.graphics.PathMeasure(borderPath, true)
+                val segLen = (pm.length * frac).toFloat()
+                val seg = android.graphics.Path()
+                pm.getSegment(0f, segLen, seg, true)
+                c.drawPath(seg, Paint().apply { color = Color.rgb(255, 140, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.016f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND })
+                val km = skRemainingM / 1000.0
+                val kmNum = if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')
+                val numPaint2 = Paint().apply { color = Color.BLACK; textSize = br * 0.95f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                val unitPaint2 = Paint().apply { color = Color.rgb(90, 90, 90); textSize = br * 0.5f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                c.drawText(kmNum, bcx, bcy - br * 0.05f, numPaint2)
+                c.drawText("km", bcx, bcy + br * 0.62f, unitPaint2)
+            }
+        } catch (_: Throwable) {}
         // build-457 (Sếp 16/11): dưới biển tốc độ = biểu tượng thời tiết (nắng/mây/mưa/bão); có mưa phía trước thì
         // dưới biểu tượng đếm ngược km tới vùng mưa.
         try {
@@ -2460,13 +2488,13 @@ object TftLink {
         val title = Live.noticeTitle ?: return
         val age = System.currentTimeMillis() - Live.noticeAt
         if (age > (if (Live.noticeCall) 45_000L else 8_000L)) { Live.noticeTitle = null; return }
-        // build-477 (Sếp 17/11): khung bên PHẢI, rộng ~40% phần bản đồ (đường tím ở giữa vẫn thấy), cao co giãn theo nội dung,
-        // tối đa tới trên dòng "số phút còn lại" ở góc dưới phải.
+        // build-477 (Sếp 17/11): khung bên PHẢI, rộng ~40% phần bản đồ (đường tím ở giữa vẫn thấy), cao co giãn theo nội dung.
+        // build-485: bỏ số phút còn lại ở góc dưới phải → khung tin nhắn giãn tới sát thanh firmware.
         val mapL = if (PANELS_ALWAYS || (skActive && skRoute != null)) w * PANEL_W_FRAC else 0f
         val right = w - 6f
         val left = right - (w - mapL) * 0.40f
         val top = h * 0.03f
-        val bottomMax = h * FW_TOP_FRAC - h * 0.03f - h * 0.10f * 2.1f
+        val bottomMax = h * FW_TOP_FRAC - h * 0.015f
         val pad = 8f
         val maxW = right - left - pad * 2
         val tp = Paint().apply { color = Color.WHITE; textSize = h * 0.075f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
@@ -2569,20 +2597,14 @@ object TftLink {
             val ep = tp(h * 0.13f, true, Paint.Align.CENTER) // build-432: to hơn, thấp hơn (Sếp)
             if (ep.measureText(etaTxt) > pw - 6f) ep.textSize *= (pw - 6f) / ep.measureText(etaTxt)
             if (!nearDest) c.drawText(etaTxt, cx, hb - h * 0.004f, ep)
-            val remMin = (skEtaMs / 60000L).toInt()
-            val leftTxt = if (remMin >= 60) String.format(java.util.Locale.US, "%d g %02d", remMin / 60, remMin % 60) else "$remMin ph"
+            // build-485 (Sếp 17/11): bỏ số phút còn lại — chỉ còn km, để ô tin nhắn rảnh chỗ mở rộng xuống.
             val km = skRemainingM / 1000.0
             val kmTxt = (if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')) + " km"
             val rp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.10f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.RIGHT }
             val halo = Paint(rp).apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
-            val fm = rp.fontMetrics
-            val lineH = (fm.descent - fm.ascent) * 0.92f
             val right = w - w * 0.02f
-            val base = hb - h * 0.03f
-            listOf(leftTxt, kmTxt).forEachIndexed { k, s ->
-                val y = base - lineH * (1 - k)
-                c.drawText(s, right, y, halo); c.drawText(s, right, y, rp)
-            }
+            val y = hb - h * 0.03f
+            c.drawText(kmTxt, right, y, halo); c.drawText(kmTxt, right, y, rp)
         }
     }
 
