@@ -126,9 +126,10 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("pureMode", false)
         set(v) = sp.edit().putBoolean("pureMode", v).apply()
     /** build-471: tự "dừng rồi dẫn đường lại" như bấm tay mỗi 3 phút (Sếp: lag xong bấm lại là hết). */
-    var autoRestart: Boolean
-        get() = sp.getBoolean("autoRestart", true)
-        set(v) = sp.edit().putBoolean("autoRestart", v).apply()
+    /** build-484: 5 phút gửi TẮT rồi BẬT dẫn đường (như build 449–473) — chưa rõ có giúp màn xe đỡ lag không, để tuỳ chọn thử, mặc định tắt. */
+    var navCycle5min: Boolean
+        get() = sp.getBoolean("navCycle5min", false)
+        set(v) = sp.edit().putBoolean("navCycle5min", v).apply()
     var tftDupSkip: Boolean
         get() = sp.getBoolean("tftDupSkip", false)
         set(v) = sp.edit().putBoolean("tftDupSkip", v).apply()

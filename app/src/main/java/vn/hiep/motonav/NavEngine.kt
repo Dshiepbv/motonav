@@ -73,29 +73,11 @@ class NavEngine(
 
     /** build-466: danh sách điểm dừng đổi (thêm/xoá/đổi thứ tự) → tìm lại tuyến ở lần cập nhật vị trí kế tiếp. */
     @Volatile var stopsDirty = false
-    private var lastTripRestart = 0L
-    private val RESTART_MS = 3 * 60_000L
-
-    /** build-471 (Sếp 16/11): làm đúng như bấm dừng rồi chọn lại điểm đến: bỏ tuyến, bật lại chuyến mới, tìm tuyến mới từ vị trí hiện tại. */
-    private fun restartTrip(speedMps: Double) {
-        val now = SystemClock.elapsedRealtime()
-        if (lastTripRestart == 0L) { lastTripRestart = now; return }
-        if (now - lastTripRestart < RESTART_MS) return
-        val r = Live.route ?: return
-        if (!prefs.autoRestart || routing || Live.routeChoices.isNotEmpty()) return
-        if (speedMps * 3.6 < 5.0 || r.total - Live.routeProgress < 600.0) return
-        lastTripRestart = now
-        val stops = ArrayList(Live.stops)
-        val lat = Live.destLat; val lon = Live.destLon; val name = Live.destName
-        TripLog.ev("tripRestart", "remaining" to (r.total - Live.routeProgress), "stops" to stops.size)
-        start(lat, lon, name, internal = true)
-        Live.stops.addAll(stops); Live.stopsVersion++
-    }
+    // build-484 (Sếp 17/11): "làm mới chuyến" 3 phút (471) BỎ — log 17/11 cho thấy không giảm lag (vẫn 14,3% dù chạy 10 lần).
 
     fun start(lat: Double, lon: Double, name: String?, internal: Boolean = false) {
         if (!internal) TripStats.begin(ctx, lat, lon, name)
         Live.stops.clear(); Live.stopsVersion++
-        lastTripRestart = SystemClock.elapsedRealtime()
         prefs.saveTrip(lat, lon, name)
         tripStartAt = 0L
         Live.ownNav = true
@@ -494,7 +476,6 @@ class NavEngine(
             }
             while (trail.isNotEmpty() && nowT - trail.first()[3] > 120_000) trail.removeFirst()
         }
-        try { restartTrip(speedMps) } catch (_: Exception) {}
         // build-466: đi qua điểm dừng (≤60 m) → bỏ khỏi danh sách; đổi danh sách → tìm lại tuyến.
         Live.stops.firstOrNull()?.let { s0 ->
             if (Geo.distance(lat, lon, s0.lat, s0.lon) < 60.0) {
