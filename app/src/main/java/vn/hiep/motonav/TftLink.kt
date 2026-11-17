@@ -2131,8 +2131,8 @@ object TftLink {
                 limBottomY = ncy + arcR
             }
         }
-        // build-488 (Sếp 17/11): ô km còn lại — số to gần kín ô đen (bỏ viền nhỏ bó số); viền TO quanh nguyên
-        // ô mới là vòng đếm ngược, bắt đầu từ đỉnh 12h chạy theo chiều kim đồng hồ, co dần theo % đường còn lại.
+        // build-489 (Sếp 17/11): ô km còn lại — chỉ 1 viền CAM (đếm ngược), bỏ viền trắng tĩnh bên trong để
+        // nhường chỗ cho số to hơn. Bắt đầu từ đỉnh 12h chạy theo chiều kim đồng hồ, co dần theo % đường còn lại.
         try {
             if (skActive && skRoute != null && Live.maneuverSign != 4) {
                 val bcx = if (panels) w * 0.158f else w * 0.90f
@@ -2143,7 +2143,6 @@ object TftLink {
                 val rect = android.graphics.RectF(left, top, right, bottom)
                 val rad = br * 0.14f
                 c.drawRoundRect(rect, rad, rad, Paint().apply { color = Color.rgb(18, 18, 22); style = Paint.Style.FILL; isAntiAlias = true })
-                c.drawRoundRect(rect, rad, rad, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.009f; isAntiAlias = true })
                 // Viền đếm ngược: path thủ công bắt đầu đúng điểm 12h (giữa cạnh trên), chạy theo kim đồng hồ hết chu vi.
                 val totalM = skRoute?.total ?: 0.0
                 val frac = (if (totalM > 0.0) skRemainingM / totalM else 1.0).coerceIn(0.0, 1.0)
@@ -2159,15 +2158,15 @@ object TftLink {
                 val segLen = (pm.length * frac).toFloat()
                 val seg = android.graphics.Path()
                 pm.getSegment(0f, segLen, seg, true)
-                c.drawPath(seg, Paint().apply { color = Color.rgb(255, 140, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND })
+                c.drawPath(seg, Paint().apply { color = Color.rgb(255, 140, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.022f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND })
                 val km = skRemainingM / 1000.0
                 val kmNum = if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')
-                val numPaint2 = Paint().apply { color = Color.WHITE; textSize = s * 0.72f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                val maxTextW = s * 0.80f
+                val numPaint2 = Paint().apply { color = Color.WHITE; textSize = s * 0.80f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                val maxTextW = s * 0.84f
                 if (numPaint2.measureText(kmNum) > maxTextW) numPaint2.textSize *= maxTextW / numPaint2.measureText(kmNum)
-                val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = s * 0.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                c.drawText(kmNum, bcx, bcy + s * 0.11f, numPaint2)
-                c.drawText("km", bcx, bcy + s * 0.42f, unitPaint2)
+                val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = s * 0.16f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                c.drawText(kmNum, bcx, bcy + s * 0.12f, numPaint2)
+                c.drawText("km", bcx, bcy + s * 0.44f, unitPaint2)
             }
         } catch (_: Throwable) {}
         // build-457 (Sếp 16/11): dưới biển tốc độ = biểu tượng thời tiết (nắng/mây/mưa/bão); có mưa phía trước thì
