@@ -2136,7 +2136,7 @@ object TftLink {
         try {
             val wc = RainAlert.iconCat
             val nearDest2 = Live.maneuverSign == 4
-            if (wc != null) {
+            if (false && wc != null) { // build-480 (Sếp 17/11): bỏ biểu tượng thời tiết — hay sai (nắng vẫn hiện mây).
                 // build-460 (Sếp 16/11): biểu tượng thời tiết TO hơn, ở vị trí cao (đổi chỗ với biển tốc độ).
                 val ir = h * 0.135f
                 val icx = if (panels) w * 0.158f else w * 0.90f
