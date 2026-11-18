@@ -67,8 +67,13 @@ class MapsListener : NotificationListenerService() {
             val ringing = n.fullScreenIntent != null || (n.actions?.size ?: 0) >= 2
             if (!ringing) { if (sbn.key == Live.noticeKey) { Live.noticeTitle = null; Live.noticeKey = null }; return }
         } else if (sbn.isOngoing) return
-        // build-478 (Sếp 17/11): bỏ "bong bóng trò chuyện" (Messenger chat-head bubble) — không đọc.
-        if (android.os.Build.VERSION.SDK_INT >= 29 && n.bubbleMetadata != null) return
+        // build-493 (Sếp 18/11): build-478 dùng n.bubbleMetadata != null — SAI, cờ đó chỉ nghĩa là app CÓ THỂ hiện
+        // bong bóng (Zalo/Messenger set sẵn ở hầu hết tin nhắn), không phải đang hiện bong bóng → chặn nhầm gần
+        // hết thông báo thường (kể cả Zalo), mà bong bóng thật lại không bị chặn. Dùng đúng cờ FLAG_BUBBLE.
+        if (android.os.Build.VERSION.SDK_INT >= 29 && (n.flags and android.app.Notification.FLAG_BUBBLE) != 0) return
+        // Thông báo hệ thống "Bong bóng chat / Bắt đầu cuộc trò chuyện" của Messenger (báo mở bong bóng, không
+        // phải tin nhắn thật) không mang cờ FLAG_BUBBLE nên lọc riêng theo nội dung.
+        if (title.equals("Bong bóng chat", ignoreCase = true) || text?.contains("Bắt đầu cuộc trò chuyện", ignoreCase = true) == true) return
         Live.noticeTitle = title
         Live.noticeText = if (isCall) null else text
         Live.noticeApp = app
