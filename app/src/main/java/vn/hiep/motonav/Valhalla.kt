@@ -112,6 +112,24 @@ object Valhalla {
         }
     }
 
+    /** build-496 (Sếp 21/11): "Cùng 1 tên đường thì cộng khoảng cách vào, vẫn đi thẳng mà cứ chia đoạn
+     *  ra làm gì" — Valhalla hay chia 1 con đường dài thành nhiều Step (đổi ref/tốc độ cho phép...)
+     *  dù tên đường không đổi. Gộp các Step liên tiếp CÙNG TÊN ĐƯỜNG (không rỗng) lại, cộng dồn
+     *  khoảng cách; giữ chỉ dẫn (sign/text) của Step ĐẦU — đó là quyết định rẽ thật, Step sau chỉ là
+     *  tiếp tục trên cùng con đường. */
+    private fun mergeSameStreet(steps: ArrayList<Step>) {
+        var i = 0
+        while (i + 1 < steps.size) {
+            val a = steps[i]; val b = steps[i + 1]
+            if (a.street.isNotBlank() && a.street == b.street) {
+                steps[i] = Step(a.sign, a.text, a.street, a.distance + b.distance, a.from, b.to, a.exitNumber)
+                steps.removeAt(i + 1)
+                continue
+            }
+            i++
+        }
+    }
+
     private fun signOf(t: Int): Int = when (t) {
         4, 5, 6 -> 4
         9 -> 1
@@ -157,6 +175,7 @@ object Valhalla {
         }
         if (la.size < 2) throw RuntimeException("Tuyến Valhalla rỗng")
         mergeStaggered(steps, la, lo)
+        mergeSameStreet(steps)
         val sum = trip.optJSONObject("summary")
         val dist = (sum?.optDouble("length", 0.0) ?: 0.0) * 1000.0
         val time = ((sum?.optDouble("time", 0.0) ?: 0.0) * 1000).toLong()

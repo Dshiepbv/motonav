@@ -50,37 +50,10 @@ class MapsListener : NotificationListenerService() {
         try { notice(sbn) } catch (_: Exception) {}
     }
 
-    /** build-454 (Sếp): cuộc gọi đến + tin nhắn Zalo/SMS/Messenger/Telegram → Live.notice* → vẽ lên ảnh màn xe. */
+    /** build-454 (Sếp): cuộc gọi đến + tin nhắn Zalo/SMS/Messenger/Telegram → Live.notice* → vẽ lên ảnh màn xe.
+     *  build-496 (Sếp 21/11): "Bỏ hết phần báo điện thoại, tn zalo mess đi. Ko cần thông báo gì cả" — tắt hẳn,
+     *  không ghi Live.notice* nữa nên [TftLink.drawNotice] cũng không còn gì để vẽ. */
     private fun notice(sbn: StatusBarNotification) {
-        if (sbn.packageName == packageName) return
-        val n = sbn.notification
-        if (n.flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0) return
-        val ex = n.extras
-        val title = ex.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()?.trim()
-        if (title.isNullOrEmpty()) return
-        val text = (ex.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT) ?: ex.getCharSequence(android.app.Notification.EXTRA_TEXT))?.toString()?.trim()
-        val isCall = n.category == android.app.Notification.CATEGORY_CALL
-        val app = MSG_APPS[sbn.packageName]
-        if (!isCall && app == null) return
-        if (isCall) {
-            // chỉ lúc đổ chuông (có nút trả lời / toàn màn hình), bỏ thông báo "đang gọi" kéo dài
-            val ringing = n.fullScreenIntent != null || (n.actions?.size ?: 0) >= 2
-            if (!ringing) { if (sbn.key == Live.noticeKey) { Live.noticeTitle = null; Live.noticeKey = null }; return }
-        } else if (sbn.isOngoing) return
-        // build-493 (Sếp 18/11): build-478 dùng n.bubbleMetadata != null — SAI, cờ đó chỉ nghĩa là app CÓ THỂ hiện
-        // bong bóng (Zalo/Messenger set sẵn ở hầu hết tin nhắn), không phải đang hiện bong bóng → chặn nhầm gần
-        // hết thông báo thường (kể cả Zalo), mà bong bóng thật lại không bị chặn. Dùng đúng cờ FLAG_BUBBLE.
-        if (android.os.Build.VERSION.SDK_INT >= 29 && (n.flags and android.app.Notification.FLAG_BUBBLE) != 0) return
-        // Thông báo hệ thống "Bong bóng chat / Bắt đầu cuộc trò chuyện" của Messenger (báo mở bong bóng, không
-        // phải tin nhắn thật) không mang cờ FLAG_BUBBLE nên lọc riêng theo nội dung.
-        if (title.equals("Bong bóng chat", ignoreCase = true) || text?.contains("Bắt đầu cuộc trò chuyện", ignoreCase = true) == true) return
-        Live.noticeTitle = title
-        Live.noticeText = if (isCall) null else text
-        Live.noticeApp = app
-        Live.noticeCall = isCall
-        Live.noticeKey = sbn.key
-        Live.noticeAt = System.currentTimeMillis()
-        try { TripLog.ev("notice", "call" to isCall, "pkg" to sbn.packageName) } catch (_: Exception) {}
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
