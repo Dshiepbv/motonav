@@ -301,8 +301,9 @@ object MapSnap {
                                         id.contains("path") || id.contains("street") -> { paint.put("line-color", garminRoadColor(dark, false)); paint.put("line-width", roadWidthExpr(id, false)); paint.put("line-opacity", 1); changed++ }
                                 }
                                 "symbol" -> {
-                                    paint.put("text-color", if (dark) "#000000" else "#FFFFFF"); paint.put("text-halo-color", if (dark) "#FFFFFF" else "#000000"); paint.put("text-halo-width", 2.2); paint.put("text-halo-blur", 0)
-                                    (l.optJSONObject("layout") ?: org.json.JSONObject().also { l.put("layout", it) }).put("text-size", 14)
+                                    // build-500 (Sếp 21/11): làm rõ hơn chữ trên nền bản đồ — tăng viền + cỡ chữ.
+                                    paint.put("text-color", if (dark) "#000000" else "#FFFFFF"); paint.put("text-halo-color", if (dark) "#FFFFFF" else "#000000"); paint.put("text-halo-width", 2.8); paint.put("text-halo-blur", 0)
+                                    (l.optJSONObject("layout") ?: org.json.JSONObject().also { l.put("layout", it) }).put("text-size", 15)
                                     changed++
                                 }
                             }
@@ -323,18 +324,21 @@ object MapSnap {
                                     })
                                 }
                             val pt = "[\"match\",[\"geometry-type\"],[\"MultiPoint\",\"Point\"],true,false]"
-                            layers.put(lbl("motonav_park_label", "park", 13.0, pt, if (dark) "#9BE3A8" else "#1E6B2E", 15, "Noto Sans Bold"))
-                            layers.put(lbl("motonav_poi_major", "poi", 13.5, "[\"all\",$pt,[\"<\",[\"get\",\"rank\"],7]]", if (dark) "#F7C08A" else "#8A3F00", 15, "Noto Sans Bold"))
-                            layers.put(lbl("motonav_poi_mid", "poi", 15.0, "[\"all\",$pt,[\">=\",[\"get\",\"rank\"],7],[\"<\",[\"get\",\"rank\"],20]]", if (dark) "#E8E8E8" else "#333333", 14, "Noto Sans Bold"))
-                            // build-402 (kiểu Garmin): tên phường/khu + tên đường chạy dọc theo đường, chữ xám đậm viền trắng.
+                            // build-500 (Sếp 21/11): "thỉnh thoảng hiện tên đường nhánh 2 bên giờ không cần thiết" —
+                            // bỏ hẳn layer tên đường chạy dọc theo đường (motonav_road_name, build-402); chỉ còn
+                            // tên công viên/POI/khu vực, chữ làm rõ hơn (viền + cỡ to hơn chút).
+                            layers.put(lbl("motonav_park_label", "park", 13.0, pt, if (dark) "#9BE3A8" else "#1E6B2E", 16, "Noto Sans Bold"))
+                            layers.put(lbl("motonav_poi_major", "poi", 13.5, "[\"all\",$pt,[\"<\",[\"get\",\"rank\"],7]]", if (dark) "#F7C08A" else "#8A3F00", 16, "Noto Sans Bold"))
+                            layers.put(lbl("motonav_poi_mid", "poi", 15.0, "[\"all\",$pt,[\">=\",[\"get\",\"rank\"],7],[\"<\",[\"get\",\"rank\"],20]]", if (dark) "#E8E8E8" else "#333333", 15, "Noto Sans Bold"))
+                            // build-402 (kiểu Garmin): tên phường/khu, chữ xám đậm viền trắng.
                             val plc = lbl("motonav_place", "place", 12.0, "[\"match\",[\"get\",\"class\"],[\"suburb\",\"quarter\",\"neighbourhood\",\"village\",\"hamlet\",\"town\"],true,false]",
-                                if (dark) "#E0E0D8" else "#3A3A36", 14, "Noto Sans Bold")
+                                if (dark) "#E0E0D8" else "#3A3A36", 15, "Noto Sans Bold")
                             layers.put(plc)
-                            val rn = lbl("motonav_road_name", "transportation_name", 13.5, "[\"match\",[\"geometry-type\"],[\"LineString\",\"MultiLineString\"],true,false]",
-                                if (dark) "#F2F2EA" else "#202020", 15, "Noto Sans Bold")
-                            rn.getJSONObject("layout").put("symbol-placement", "line").put("text-max-angle", 30).put("symbol-spacing", 260)
-                            layers.put(rn)
-                            changed += 5
+                            for (li in 0 until layers.length()) {
+                                val ly = layers.getJSONObject(li)
+                                if (ly.optString("id").startsWith("motonav_")) ly.getJSONObject("paint").put("text-halo-width", 2.8)
+                            }
+                            changed += 4
                         } catch (t: Throwable) { TripLog.ev("mapSnap", "labelErr" to (t.message ?: t.javaClass.simpleName)) }
                         TripLog.ev("mapSnap", "styleTweaked" to changed, "layers" to layers.length())
                         try {
