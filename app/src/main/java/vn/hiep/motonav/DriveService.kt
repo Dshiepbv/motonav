@@ -367,6 +367,7 @@ class DriveService : Service(), LocationListener {
                     distanceM = if (Live.navMeters >= 0) Live.navMeters else -1,
                     nextStreet = Live.maneuverLabel,
                     remainingM = Live.remainingM,
+                    traveledM = Live.navTraveledM,
                     etaMs = Live.etaMs,
                     currentStreet = Live.street,
                     wxCat = Live.wxDestCat,

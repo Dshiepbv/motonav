@@ -73,6 +73,12 @@ class NavEngine(
 
     /** build-466: danh sách điểm dừng đổi (thêm/xoá/đổi thứ tự) → tìm lại tuyến ở lần cập nhật vị trí kế tiếp. */
     @Volatile var stopsDirty = false
+    // build-498 (Sếp 21/11): km đã đi tính trên TỔNG quãng từ lúc bắt đầu dẫn đường, không reset mỗi
+    // lần định tuyến lại — cộng dồn khoảng cách GPS thực tế đi được (Live.navTraveledM), độc lập với
+    // route.distance (số đó đổi mỗi lần có tuyến mới nên không dùng làm mốc "đã đi" được).
+    private var travLat = 0.0
+    private var travLon = 0.0
+    private var travInit = false
     // build-484 (Sếp 17/11): "làm mới chuyến" 3 phút (471) BỎ — log 17/11 cho thấy không giảm lag (vẫn 14,3% dù chạy 10 lần).
 
     fun start(lat: Double, lon: Double, name: String?, internal: Boolean = false) {
@@ -85,6 +91,7 @@ class NavEngine(
         Live.destLon = lon
         Live.destName = name
         Live.destFlag = true
+        if (!internal) { Live.navTraveledM = 0.0; travInit = false }
         // build-475: làm mới chuyến (internal) giữ tuyến cũ trên màn tới khi có tuyến mới — không để mất đường tím.
         if (!internal) { Live.route = null; seg = 0 }
         Live.routeError = null
@@ -468,6 +475,11 @@ class NavEngine(
     fun onLocation(lat: Double, lon: Double, heading: Double?, speedMps: Double, acc: Double = 10.0) {
         if (!Live.ownNav) return
         TripStats.onLocation(ctx, lat, lon, speedMps * 3.6)
+        if (!travInit) { travLat = lat; travLon = lon; travInit = true } else {
+            val dT = Geo.distance(travLat, travLon, lat, lon)
+            if (dT < 200.0) Live.navTraveledM += dT // bỏ nhảy lớn bất thường (GPS nhiễu/mất tín hiệu)
+            travLat = lat; travLon = lon
+        }
         synchronized(trail) {
             val nowT = SystemClock.elapsedRealtime().toDouble()
             val last = trail.lastOrNull()
