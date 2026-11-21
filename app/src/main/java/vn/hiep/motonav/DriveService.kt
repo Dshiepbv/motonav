@@ -558,8 +558,12 @@ class DriveService : Service(), LocationListener {
             val old = match(snap, lat, lon, movingHeading)
             // Khớp đường kiểu mới (HMM): luôn chạy song song để ghi nhật ký so sánh;
             // bật trong Cài đặt thì dùng kết quả HMM thay cho cách cũ.
-            val hm = try {
-                matcher.update(snap, lat, lon, movingHeading, if (loc.hasAccuracy()) loc.accuracy.toDouble() else 15.0)
+            // build-495 (log 20-21/11): 30s đầu mới mở app chưa có GPS fix thật, acc 72-291m, xe gần
+            // như đứng yên (spd<1.5 m/s) — HMM vẫn ăn điểm lệch này, nhảy nhầm sang đường nhánh/service
+            // gần đó. Bỏ qua điểm này (giữ kết quả khớp đường cũ) khi acc quá tệ mà xe chưa thực sự chạy.
+            val hmmAcc = if (loc.hasAccuracy()) loc.accuracy else 15f
+            val hm = if (hmmAcc > 35f && speedMps < 1.5) null else try {
+                matcher.update(snap, lat, lon, movingHeading, hmmAcc.toDouble())
             } catch (_: Exception) { null }
             if (hm?.way?.id != old?.way?.id) {
                 TripLog.ev("hmm", "way" to hm?.way?.id, "name" to hm?.way?.name, "old" to old?.way?.id, "oldName" to old?.way?.name,

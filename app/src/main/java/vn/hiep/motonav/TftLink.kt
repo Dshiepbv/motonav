@@ -783,13 +783,39 @@ object TftLink {
      * đúng hình xe nhận được (trước đây chỉ đoán qua ảnh chụp màn xe). */
     private const val RECENT_FRAMES = 10
     private val recentFrames = ArrayDeque<Pair<Int, ByteArray>>()
+    // build-495 (log 20-21/11): "Gửi nhật ký" bấm 2 lần (menu ☰ + Cài đặt) cách nhau ~48s mà giữa
+    // 2 lần không có khung mới nào gửi lên xe → buffer cũ chưa bị xoá, xả lại y nguyên 10 seq +
+    // base64 cũ, trùng lặp trong log. Xoá buffer ngay sau khi xả + chặn xả lại seq đã xả rồi.
+    // Ngoài ra chỉ nạp 1 khung/2s vào buffer (trước đây nạp MỌI khung gửi — toàn khung dính chùm
+    // trong vài ms một lúc, không trải đều theo thời gian để debug).
+    private const val RECENT_CAPTURE_MIN_GAP_MS = 2000L
+    @Volatile private var lastCaptureAtMs = 0L
+    @Volatile private var lastDumpedTftSeq = -1
+
+    private fun captureFrame(seq: Int, jpeg: ByteArray) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastCaptureAtMs < RECENT_CAPTURE_MIN_GAP_MS) return
+        lastCaptureAtMs = now
+        synchronized(recentFrames) {
+            recentFrames.addLast(seq to jpeg)
+            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
+        }
+    }
 
     fun dumpRecentFrames() {
-        val list = synchronized(recentFrames) { recentFrames.toList() }
+        val list = synchronized(recentFrames) {
+            val snap = recentFrames.toList()
+            recentFrames.clear()
+            snap
+        }
         for ((seq, jpg) in list) {
+            // seq quay vòng (LE16) — lùi sâu so với lần xả trước (>1000) coi là seq mới của vòng sau.
+            val wrapped = lastDumpedTftSeq >= 0 && seq < lastDumpedTftSeq - 1000
+            if (!wrapped && seq <= lastDumpedTftSeq) continue
             try {
                 TripLog.ev("tftShot", "seq" to seq, "jpg" to android.util.Base64.encodeToString(jpg, android.util.Base64.NO_WRAP))
             } catch (_: Exception) {}
+            lastDumpedTftSeq = seq
         }
     }
 
@@ -840,10 +866,7 @@ object TftLink {
         // (nếu rốt cuộc vẫn tới) không gây lỗi gì — chỉ đơn giản không còn ai đứng đợi nó ở đây nữa
         // (case 0x50 vẫn cập nhật [ackedFrame] bình thường). CHƯA xác nhận trên xe thật việc rút
         // ngắn này có thực sự giảm "xoay" hay khiến xe dồn khung tệ hơn — cần chạy thử thực tế.
-        synchronized(recentFrames) {
-            recentFrames.addLast(seq to jpeg)
-            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
-        }
+        captureFrame(seq, jpeg)
         val deadline = sentAt + stallWaitMs
         var timedOut = false
         var interrupted = false
@@ -3808,10 +3831,7 @@ object TftLink {
             lastFrameError = "Gửi khung lỗi (mất kết nối)"
             return false
         }
-        synchronized(recentFrames) {
-            recentFrames.addLast(seq to jpeg)
-            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
-        }
+        captureFrame(seq, jpeg)
 
         var softTimeoutLogged = false
         var hardTimeout = false
@@ -3906,10 +3926,7 @@ object TftLink {
         val ok = sendPaced(pack(payload, 0, 1))
         lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt()
         if (!ok) { lastFrameError = "Gửi khung lỗi (mất kết nối)"; return false }
-        synchronized(recentFrames) {
-            recentFrames.addLast(seq to jpeg)
-            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
-        }
+        captureFrame(seq, jpeg)
         statBytes += jpeg.size
         v2Sent++
         frameTxCount++
@@ -4074,10 +4091,7 @@ object TftLink {
         val ok = sendPaced(packet)
         lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt()
         if (!ok) { lastFrameError = "Gửi khung lỗi (mất kết nối)"; return null }
-        synchronized(recentFrames) {
-            recentFrames.addLast(seq to jpeg)
-            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
-        }
+        captureFrame(seq, jpeg)
         var timedOut = false
         synchronized(ackLock) {
             while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
