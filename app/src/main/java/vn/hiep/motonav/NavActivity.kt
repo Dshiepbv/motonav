@@ -3,6 +3,7 @@ package vn.hiep.motonav
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -12,6 +13,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -1345,10 +1347,25 @@ class NavActivity : Activity() {
                 Live.userStopped = false
                 DriveService.start(this)
             }
+            askIgnoreBatteryOptimizations()
         } else {
             requestPermissions(basePerms(), 7)
             return
         }
+    }
+
+    // build-504 (Sếp 21/11): xin bỏ tối ưu hoá pin — nghi OPPO chặn/làm chậm app chạy nền lúc xe
+    // đứng yên, màn hình tắt (log cho thấy đứng hình nặng 46-82% đúng những lúc đó). Hỏi 1 lần/phiên.
+    private var askedBatteryOpt = false
+    private fun askIgnoreBatteryOptimizations() {
+        if (askedBatteryOpt) return
+        askedBatteryOpt = true
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            if (pm.isIgnoringBatteryOptimizations(packageName)) return
+            val i = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+            startActivity(i)
+        } catch (_: Exception) {}
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
