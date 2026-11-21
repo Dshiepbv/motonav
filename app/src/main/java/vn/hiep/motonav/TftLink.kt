@@ -2132,16 +2132,17 @@ object TftLink {
                     // sát thanh firmware) — km đã đi cao hơn 1 chút phía trên gạch, chữ "KM" (viết hoa) ngay
                     // dưới chân số km còn lại thay vì tuốt dưới cùng.
                     val yLine = h * 0.40f
-                    val travSz = h * 0.085f
-                    val remSz = h * 0.085f
+                    val travSz = h * 0.115f // build-502 (Sếp 21/11): "bé tí" — tăng lại từ 0.085f
+                    val remSz = h * 0.115f
                     val travPaint = Paint().apply { color = Color.WHITE; textSize = travSz; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
                     val remPaint = Paint().apply { color = Color.WHITE; textSize = remSz; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                    val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.045f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.055f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
                     val lineHalfW = maxOf(travPaint.measureText(fmtKm(travKm)), remPaint.measureText(fmtKm(remKm))) * 0.6f
-                    c.drawText(fmtKm(travKm), fcx, yLine - h * 0.045f, travPaint)
+                    val remBaseline = yLine + remSz * 1.05f
+                    c.drawText(fmtKm(travKm), fcx, yLine - travSz * 0.55f, travPaint)
                     c.drawLine(fcx - lineHalfW, yLine, fcx + lineHalfW, yLine, linePaint)
-                    c.drawText(fmtKm(remKm), fcx, yLine + h * 0.095f, remPaint)
-                    c.drawText("KM", fcx, yLine + h * 0.145f, unitPaint2)
+                    c.drawText(fmtKm(remKm), fcx, remBaseline, remPaint)
+                    c.drawText("KM", fcx, remBaseline + remSz * 0.55f, unitPaint2)
                 } else {
                     val yTrav = h * 0.15f; val yLine = h * 0.185f; val yRem = h * 0.285f; val yUnit = h * 0.335f
                     val numPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.12f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
