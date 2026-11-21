@@ -2128,20 +2128,20 @@ object TftLink {
                 val fcx = if (panels) w * 0.158f else w * 0.90f
                 val linePaint = Paint().apply { color = Color.WHITE; strokeWidth = h * 0.006f; isAntiAlias = true }
                 if (panels) {
-                    // build-498 (Sếp 21/11): gạch ngang cố định ngang mép dưới nút "+" của đồng hồ (ước lượng
-                    // từ ảnh chụp thật ~0.45h); số trên/dưới chia hết khoảng trống còn lại cho to ra.
-                    val yLine = h * 0.45f
-                    // build-499 (Sếp 21/11): "to quá" — bớt cỡ chữ, chỉ dùng ~55% khoảng trống thay vì lấp đầy.
-                    val travSz = ((yLine - h * 0.185f) * 0.55f).coerceAtLeast(h * 0.07f)
-                    val remSz = ((h * FW_TOP_FRAC - h * 0.02f - yLine - h * 0.05f) * 0.55f).coerceAtLeast(h * 0.07f)
+                    // build-501 (Sếp 21/11): gọn lại vào giữa khe 2 nút +/− (trước build-498/499 kéo dài xuống
+                    // sát thanh firmware) — km đã đi cao hơn 1 chút phía trên gạch, chữ "KM" (viết hoa) ngay
+                    // dưới chân số km còn lại thay vì tuốt dưới cùng.
+                    val yLine = h * 0.40f
+                    val travSz = h * 0.085f
+                    val remSz = h * 0.085f
                     val travPaint = Paint().apply { color = Color.WHITE; textSize = travSz; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
                     val remPaint = Paint().apply { color = Color.WHITE; textSize = remSz; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
                     val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.045f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
                     val lineHalfW = maxOf(travPaint.measureText(fmtKm(travKm)), remPaint.measureText(fmtKm(remKm))) * 0.6f
-                    c.drawText(fmtKm(travKm), fcx, yLine - h * 0.025f, travPaint)
+                    c.drawText(fmtKm(travKm), fcx, yLine - h * 0.045f, travPaint)
                     c.drawLine(fcx - lineHalfW, yLine, fcx + lineHalfW, yLine, linePaint)
-                    c.drawText(fmtKm(remKm), fcx, yLine + h * 0.045f + remSz * 0.8f, remPaint)
-                    c.drawText("km", fcx, h * FW_TOP_FRAC - h * 0.015f, unitPaint2)
+                    c.drawText(fmtKm(remKm), fcx, yLine + h * 0.095f, remPaint)
+                    c.drawText("KM", fcx, yLine + h * 0.145f, unitPaint2)
                 } else {
                     val yTrav = h * 0.15f; val yLine = h * 0.185f; val yRem = h * 0.285f; val yUnit = h * 0.335f
                     val numPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.12f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
