@@ -2108,70 +2108,39 @@ object TftLink {
             c.drawPath(carPath, Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 4f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
             c.drawPath(carPath, carPaint)
         } else drawCar3D(c, carX, anchorY, carR)
-        // Biển tốc độ tối đa, góc trên bên phải — theo yêu cầu. Vẽ kiểu biển báo VN (viền đỏ, nền
-        // trắng, số đen) để nhận ra ngay là giới hạn tốc độ chứ không phải số liệu khác.
-        // build-426: khung đen vẽ TRƯỚC biển tốc độ (biển nằm trong khung, giữa nút + và − của đồng hồ).
         if (mapClip >= 0) { c.restoreToCount(mapClip); mapClip = -1 }
         val panels = PANELS_ALWAYS || (skActive && skRoute != null)
         if (panels) drawGarminPanels(c, w, h, dk)
         val lim = skLimitKmh
-        var limBottomY = h * 0.03f
-        if (lim != null && lim > 0) {
-            // build-433 (Sếp): sắp đổi tốc độ → biển hiện tại ngang nút +, biển kế tiếp ngang nút −.
-            val nextOn = skNextLimit.let { it != null && it > 0 && it < lim } && skNextLimitDist in 0..100
-            // build-485 (Sếp 17/11): biển tốc độ về lại vị trí CAO (chỗ ô thời tiết cũ) — chỗ thấp nay là ô km còn lại đếm ngược.
-            val cx = if (panels) w * 0.158f else w * 0.90f; val cy = if (panels) h * 0.31f else h * 0.17f; val r = if (panels) h * 0.09f else h * 0.105f
-            val ringPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.FILL; isAntiAlias = true }
-            val facePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
-            val numPaint = Paint().apply { color = Color.BLACK; textSize = r * 1.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            c.drawCircle(cx, cy, r, ringPaint)
-            c.drawCircle(cx, cy, r * 0.78f, facePaint)
-            val fm = numPaint.fontMetrics
-            c.drawText((if (nextOn) skNextLimit!! else lim).toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
-            limBottomY = cy + r
-            if (nextOn) {
-                val arcR = r + h * 0.022f
-                val arcPaint = Paint().apply { color = Color.rgb(255, 196, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                c.drawArc(android.graphics.RectF(cx - arcR, cy - arcR, cx + arcR, cy + arcR), -90f, 360f * skNextLimitDist / 100f, false, arcPaint)
-                limBottomY = cy + arcR
-            }
-            // build-320: biển GIẢM tốc phía trước ≤100 m → biển mới cạnh biển hiện tại + vòng vàng đếm mét + số mét.
-            val nl = skNextLimit
-            val nd = skNextLimitDist
-            if (nl != null && nl > 0 && nl < lim && nd in 0..100 && NEXT_SIGN_2) { // build-457: bỏ biển thứ 2
-                // build-410 (Sếp): biển sắp đổi chuyển xuống DƯỚI biển tốc độ (bên cạnh dành cho biển cấm rẽ).
-                val nr = r * 0.8f; val ncx = cx; val ncy = if (panels) h * 0.555f else cy + r + h * 0.04f + nr
-                c.drawCircle(ncx, ncy, nr, ringPaint)
-                c.drawCircle(ncx, ncy, nr * 0.78f, facePaint)
-                val np = Paint(numPaint).apply { textSize = nr * 1.15f }
-                val fm2 = np.fontMetrics
-                c.drawText(nl.toString(), ncx, ncy - (fm2.ascent + fm2.descent) / 2f, np)
-                val arcR = nr + h * 0.022f
-                val arcPaint = Paint().apply { color = Color.rgb(255, 196, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                c.drawArc(android.graphics.RectF(ncx - arcR, ncy - arcR, ncx + arcR, ncy + arcR), -90f, 360f * nd / 100f, false, arcPaint)
-                val dp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.075f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                if (!panels) c.drawText("$nd m", ncx - arcR - h * 0.012f - dp.measureText("$nd m") / 2f, ncy + h * 0.025f, dp)
-                limBottomY = ncy + arcR
-            }
-        }
-        // build-494 (Sếp 18/11): bỏ khung trắng + viền cam đếm ngược — chỉ còn số km trần, không khung.
+        val limBottomY = h * 0.03f // build-496: chỉ còn giữ cho nhánh dead-code (if(false)) phía dưới dùng tới tên biến.
+        // build-496 (Sếp 21/11): "Bỏ hết mảng tốc độ tối đa, chỗ đó hiện số km đã đi được, kiểu phân
+        // số: trên là km đã đi, gạch ngang, dưới là km còn lại, cuối chữ km bé" — bỏ hẳn biển tốc độ
+        // tối đa + biển sắp đổi tốc độ trên màn xe (giữ nguyên biển giới hạn/cảnh báo tốc độ ở màn
+        // điện thoại, chỉ bỏ hình vẽ này); gộp luôn ô "km còn lại" cũ (build-494) vào chung 1 ô phân số.
         try {
             if (skActive && skRoute != null && Live.maneuverSign != 4) {
-                val km = skRemainingM / 1000.0
-                val kmNum = if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')
+                fun fmtKm(km: Double) = if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')
+                val remKm = skRemainingM / 1000.0
+                val travKm = (((skRoute?.distance ?: 0.0) - skRemainingM).coerceAtLeast(0.0)) / 1000.0
+                val fcx = if (panels) w * 0.158f else w * 0.90f
+                val numSz = if (panels) h * 0.11f else h * 0.12f
+                val unitSz = if (panels) h * 0.05f else h * 0.055f
+                val numPaint2 = Paint().apply { color = Color.WHITE; textSize = numSz; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = unitSz; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                val linePaint = Paint().apply { color = Color.WHITE; strokeWidth = h * 0.006f; isAntiAlias = true }
+                val lineHalfW = numPaint2.measureText(fmtKm(maxOf(remKm, travKm))) * 0.75f
                 if (panels) {
-                    // Số km nằm ngay dưới biển tốc độ (cùng trục x w*0.158).
-                    val signCx = w * 0.158f
-                    val numPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.13f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                    val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.055f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                    c.drawText(kmNum, signCx, h * 0.515f, numPaint2)
-                    c.drawText("km", signCx, h * 0.605f, unitPaint2)
+                    val yTrav = h * 0.255f; val yLine = h * 0.30f; val yRem = h * 0.395f; val yUnit = h * 0.455f
+                    c.drawText(fmtKm(travKm), fcx, yTrav, numPaint2)
+                    c.drawLine(fcx - lineHalfW, yLine, fcx + lineHalfW, yLine, linePaint)
+                    c.drawText(fmtKm(remKm), fcx, yRem, numPaint2)
+                    c.drawText("km", fcx, yUnit, unitPaint2)
                 } else {
-                    val bcx = w * 0.90f; val bcy = h * 0.50f
-                    val numPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                    val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.07f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                    c.drawText(kmNum, bcx, bcy + h * 0.04f, numPaint2)
-                    c.drawText("km", bcx, bcy + h * 0.14f, unitPaint2)
+                    val yTrav = h * 0.15f; val yLine = h * 0.185f; val yRem = h * 0.285f; val yUnit = h * 0.335f
+                    c.drawText(fmtKm(travKm), fcx, yTrav, numPaint2)
+                    c.drawLine(fcx - lineHalfW, yLine, fcx + lineHalfW, yLine, linePaint)
+                    c.drawText(fmtKm(remKm), fcx, yRem, numPaint2)
+                    c.drawText("km", fcx, yUnit, unitPaint2)
                 }
             }
         } catch (_: Throwable) {}
@@ -2584,7 +2553,7 @@ object TftLink {
             val tw = big.measureText(num) + small.measureText(unit) + h * 0.01f
             var bx = cx - tw / 2f
             if (tw > pw - 8f) { big.textSize *= (pw - 8f) / tw; bx = 4f }
-            val by = h * 0.19f
+            val by = h * 0.14f // build-496 (Sếp 21/11): dời số m tới điểm rẽ lên trên (trước h*0.19f)
             big.textAlign = Paint.Align.LEFT
             c.drawText(num, bx, by, big)
             c.drawText(unit, bx + big.measureText(num) + h * 0.01f, by, small)
