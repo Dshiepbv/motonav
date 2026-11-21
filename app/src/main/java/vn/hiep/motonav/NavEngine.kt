@@ -702,6 +702,12 @@ class NavEngine(
         var nextIdx = -1
         for ((k, s) in r.steps.withIndex()) {
             if (k == 0) continue
+            // build-495 (Sếp 21/11): đi thẳng qua ranh giới đổi tên đường cũng sinh 1 Step sign=0
+            // ("Đi thẳng vào <street>") rất gần vị trí hiện tại — nếu dừng ở đây, khoảng cách đếm
+            // ngược hiện gần 0 m suốt đoạn thẳng dài, lặp lại mỗi lần đổi tên đường. Bỏ qua các Step
+            // sign=0 này, chỉ dừng ở chỗ rẽ/đến nơi THẬT — r.cum đã tính liên tục trên toàn tuyến nên
+            // khoảng cách tới đó tự động "nối" qua hết các đoạn thẳng ở giữa.
+            if (s.sign == 0) continue
             if (s.from >= bestI) { next = s; nextIdx = k; break }
         }
         if (next == null) {
