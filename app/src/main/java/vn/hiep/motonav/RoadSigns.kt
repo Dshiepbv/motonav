@@ -50,8 +50,9 @@ object SignType {
         else -> "Chú ý nguy hiểm"
     }
 
-    /** Biển có cần đọc thành tiếng không (ảnh hưởng trực tiếp tới việc lái). */
-    fun important(t: Int) = t == NO_ENTRY || t == NO_LEFT || t == NO_RIGHT || t == NO_UTURN || t == NO_MOTO || t == STOP || t == BUMP
+    /** Biển có cần đọc thành tiếng không (ảnh hưởng trực tiếp tới việc lái).
+     * build-509 (Sếp 22/11): bỏ NO_LEFT/NO_RIGHT/NO_UTURN khỏi danh sách đọc — "tắt cả các bảng cấm quẹo không cần thiết". */
+    fun important(t: Int) = t == NO_ENTRY || t == NO_MOTO || t == STOP || t == BUMP
 
     private val speedRe = Regex("""(\d{2,3})""")
 

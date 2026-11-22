@@ -2109,8 +2109,10 @@ object TftLink {
             }
         } catch (_: Throwable) {}
         // build-410 (Sếp, giống NConnect): biển cấm rẽ trái/phải/quay đầu phía trước (≤150 m) đặt cạnh biển tốc độ.
+        // build-509 (Sếp 22/11): "Tắt cả các bảng cấm quẹo không cần thiết. Nhẹ nhất có thể" — bỏ hẳn,
+        // không còn dò/tính nt mỗi khung nữa (không chỉ ẩn hình).
         try {
-            val nt = Live.signsAhead.firstOrNull { (it.first == SignType.NO_LEFT || it.first == SignType.NO_RIGHT || it.first == SignType.NO_UTURN) && it.third <= 150 }
+            val nt = if (false) Live.signsAhead.firstOrNull { (it.first == SignType.NO_LEFT || it.first == SignType.NO_RIGHT || it.first == SignType.NO_UTURN) && it.third <= 150 } else null
             if (skActive && nt != null) {
                 val r = h * 0.105f
                 val cx = if (lim != null && lim > 0 && !panels) w * 0.90f - r * 2.4f else w * 0.90f
