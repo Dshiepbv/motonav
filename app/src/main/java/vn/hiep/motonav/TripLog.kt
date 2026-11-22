@@ -294,7 +294,7 @@ class TripLogProvider : ContentProvider() {
         return c
     }
 
-    override fun getType(uri: Uri) = "text/plain"
+    override fun getType(uri: Uri) = if ((uri.lastPathSegment ?: "").endsWith(".gz")) "application/gzip" else "text/plain"
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?) = 0
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?) = 0

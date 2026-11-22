@@ -114,14 +114,16 @@ object AppActions {
             return
         }
 
+        // build-510 (Sếp 22/11): "Cho log vào file gz cho nhẹ" — file TXT thô gộp 3 chuyến có thể
+        // tới vài chục MB, nén gz lại trước khi gửi cho nhẹ (text JSON nén rất tốt, thường còn ~10%).
         val export = try {
             val dir = files[0].parentFile ?: a.filesDir
             val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US)
                 .format(java.util.Date())
-            val out = java.io.File(dir, "MotoNav-log-$stamp.txt")
-            val temp = java.io.File(dir, "MotoNav-log-$stamp.txt.tmp")
+            val out = java.io.File(dir, "MotoNav-log-$stamp.txt.gz")
+            val temp = java.io.File(dir, "MotoNav-log-$stamp.txt.gz.tmp")
             try {
-                temp.outputStream().bufferedWriter(Charsets.UTF_8).use { writer ->
+                java.util.zip.GZIPOutputStream(temp.outputStream()).bufferedWriter(Charsets.UTF_8).use { writer ->
                     // files mới trước; xuất cũ trước mới sau để timeline liên tục.
                     for (source in files.reversed()) {
                         TripLog.appendToExport(source, writer)
@@ -145,12 +147,12 @@ object AppActions {
 
         try {
             val send = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
+                type = "application/gzip"
                 putExtra(Intent.EXTRA_STREAM, TripLogProvider.uri(a, export))
-                putExtra(Intent.EXTRA_SUBJECT, "Nhật ký MotoNav (TXT)")
+                putExtra(Intent.EXTRA_SUBJECT, "Nhật ký MotoNav (TXT.GZ)")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            a.startActivity(Intent.createChooser(send, "Gửi nhật ký TXT"))
+            a.startActivity(Intent.createChooser(send, "Gửi nhật ký TXT.GZ"))
         } catch (e: Exception) {
             android.util.Log.e("MotoNavTripLog", "TXT share failed", e)
             Toast.makeText(a, "Đã tạo TXT nhưng không mở được chia sẻ", Toast.LENGTH_LONG).show()
