@@ -1761,8 +1761,39 @@ object TftLink {
                 val labelPaint = Paint().apply { color = if (dk) Color.BLACK else Color.WHITE; textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
                 val leaderPaint = Paint().apply { color = Color.rgb(60, 64, 72); style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
-                val tw = labelPaint.measureText(nextSt)
                 val padX = h * 0.022f; val padY = h * 0.02f
+                // build-506 (Sếp 22/11): điểm neo (chỗ sắp rẽ) nằm NGOÀI màn hiển thị → thay vì tìm
+                // hướng đặt nhãn quanh 1 điểm ngoài màn (vô nghĩa), ghim cố định ở CẠNH TRÊN: rẽ trái
+                // → bên trái, rẽ phải → bên phải; tên đường dài quá 4-5 chữ thì xuống dòng (tối đa 2 dòng).
+                val anchorOffscreen = mx < mapL || mx > w || my < 0f || my > h
+                if (anchorOffscreen) {
+                    fun wrapLabel(s: String): List<String> {
+                        if (s.length <= 5) return listOf(s)
+                        val sp = s.lastIndexOf(' ', s.length / 2 + 2).let { if (it <= 0) s.indexOf(' ', 4) else it }
+                        return if (sp in 1 until s.length - 1) listOf(s.substring(0, sp), s.substring(sp + 1)) else listOf(s)
+                    }
+                    val lines = wrapLabel(nextSt)
+                    val tw2 = lines.maxOf { labelPaint.measureText(it) }
+                    val fm3 = labelPaint.fontMetrics
+                    val lineH = fm3.descent - fm3.ascent
+                    val goLeft = skSign < 0
+                    val lx0 = if (goLeft) mapL + tw2 / 2f + padX + 4f else w - tw2 / 2f - padX - 2f
+                    val ly0 = h * 0.1f + padY - fm3.ascent
+                    val left = lx0 - tw2 / 2f - padX; val right = lx0 + tw2 / 2f + padX
+                    val top = ly0 + fm3.ascent - padY; val bottom = ly0 + fm3.ascent + lineH * lines.size - fm3.ascent + padY
+                    c.drawLine(mx.coerceIn(mapL, w.toFloat()), my.coerceIn(0f, h), lx0, ly0, leaderPaint)
+                    if (snapShot != null) {
+                        val pf = if (dk) Color.WHITE else Color.BLACK
+                        val pt2 = if (dk) Color.BLACK else Color.WHITE
+                        c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), h * 0.03f, h * 0.03f,
+                            Paint().apply { color = pf; style = Paint.Style.FILL; isAntiAlias = true })
+                        for ((li, ln) in lines.withIndex()) c.drawText(ln, lx0, ly0 + lineH * li, Paint(labelPaint).apply { color = pt2 })
+                    } else {
+                        val outlinePaint2 = Paint(labelPaint).apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
+                        for ((li, ln) in lines.withIndex()) { c.drawText(ln, lx0, ly0 + lineH * li, outlinePaint2); c.drawText(ln, lx0, ly0 + lineH * li, labelPaint) }
+                    }
+                } else {
+                val tw = labelPaint.measureText(nextSt)
                 // Ảnh thực tế (27/10): nền đen của nhãn nằm ĐÈ lên đúng đoạn tuyến đỏ quanh khúc rẽ
                 // (nhãn vẽ sau tuyến, neo lệch lên-phải cố định) — nhìn như tuyến đỏ bị mất đoạn. Thử 4
                 // hướng đặt nhãn quanh điểm neo, chọn hướng có ít điểm tuyến lọt vào khung nhãn nhất.
@@ -1820,6 +1851,7 @@ object TftLink {
                 } else {
                     c.drawText(nextSt, cxText, bx[1], outlinePaint)
                     c.drawText(nextSt, cxText, bx[1], labelPaint)
+                }
                 }
             }
             // ---- Tên đường kiểu "biển" trên nền ảnh bản đồ (phương án A): khung đặc + chữ đậm, không viền; chữ nằm dọc theo
