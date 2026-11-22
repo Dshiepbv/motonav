@@ -1811,7 +1811,7 @@ object TftLink {
                     val ly0 = h * 0.1f + padY - fm3.ascent
                     val left = lx0 - tw2 / 2f - padX; val right = lx0 + tw2 / 2f + padX
                     val top = ly0 + fm3.ascent - padY; val bottom = ly0 + fm3.ascent + lineH * lines.size - fm3.ascent + padY
-                    c.drawLine(mx.coerceIn(mapL, w.toFloat()), my.coerceIn(0f, h), lx0, ly0, leaderPaint)
+                    c.drawLine(mx.coerceIn(mapL, w.toFloat()), my.coerceIn(0f, h.toFloat()), lx0, ly0, leaderPaint)
                     if (snapShot != null) {
                         val pf = if (dk) Color.WHITE else Color.BLACK
                         val pt2 = if (dk) Color.BLACK else Color.WHITE
