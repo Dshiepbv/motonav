@@ -4347,8 +4347,10 @@ object TftLink {
         // build-408 (Sếp): thanh chữ của màn xe không hiện tên đường nữa mà hiện "ETA: giờ đến - thời gian còn lại - km còn lại".
         // build-428 (Sếp): đúng 1 gói tên = TÊN ĐIỂM ĐẾN khi bắt đầu dẫn đường (và 1 lần sau mỗi lần kết nối lại),
         // thay chữ mặc định "Đường" của đồng hồ. Không gửi gì khác lên thanh firmware.
+        // build-511 (Sếp 22/11): "Bỏ luôn cả gửi địa chỉ đi" — nghi gói chữ lên thanh firmware (dù hiếm,
+        // 1 lần/chuyến) vẫn là một phần nguyên nhân lag; bỏ hẳn, giữ chữ mặc định "Đường" của đồng hồ.
         val wantName = if (active) (Live.destName?.trim()?.takeIf { it.isNotEmpty() } ?: lastSentName) else lastSentName
-        if (active && wantName.isNotEmpty() && wantName != lastSentName) {
+        if (false && active && wantName.isNotEmpty() && wantName != lastSentName) {
             send(namePacket(wantName))
             lastSentName = wantName
             try { TripLog.ev("tftNameTx", "len" to wantName.length) } catch (_: Exception) {}
