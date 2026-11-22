@@ -121,7 +121,6 @@ class DriveService : Service(), LocationListener {
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
-        TripStatsCtx.ctx = applicationContext
         SpeedSigns.init(this)
         try { TripLog.start(this) } catch (_: Exception) {}
         voice = Voice(this)
@@ -328,8 +327,7 @@ class DriveService : Service(), LocationListener {
                 TftLink.workSaved = Places.work(this@DriveService) != null
                 TftLink.diagMode = prefs.tftDiag
                 TftLink.stepMs = prefs.tftStepMs.toLong().coerceIn(100L, 1200L)
-                TftLink.dupSkipOn = prefs.tftDupSkip; TftLink.pureMode = false
-                TftLink.navCycle5min = prefs.navCycle5min
+                TftLink.dupSkipOn = prefs.tftDupSkip; TftLink.pureMode = prefs.pureMode
                 run { val m = prefs.tftSendMode.coerceIn(0, 2); TftLink.nmaxStyle = (m == 1); TftLink.send727 = (m == 0); TftLink.FAST400 = (m != 0) }
                 TftLink.safetyMs = prefs.tftSafetyS.toLong().coerceIn(2L, 12L) * 1000L
                 TftLink.mapSnapStyle = when {
@@ -367,7 +365,6 @@ class DriveService : Service(), LocationListener {
                     distanceM = if (Live.navMeters >= 0) Live.navMeters else -1,
                     nextStreet = Live.maneuverLabel,
                     remainingM = Live.remainingM,
-                    traveledM = Live.navTraveledM,
                     etaMs = Live.etaMs,
                     currentStreet = Live.street,
                     wxCat = Live.wxDestCat,
@@ -559,12 +556,8 @@ class DriveService : Service(), LocationListener {
             val old = match(snap, lat, lon, movingHeading)
             // Khớp đường kiểu mới (HMM): luôn chạy song song để ghi nhật ký so sánh;
             // bật trong Cài đặt thì dùng kết quả HMM thay cho cách cũ.
-            // build-495 (log 20-21/11): 30s đầu mới mở app chưa có GPS fix thật, acc 72-291m, xe gần
-            // như đứng yên (spd<1.5 m/s) — HMM vẫn ăn điểm lệch này, nhảy nhầm sang đường nhánh/service
-            // gần đó. Bỏ qua điểm này (giữ kết quả khớp đường cũ) khi acc quá tệ mà xe chưa thực sự chạy.
-            val hmmAcc = if (loc.hasAccuracy()) loc.accuracy else 15f
-            val hm = if (hmmAcc > 35f && speedMps < 1.5) null else try {
-                matcher.update(snap, lat, lon, movingHeading, hmmAcc.toDouble())
+            val hm = try {
+                matcher.update(snap, lat, lon, movingHeading, if (loc.hasAccuracy()) loc.accuracy.toDouble() else 15.0)
             } catch (_: Exception) { null }
             if (hm?.way?.id != old?.way?.id) {
                 TripLog.ev("hmm", "way" to hm?.way?.id, "name" to hm?.way?.name, "old" to old?.way?.id, "oldName" to old?.way?.name,
@@ -630,7 +623,7 @@ class DriveService : Service(), LocationListener {
         updateAlertIcons(lat, lon)
         updateSigns(lat, lon, movingHeading)
         updateWeather()
-        try { RainAlert.tick(prefs.rainAlert, (speedMps * 3.6).toInt()) { t, sp -> handler.post { alert(t, sp, beep = false, showMs = 8000) } } } catch (_: Exception) {}
+        try { RainAlert.tick(prefs.rainAlert && !prefs.pureMode, (speedMps * 3.6).toInt()) { t, sp -> handler.post { alert(t, sp, beep = false, showMs = 8000) } } } catch (_: Exception) {}
         if (!Live.ownNav) checkTurn()
         checkCameras(snap, lat, lon, speedMps, movingHeading)
         Live.changed()

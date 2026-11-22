@@ -49,7 +49,7 @@ object RideDigest {
         "start", "tftSock", "tftSession", "tftNavMode", "tftNameTx", "tftInitSkip", "tftReset", "tftResume",
         "tftResumeFresh", "tftPause", "tftDeadReconnect", "tftNoHandshake", "tftWait12Dis", "tftWriteStall",
         "tftBtn", "reroute", "routeForced", "routeHold", "routeShift", "routeErr", "routeProvErr", "arrived",
-        "btEvent", "phoneEv", "navStopBtn", "tftFrameStarve", "mapDns", "note", "tripRestart"
+        "btEvent", "phoneEv", "navStopBtn", "tftFrameStarve", "mapDns", "note"
     )
     private const val MAX_TIMELINE = 400
     private const val MAX_GAPS = 150

@@ -73,16 +73,8 @@ class NavEngine(
 
     /** build-466: danh sách điểm dừng đổi (thêm/xoá/đổi thứ tự) → tìm lại tuyến ở lần cập nhật vị trí kế tiếp. */
     @Volatile var stopsDirty = false
-    // build-498 (Sếp 21/11): km đã đi tính trên TỔNG quãng từ lúc bắt đầu dẫn đường, không reset mỗi
-    // lần định tuyến lại — cộng dồn khoảng cách GPS thực tế đi được (Live.navTraveledM), độc lập với
-    // route.distance (số đó đổi mỗi lần có tuyến mới nên không dùng làm mốc "đã đi" được).
-    private var travLat = 0.0
-    private var travLon = 0.0
-    private var travInit = false
-    // build-484 (Sếp 17/11): "làm mới chuyến" 3 phút (471) BỎ — log 17/11 cho thấy không giảm lag (vẫn 14,3% dù chạy 10 lần).
 
-    fun start(lat: Double, lon: Double, name: String?, internal: Boolean = false) {
-        if (!internal) TripStats.begin(ctx, lat, lon, name)
+    fun start(lat: Double, lon: Double, name: String?) {
         Live.stops.clear(); Live.stopsVersion++
         prefs.saveTrip(lat, lon, name)
         tripStartAt = 0L
@@ -91,10 +83,9 @@ class NavEngine(
         Live.destLon = lon
         Live.destName = name
         Live.destFlag = true
-        if (!internal) { Live.navTraveledM = 0.0; travInit = false }
-        // build-475: làm mới chuyến (internal) giữ tuyến cũ trên màn tới khi có tuyến mới — không để mất đường tím.
-        if (!internal) { Live.route = null; seg = 0 }
+        Live.route = null
         Live.routeError = null
+        seg = 0
         lastTraceRoute = null
         lastTraceStepIndex = -1
         nearDestSince = 0L
@@ -474,12 +465,6 @@ class NavEngine(
 
     fun onLocation(lat: Double, lon: Double, heading: Double?, speedMps: Double, acc: Double = 10.0) {
         if (!Live.ownNav) return
-        TripStats.onLocation(ctx, lat, lon, speedMps * 3.6)
-        if (!travInit) { travLat = lat; travLon = lon; travInit = true } else {
-            val dT = Geo.distance(travLat, travLon, lat, lon)
-            if (dT < 200.0) Live.navTraveledM += dT // bỏ nhảy lớn bất thường (GPS nhiễu/mất tín hiệu)
-            travLat = lat; travLon = lon
-        }
         synchronized(trail) {
             val nowT = SystemClock.elapsedRealtime().toDouble()
             val last = trail.lastOrNull()
@@ -609,7 +594,6 @@ class NavEngine(
             // biệt được với các nguyên nhân khác (bấm nút Kết thúc, bấm nút Dừng trên màn xe...).
             TripLog.ev("arrived", "remaining" to remaining, "straight" to straightDist)
             learnEta()
-            TripStats.finish(ctx)
             alert("Đã đến nơi${Live.destName?.let { ": $it" } ?: ""}", "Đã đến nơi", false)
             finish()
             return
@@ -627,7 +611,6 @@ class NavEngine(
             if (now2 - nearDestSince > 30_000) {
                 TripLog.ev("arrived", "remaining" to remaining, "straight" to straightDist, "why" to "stationaryNearDest")
                 learnEta()
-                TripStats.finish(ctx)
                 alert("Đã đến nơi${Live.destName?.let { ": $it" } ?: ""}", "Đã đến nơi", false)
                 finish()
                 return
@@ -714,12 +697,6 @@ class NavEngine(
         var nextIdx = -1
         for ((k, s) in r.steps.withIndex()) {
             if (k == 0) continue
-            // build-495 (Sếp 21/11): đi thẳng qua ranh giới đổi tên đường cũng sinh 1 Step sign=0
-            // ("Đi thẳng vào <street>") rất gần vị trí hiện tại — nếu dừng ở đây, khoảng cách đếm
-            // ngược hiện gần 0 m suốt đoạn thẳng dài, lặp lại mỗi lần đổi tên đường. Bỏ qua các Step
-            // sign=0 này, chỉ dừng ở chỗ rẽ/đến nơi THẬT — r.cum đã tính liên tục trên toàn tuyến nên
-            // khoảng cách tới đó tự động "nối" qua hết các đoạn thẳng ở giữa.
-            if (s.sign == 0) continue
             if (s.from >= bestI) { next = s; nextIdx = k; break }
         }
         if (next == null) {

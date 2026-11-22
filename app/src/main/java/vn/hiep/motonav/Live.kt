@@ -69,10 +69,6 @@ object Live {
     @Volatile var noticeAt = 0L
     @Volatile var noticeKey: String? = null
     @Volatile var remainingM = 0.0
-    // build-498 (Sếp 21/11): km đã đi tính trên TỔNG quãng từ lúc bắt đầu dẫn đường — cộng dồn khoảng
-    // cách GPS thực tế đi được, không lấy route.distance - remainingM (số đó về gần 0 mỗi lần định
-    // tuyến lại, vì tuyến mới có tổng quãng = đúng bằng quãng còn lại từ vị trí hiện tại).
-    @Volatile var navTraveledM = 0.0
     @Volatile var etaMs = 0L
     @Volatile var snapLat = 0.0
     @Volatile var snapLon = 0.0

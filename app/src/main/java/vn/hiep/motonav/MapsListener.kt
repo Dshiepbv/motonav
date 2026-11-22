@@ -25,8 +25,6 @@ class MapsListener : NotificationListenerService() {
             "com.coloros.mms" to "SMS",
             "com.oplus.mms" to "SMS",
             "com.facebook.orca" to "Messenger",
-            "com.facebook.mlite" to "Messenger",
-            "com.facebook.katana" to "Facebook",
             "org.telegram.messenger" to "Telegram",
             "com.whatsapp" to "WhatsApp",
         )
@@ -50,10 +48,30 @@ class MapsListener : NotificationListenerService() {
         try { notice(sbn) } catch (_: Exception) {}
     }
 
-    /** build-454 (Sếp): cuộc gọi đến + tin nhắn Zalo/SMS/Messenger/Telegram → Live.notice* → vẽ lên ảnh màn xe.
-     *  build-496 (Sếp 21/11): "Bỏ hết phần báo điện thoại, tn zalo mess đi. Ko cần thông báo gì cả" — tắt hẳn,
-     *  không ghi Live.notice* nữa nên [TftLink.drawNotice] cũng không còn gì để vẽ. */
+    /** build-454 (Sếp): cuộc gọi đến + tin nhắn Zalo/SMS/Messenger/Telegram → Live.notice* → vẽ lên ảnh màn xe. */
     private fun notice(sbn: StatusBarNotification) {
+        if (sbn.packageName == packageName) return
+        val n = sbn.notification
+        if (n.flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0) return
+        val ex = n.extras
+        val title = ex.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()?.trim()
+        if (title.isNullOrEmpty()) return
+        val text = (ex.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT) ?: ex.getCharSequence(android.app.Notification.EXTRA_TEXT))?.toString()?.trim()
+        val isCall = n.category == android.app.Notification.CATEGORY_CALL
+        val app = MSG_APPS[sbn.packageName]
+        if (!isCall && app == null) return
+        if (isCall) {
+            // chỉ lúc đổ chuông (có nút trả lời / toàn màn hình), bỏ thông báo "đang gọi" kéo dài
+            val ringing = n.fullScreenIntent != null || (n.actions?.size ?: 0) >= 2
+            if (!ringing) { if (sbn.key == Live.noticeKey) { Live.noticeTitle = null; Live.noticeKey = null }; return }
+        } else if (sbn.isOngoing) return
+        Live.noticeTitle = title
+        Live.noticeText = if (isCall) null else text
+        Live.noticeApp = app
+        Live.noticeCall = isCall
+        Live.noticeKey = sbn.key
+        Live.noticeAt = System.currentTimeMillis()
+        try { TripLog.ev("notice", "call" to isCall, "pkg" to sbn.packageName) } catch (_: Exception) {}
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {

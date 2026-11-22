@@ -816,11 +816,11 @@ class SettingsActivity : Activity() {
             note = "7.27-v2: chờ ACK 300 ms, khung mất thì gửi lại 1 lần, màn kẹt thì ngừng gửi chờ màn tỉnh (không ngắt kết nối), áp dụng ở lần kết nối kế tiếp. NmaxConnect: có ACK là gửi ảnh mới ngay, ảnh không đổi gửi lại mỗi 1 giây, ghi cả khung một lần. MotoNav: dùng \"Mốc gửi ảnh\" bên dưới, ghi giãn 15 ms/KB. Cả hai đều chỉ 1 khung chờ ACK. Đổi là áp dụng ngay.",
         ) { prefs.tftSendMode = it; prefs.tftNmaxStyle = (it == 1); TftLink.nmaxStyle = (it == 1); TftLink.send727 = (it == 0); TftLink.FAST400 = (it != 0) }
         toggle(
-            "Thử: chu kỳ tắt/bật mỗi 5 phút",
+            "Chế độ thuần",
             null,
-            prefs.navCycle5min,
-            note = "Thử nghiệm, chưa rõ có tác dụng: mỗi 5 phút gửi tắt dẫn đường rồi bật lại ngay (giống bấm dừng rồi đi tiếp). Mặc định tắt.",
-        ) { prefs.navCycle5min = it; TftLink.navCycle5min = it }
+            prefs.pureMode,
+            note = "Để so sánh độ lag: bật thì tắt cảnh báo mưa (gọi mạng), banner cuộc gọi/tin nhắn và lưu chỗ đậu xe trên màn TFT. Đổi là áp dụng ngay.",
+        ) { prefs.pureMode = it; TftLink.pureMode = it }
         toggle(
             "Bỏ ảnh trùng",
             null,
