@@ -783,13 +783,39 @@ object TftLink {
      * đúng hình xe nhận được (trước đây chỉ đoán qua ảnh chụp màn xe). */
     private const val RECENT_FRAMES = 10
     private val recentFrames = ArrayDeque<Pair<Int, ByteArray>>()
+    // build-495 (log 20-21/11): "Gửi nhật ký" bấm 2 lần (menu ☰ + Cài đặt) cách nhau ~48s mà giữa
+    // 2 lần không có khung mới nào gửi lên xe → buffer cũ chưa bị xoá, xả lại y nguyên 10 seq +
+    // base64 cũ, trùng lặp trong log. Xoá buffer ngay sau khi xả + chặn xả lại seq đã xả rồi.
+    // Ngoài ra chỉ nạp 1 khung/2s vào buffer (trước đây nạp MỌI khung gửi — toàn khung dính chùm
+    // trong vài ms một lúc, không trải đều theo thời gian để debug).
+    private const val RECENT_CAPTURE_MIN_GAP_MS = 2000L
+    @Volatile private var lastCaptureAtMs = 0L
+    @Volatile private var lastDumpedTftSeq = -1
+
+    private fun captureFrame(seq: Int, jpeg: ByteArray) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastCaptureAtMs < RECENT_CAPTURE_MIN_GAP_MS) return
+        lastCaptureAtMs = now
+        synchronized(recentFrames) {
+            recentFrames.addLast(seq to jpeg)
+            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
+        }
+    }
 
     fun dumpRecentFrames() {
-        val list = synchronized(recentFrames) { recentFrames.toList() }
+        val list = synchronized(recentFrames) {
+            val snap = recentFrames.toList()
+            recentFrames.clear()
+            snap
+        }
         for ((seq, jpg) in list) {
+            // seq quay vòng (LE16) — lùi sâu so với lần xả trước (>1000) coi là seq mới của vòng sau.
+            val wrapped = lastDumpedTftSeq >= 0 && seq < lastDumpedTftSeq - 1000
+            if (!wrapped && seq <= lastDumpedTftSeq) continue
             try {
                 TripLog.ev("tftShot", "seq" to seq, "jpg" to android.util.Base64.encodeToString(jpg, android.util.Base64.NO_WRAP))
             } catch (_: Exception) {}
+            lastDumpedTftSeq = seq
         }
     }
 
@@ -840,10 +866,7 @@ object TftLink {
         // (nếu rốt cuộc vẫn tới) không gây lỗi gì — chỉ đơn giản không còn ai đứng đợi nó ở đây nữa
         // (case 0x50 vẫn cập nhật [ackedFrame] bình thường). CHƯA xác nhận trên xe thật việc rút
         // ngắn này có thực sự giảm "xoay" hay khiến xe dồn khung tệ hơn — cần chạy thử thực tế.
-        synchronized(recentFrames) {
-            recentFrames.addLast(seq to jpeg)
-            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
-        }
+        captureFrame(seq, jpeg)
         val deadline = sentAt + stallWaitMs
         var timedOut = false
         var interrupted = false
@@ -941,6 +964,7 @@ object TftLink {
         skStepAt = now
         val tLat = skTgtLat; val tLon = skTgtLon
         if (tLat == 0.0 && tLon == 0.0) return
+        // build-479 (Sếp 17/11): bỏ nội suy/ngoại suy build-475/476 — về đúng gửi ảnh như chuyến tối 16/11.
         val d = Geo.distance(skLat, skLon, tLat, tLon)
         val cap = skTgtSpeedMps * 2.5 * Math.max(dt, 0.4) + 3.0
         if (d <= cap || d > 150.0) { skLat = tLat; skLon = tLon; return }
@@ -968,6 +992,7 @@ object TftLink {
     @Volatile private var skDistanceM: Int = -1
     @Volatile private var skNextStreet: String? = null
     @Volatile private var skRemainingM: Double = 0.0
+    @Volatile private var skTraveledM: Double = 0.0
     // Khoảng cách từ chỗ rẽ sắp tới -> chỗ rẽ kế tiếp nữa, để luôn nhìn xa đủ qua khỏi chỗ rẽ sắp
     // tới (không cắt cụt đường xanh đúng ngay chỗ rẽ) theo phản hồi thực tế.
     @Volatile private var skThenDistM: Double = 0.0
@@ -1018,6 +1043,7 @@ object TftLink {
         distanceM: Int = -1,
         nextStreet: String? = null,
         remainingM: Double = 0.0,
+        traveledM: Double = 0.0,
         etaMs: Long = 0L,
         currentStreet: String? = null,
         wxCat: Int? = null,
@@ -1089,6 +1115,7 @@ object TftLink {
         skDistanceM = distanceM
         skNextStreet = nextStreet
         skRemainingM = remainingM
+        skTraveledM = traveledM
         skEtaMs = etaMs
         skThenDistM = thenDistM
     }
@@ -1291,7 +1318,10 @@ object TftLink {
             // Theo yêu cầu (27/10): bỏ quy tắc nới khung theo khoảng cách tới chỗ rẽ (turnDist+150) —
             // chỗ rẽ xa vài km làm khung nới tới 3600 m, đường gần xe bị nén ngắn tũn. Tầm nhìn chỉ
             // theo mức zoom tốc độ + nút zoom; đoạn xa hơn vẫn được vẽ (nén) nhờ [drawAhead].
-            val maxAhead = baseMaxAhead
+            // build-473 (Sếp 16/11, ý số 2): gần khúc rẽ thật (≤200 m) phóng to dần để thấy rõ ngã tư (đến ~0,6 lần tầm nhìn tại 40 m).
+            val realTurn = skRoundabout || skSign in intArrayOf(-3, -2, 2, 3, 6, -8, 8, -98)
+            val turnZoom = if (realTurn && skDistanceM in 0..200) 1.0 - 0.4 * ((200 - maxOf(skDistanceM, 40)) / 160.0).coerceIn(0.0, 1.0) else 1.0
+            val maxAhead = (baseMaxAhead * turnZoom).coerceIn(250.0, 3600.0)
             // Theo phản hồi thực tế nhiều lần "đường xanh chỉ tô khi chạy gần tới": mức zoom lúc đi
             // chậm (<50km/h → maxAhead còn 1/3, tức ~600m) trước đây bị dùng LUÔN làm luôn cả khoảng
             // vẽ tuyến (iEnd0) lẫn lưới nhánh đường — nghĩa là đoạn đường xa hơn 600m KHÔNG hề được
@@ -1761,39 +1791,8 @@ object TftLink {
                 val labelPaint = Paint().apply { color = if (dk) Color.BLACK else Color.WHITE; textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
                 val leaderPaint = Paint().apply { color = Color.rgb(60, 64, 72); style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
-                val padX = h * 0.022f; val padY = h * 0.02f
-                // build-506 (Sếp 22/11): điểm neo (chỗ sắp rẽ) nằm NGOÀI màn hiển thị → thay vì tìm
-                // hướng đặt nhãn quanh 1 điểm ngoài màn (vô nghĩa), ghim cố định ở CẠNH TRÊN: rẽ trái
-                // → bên trái, rẽ phải → bên phải; tên đường dài quá 4-5 chữ thì xuống dòng (tối đa 2 dòng).
-                val anchorOffscreen = mx < mapL || mx > w || my < 0f || my > h
-                if (anchorOffscreen) {
-                    fun wrapLabel(s: String): List<String> {
-                        if (s.length <= 5) return listOf(s)
-                        val sp = s.lastIndexOf(' ', s.length / 2 + 2).let { if (it <= 0) s.indexOf(' ', 4) else it }
-                        return if (sp in 1 until s.length - 1) listOf(s.substring(0, sp), s.substring(sp + 1)) else listOf(s)
-                    }
-                    val lines = wrapLabel(nextSt)
-                    val tw2 = lines.maxOf { labelPaint.measureText(it) }
-                    val fm3 = labelPaint.fontMetrics
-                    val lineH = fm3.descent - fm3.ascent
-                    val goLeft = skSign < 0
-                    val lx0 = if (goLeft) mapL + tw2 / 2f + padX + 4f else w - tw2 / 2f - padX - 2f
-                    val ly0 = h * 0.1f + padY - fm3.ascent
-                    val left = lx0 - tw2 / 2f - padX; val right = lx0 + tw2 / 2f + padX
-                    val top = ly0 + fm3.ascent - padY; val bottom = ly0 + fm3.ascent + lineH * lines.size - fm3.ascent + padY
-                    c.drawLine(mx.coerceIn(mapL, w.toFloat()), my.coerceIn(0f, h.toFloat()), lx0, ly0, leaderPaint)
-                    if (snapShot != null) {
-                        val pf = if (dk) Color.WHITE else Color.BLACK
-                        val pt2 = if (dk) Color.BLACK else Color.WHITE
-                        c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), h * 0.03f, h * 0.03f,
-                            Paint().apply { color = pf; style = Paint.Style.FILL; isAntiAlias = true })
-                        for ((li, ln) in lines.withIndex()) c.drawText(ln, lx0, ly0 + lineH * li, Paint(labelPaint).apply { color = pt2 })
-                    } else {
-                        val outlinePaint2 = Paint(labelPaint).apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
-                        for ((li, ln) in lines.withIndex()) { c.drawText(ln, lx0, ly0 + lineH * li, outlinePaint2); c.drawText(ln, lx0, ly0 + lineH * li, labelPaint) }
-                    }
-                } else {
                 val tw = labelPaint.measureText(nextSt)
+                val padX = h * 0.022f; val padY = h * 0.02f
                 // Ảnh thực tế (27/10): nền đen của nhãn nằm ĐÈ lên đúng đoạn tuyến đỏ quanh khúc rẽ
                 // (nhãn vẽ sau tuyến, neo lệch lên-phải cố định) — nhìn như tuyến đỏ bị mất đoạn. Thử 4
                 // hướng đặt nhãn quanh điểm neo, chọn hướng có ít điểm tuyến lọt vào khung nhãn nhất.
@@ -1852,112 +1851,10 @@ object TftLink {
                     c.drawText(nextSt, cxText, bx[1], outlinePaint)
                     c.drawText(nextSt, cxText, bx[1], labelPaint)
                 }
-                }
             }
-            // ---- Tên đường kiểu "biển" trên nền ảnh bản đồ (phương án A): khung đặc + chữ đậm, không viền; chữ nằm dọc theo
-            // đường như nhãn bản đồ (luôn đọc xuôi, không lộn ngược). Tối đa 4 tên, né tuyến đỏ và các khung ETA/biển tốc độ.
-            if (snapShot != null) {
-                try {
-                    val ways = Live.osm?.ways
-                    if (ways != null) {
-                        val plateFill = if (dk) Color.WHITE else Color.BLACK
-                        val plateText = if (dk) Color.BLACK else Color.WHITE
-                        val tp = Paint().apply { color = plateText; textSize = h * 0.07f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                        val fm = tp.fontMetrics
-                        val textH = fm.descent - fm.ascent
-                        val padX = h * 0.025f; val padY = h * 0.012f
-                        val sl = mapL + w * 0.05f; val sr = w * 0.95f; val st = h * 0.2f; val sb = minOf(h * 0.84f, mapB - h * 0.06f)
-                        fun inSafe(x: Float, y: Float) = x in sl..sr && y in st..sb &&
-                            !(x > w * 0.78f && y < h * 0.4f) && !(y > anchorY - h * 0.14f && y < anchorY + h * 0.1f && (x < w * 0.3f || x > w * 0.7f))
-                        class Cand(val name: String, val x: Float, val y: Float, val ang: Float, val score: Float)
-                        val cands = ArrayList<Cand>()
-                        val seen = HashSet<String>()
-                        for (wy in ways) {
-                            val nm = wy.name ?: continue
-                            if (nm.isBlank() || wy.highway in setOf("footway", "path", "steps", "cycleway", "pedestrian", "track", "service")) continue
-                            if (Math.abs(wy.minLat - skLat) > 0.01 || Math.abs(wy.minLon - skLon) > 0.01) continue
-                            val tw = tp.measureText(nm) + padX * 2
-                            // điểm màn hình của từng đỉnh
-                            val n = wy.lats.size
-                            val xs = FloatArray(n); val ys = FloatArray(n)
-                            for (i in 0 until n) {
-                                val ddx = proj.x(wy.lons[i]); val ddy = proj.y(wy.lats[i])
-                                val q = toScreen(ddx * cosH - ddy * sinH, ddx * sinH + ddy * cosH)
-                                xs[i] = q[0]; ys[i] = q[1]
-                            }
-                            // đoạn liên tiếp trong vùng an toàn dài nhất
-                            var bestLen = 0f; var bi = -1; var bj = -1
-                            var i = 0
-                            while (i < n) {
-                                if (xs[i].isNaN() || ys[i].isNaN() || !inSafe(xs[i], ys[i])) { i++; continue }
-                                var j = i; var len = 0f
-                                while (j + 1 < n && !xs[j + 1].isNaN() && !ys[j + 1].isNaN() && inSafe(xs[j + 1], ys[j + 1])) {
-                                    len += Math.hypot((xs[j + 1] - xs[j]).toDouble(), (ys[j + 1] - ys[j]).toDouble()).toFloat(); j++
-                                }
-                                if (len > bestLen) { bestLen = len; bi = i; bj = j }
-                                i = j + 1
-                            }
-                            if (bi < 0 || bestLen < tw * 0.85f) continue
-                            // điểm giữa đoạn + hướng cục bộ
-                            var half = bestLen / 2f; var cx0 = xs[bi]; var cy0 = ys[bi]; var ang = 0f
-                            for (k in bi until bj) {
-                                val d = Math.hypot((xs[k + 1] - xs[k]).toDouble(), (ys[k + 1] - ys[k]).toDouble()).toFloat()
-                                if (d >= half || k == bj - 1) {
-                                    val f = if (d > 0f) (half / d).coerceIn(0f, 1f) else 0f
-                                    cx0 = xs[k] + (xs[k + 1] - xs[k]) * f; cy0 = ys[k] + (ys[k + 1] - ys[k]) * f
-                                    ang = Math.toDegrees(Math.atan2((ys[k + 1] - ys[k]).toDouble(), (xs[k + 1] - xs[k]).toDouble())).toFloat()
-                                    break
-                                }
-                                half -= d
-                            }
-                            // build-443 (Sếp: chữ siêu nét): chữ NGANG, không xoay theo đường (xoay = răng cưa/nhòe sau JPEG)
-                            ang = 0f
-                            cx0 = Math.round(cx0).toFloat(); cy0 = Math.round(cy0).toFloat()
-                            val cls = when (wy.highway) { "motorway", "trunk", "primary", "motorway_link", "trunk_link", "primary_link" -> 0; "secondary", "secondary_link" -> 1; "tertiary", "tertiary_link" -> 2; else -> 3 }
-                            val onRoute = nextSt != null && nm == nextSt
-                            val dist = Math.hypot((cx0 - anchorX).toDouble(), (cy0 - anchorY).toDouble()).toFloat()
-                            val score = (if (onRoute) -10000f else 0f) + cls * 150f + dist
-                            if (seen.add(nm)) cands.add(Cand(nm, cx0, cy0, ang, score))
-                        }
-                        cands.sortBy { it.score }
-                        val placed = ArrayList<FloatArray>()
-                        for (cd in cands) {
-                            if (placed.size >= 4) break
-                            val tw = tp.measureText(cd.name)
-                            val bw = tw + padX * 2; val bh = textH + padY * 2
-                            val rad = Math.toRadians(cd.ang.toDouble())
-                            val hw = (Math.abs(Math.cos(rad)) * bw / 2 + Math.abs(Math.sin(rad)) * bh / 2).toFloat()
-                            val hh = (Math.abs(Math.sin(rad)) * bw / 2 + Math.abs(Math.cos(rad)) * bh / 2).toFloat()
-                            val l = cd.x - hw; val r = cd.x + hw; val t = cd.y - hh; val b = cd.y + hh
-                            if (l < 0f || r > w || t < 0f || b > h) continue
-                            var clash = false
-                            for (pb in placed) if (!(r < pb[0] || l > pb[1] || b < pb[2] || t > pb[3])) { clash = true; break }
-                            if (clash) continue
-                            // né tuyến đỏ
-                            for (q in 1 until routePx.size) {
-                                val p0 = routePx[q - 1]; val p1 = routePx[q]
-                                if (maxOf(p0[0], p1[0]) < l - 4f || minOf(p0[0], p1[0]) > r + 4f || maxOf(p0[1], p1[1]) < t - 4f || minOf(p0[1], p1[1]) > b + 4f) continue
-                                val steps = (Math.hypot((p1[0] - p0[0]).toDouble(), (p1[1] - p0[1]).toDouble()) / 4.0).toInt().coerceAtLeast(1)
-                                for (kk in 0..steps) {
-                                    val f = kk.toFloat() / steps
-                                    val px = p0[0] + (p1[0] - p0[0]) * f; val py = p0[1] + (p1[1] - p0[1]) * f
-                                    if (px in (l - 4f)..(r + 4f) && py in (t - 4f)..(b + 4f)) { clash = true; break }
-                                }
-                                if (clash) break
-                            }
-                            if (clash) continue
-                            placed.add(floatArrayOf(l, r, t, b))
-                            c.save()
-                            c.rotate(cd.ang, cd.x, cd.y)
-                            c.drawRoundRect(android.graphics.RectF(cd.x - bw / 2, cd.y - bh / 2, cd.x + bw / 2, cd.y + bh / 2), bh * 0.3f, bh * 0.3f,
-                                Paint().apply { color = plateFill; style = Paint.Style.FILL; isAntiAlias = true })
-                            c.drawText(cd.name, cd.x, Math.round(cd.y - (fm.ascent + fm.descent) / 2f).toFloat(), tp)
-                            c.restore()
-                        }
-                    }
-                } catch (_: Throwable) {
-                }
-            }
+            // build-503 (Sếp 21/11): bỏ hẳn biển tên đường nhánh (OSM ways) trên nền bản đồ — Sếp đã
+            // yêu cầu bỏ thỉnh thoảng-hiện-tên-đường-nhánh trước đó; lần trước chỉ bỏ nhầm layer khác
+            // (motonav_road_name trong MapSnap) còn khối này (phương án A, build-443) vẫn chạy.
             // Tuyến chính đỏ tươi — vẽ SAU CÙNG trong phần bản đồ (sau nhánh đường + nhãn) để không gì
             // che được. Thêm viền đen dày bên dưới: JPEG chất lượng thấp (4:2:0) làm nhạt màu đỏ ở
             // chỗ nét đỏ chạm sát nét trắng; nền đen đồng nhất quanh nét giữ màu đỏ rõ hơn.
@@ -2113,58 +2010,56 @@ object TftLink {
             c.drawPath(carPath, Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 4f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
             c.drawPath(carPath, carPaint)
         } else drawCar3D(c, carX, anchorY, carR)
-        // Biển tốc độ tối đa, góc trên bên phải — theo yêu cầu. Vẽ kiểu biển báo VN (viền đỏ, nền
-        // trắng, số đen) để nhận ra ngay là giới hạn tốc độ chứ không phải số liệu khác.
-        // build-426: khung đen vẽ TRƯỚC biển tốc độ (biển nằm trong khung, giữa nút + và − của đồng hồ).
         if (mapClip >= 0) { c.restoreToCount(mapClip); mapClip = -1 }
         val panels = PANELS_ALWAYS || (skActive && skRoute != null)
         if (panels) drawGarminPanels(c, w, h, dk)
         val lim = skLimitKmh
-        var limBottomY = h * 0.03f
-        if (lim != null && lim > 0) {
-            // build-433 (Sếp): sắp đổi tốc độ → biển hiện tại ngang nút +, biển kế tiếp ngang nút −.
-            val nextOn = skNextLimit.let { it != null && it > 0 && it < lim } && skNextLimitDist in 0..100
-            // build-457 (Sếp 16/11): chỉ 1 biển, luôn ở vị trí cao; sắp đổi tốc độ thì biển MỚI đè lên + vòng vàng đếm ngược.
-            val cx = if (panels) w * 0.158f else w * 0.90f; val cy = if (panels) h * 0.565f else h * 0.50f; val r = if (panels) h * 0.09f else h * 0.105f // build-460: biển tốc độ xuống dưới, thời tiết lên trên (Sếp)
-            val ringPaint = Paint().apply { color = Color.rgb(220, 30, 30); style = Paint.Style.FILL; isAntiAlias = true }
-            val facePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
-            val numPaint = Paint().apply { color = Color.BLACK; textSize = r * 1.15f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            c.drawCircle(cx, cy, r, ringPaint)
-            c.drawCircle(cx, cy, r * 0.78f, facePaint)
-            val fm = numPaint.fontMetrics
-            c.drawText((if (nextOn) skNextLimit!! else lim).toString(), cx, cy - (fm.ascent + fm.descent) / 2f, numPaint)
-            limBottomY = cy + r
-            if (nextOn) {
-                val arcR = r + h * 0.022f
-                val arcPaint = Paint().apply { color = Color.rgb(255, 196, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                c.drawArc(android.graphics.RectF(cx - arcR, cy - arcR, cx + arcR, cy + arcR), -90f, 360f * skNextLimitDist / 100f, false, arcPaint)
-                limBottomY = cy + arcR
+        val limBottomY = h * 0.03f // build-496: chỉ còn giữ cho nhánh dead-code (if(false)) phía dưới dùng tới tên biến.
+        // build-496 (Sếp 21/11): "Bỏ hết mảng tốc độ tối đa, chỗ đó hiện số km đã đi được, kiểu phân
+        // số: trên là km đã đi, gạch ngang, dưới là km còn lại, cuối chữ km bé" — bỏ hẳn biển tốc độ
+        // tối đa + biển sắp đổi tốc độ trên màn xe (giữ nguyên biển giới hạn/cảnh báo tốc độ ở màn
+        // điện thoại, chỉ bỏ hình vẽ này); gộp luôn ô "km còn lại" cũ (build-494) vào chung 1 ô phân số.
+        try {
+            if (skActive && skRoute != null && Live.maneuverSign != 4) {
+                fun fmtKm(km: Double) = if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')
+                val remKm = skRemainingM / 1000.0
+                val travKm = skTraveledM / 1000.0
+                val fcx = if (panels) w * 0.158f else w * 0.90f
+                val linePaint = Paint().apply { color = Color.WHITE; strokeWidth = h * 0.006f; isAntiAlias = true }
+                if (panels) {
+                    // build-501 (Sếp 21/11): gọn lại vào giữa khe 2 nút +/− (trước build-498/499 kéo dài xuống
+                    // sát thanh firmware) — km đã đi cao hơn 1 chút phía trên gạch, chữ "KM" (viết hoa) ngay
+                    // dưới chân số km còn lại thay vì tuốt dưới cùng.
+                    val yLine = h * 0.40f
+                    val travSz = h * 0.115f // build-502 (Sếp 21/11): "bé tí" — tăng lại từ 0.085f
+                    val remSz = h * 0.115f
+                    val travPaint = Paint().apply { color = Color.WHITE; textSize = travSz; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    val remPaint = Paint().apply { color = Color.WHITE; textSize = remSz; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.055f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    val lineHalfW = maxOf(travPaint.measureText(fmtKm(travKm)), remPaint.measureText(fmtKm(remKm))) * 0.6f
+                    val remBaseline = yLine + remSz * 1.05f
+                    c.drawText(fmtKm(travKm), fcx, yLine - travSz * 0.55f, travPaint)
+                    c.drawLine(fcx - lineHalfW, yLine, fcx + lineHalfW, yLine, linePaint)
+                    c.drawText(fmtKm(remKm), fcx, remBaseline, remPaint)
+                    c.drawText("KM", fcx, remBaseline + remSz * 0.55f, unitPaint2)
+                } else {
+                    val yTrav = h * 0.15f; val yLine = h * 0.185f; val yRem = h * 0.285f; val yUnit = h * 0.335f
+                    val numPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.12f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.055f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+                    val lineHalfW = numPaint2.measureText(fmtKm(maxOf(remKm, travKm))) * 0.75f
+                    c.drawText(fmtKm(travKm), fcx, yTrav, numPaint2)
+                    c.drawLine(fcx - lineHalfW, yLine, fcx + lineHalfW, yLine, linePaint)
+                    c.drawText(fmtKm(remKm), fcx, yRem, numPaint2)
+                    c.drawText("km", fcx, yUnit, unitPaint2)
+                }
             }
-            // build-320: biển GIẢM tốc phía trước ≤100 m → biển mới cạnh biển hiện tại + vòng vàng đếm mét + số mét.
-            val nl = skNextLimit
-            val nd = skNextLimitDist
-            if (nl != null && nl > 0 && nl < lim && nd in 0..100 && NEXT_SIGN_2) { // build-457: bỏ biển thứ 2
-                // build-410 (Sếp): biển sắp đổi chuyển xuống DƯỚI biển tốc độ (bên cạnh dành cho biển cấm rẽ).
-                val nr = r * 0.8f; val ncx = cx; val ncy = if (panels) h * 0.555f else cy + r + h * 0.04f + nr
-                c.drawCircle(ncx, ncy, nr, ringPaint)
-                c.drawCircle(ncx, ncy, nr * 0.78f, facePaint)
-                val np = Paint(numPaint).apply { textSize = nr * 1.15f }
-                val fm2 = np.fontMetrics
-                c.drawText(nl.toString(), ncx, ncy - (fm2.ascent + fm2.descent) / 2f, np)
-                val arcR = nr + h * 0.022f
-                val arcPaint = Paint().apply { color = Color.rgb(255, 196, 0); style = Paint.Style.STROKE; strokeWidth = h * 0.02f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
-                c.drawArc(android.graphics.RectF(ncx - arcR, ncy - arcR, ncx + arcR, ncy + arcR), -90f, 360f * nd / 100f, false, arcPaint)
-                val dp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.075f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                if (!panels) c.drawText("$nd m", ncx - arcR - h * 0.012f - dp.measureText("$nd m") / 2f, ncy + h * 0.025f, dp)
-                limBottomY = ncy + arcR
-            }
-        }
+        } catch (_: Throwable) {}
         // build-457 (Sếp 16/11): dưới biển tốc độ = biểu tượng thời tiết (nắng/mây/mưa/bão); có mưa phía trước thì
         // dưới biểu tượng đếm ngược km tới vùng mưa.
         try {
             val wc = RainAlert.iconCat
             val nearDest2 = Live.maneuverSign == 4
-            if (wc != null) {
+            if (wc != null && false) { // build-480 (Sếp 17/11): bỏ biểu tượng thời tiết — hay sai (nắng vẫn hiện mây).
                 // build-460 (Sếp 16/11): biểu tượng thời tiết TO hơn, ở vị trí cao (đổi chỗ với biển tốc độ).
                 val ir = h * 0.135f
                 val icx = if (panels) w * 0.158f else w * 0.90f
@@ -2488,29 +2383,46 @@ object TftLink {
         val title = Live.noticeTitle ?: return
         val age = System.currentTimeMillis() - Live.noticeAt
         if (age > (if (Live.noticeCall) 45_000L else 8_000L)) { Live.noticeTitle = null; return }
-        val left = if (PANELS_ALWAYS || (skActive && skRoute != null)) w * PANEL_W_FRAC + 6f else 6f
-        val right = w * 0.80f
-        val top = h * 0.02f
-        val bh = h * 0.21f
-        val bg = Paint().apply { color = if (Live.noticeCall) Color.rgb(20, 110, 40) else Color.rgb(18, 18, 22); isAntiAlias = true }
-        c.drawRoundRect(android.graphics.RectF(left, top, right, top + bh), 10f, 10f, bg)
-        c.drawRoundRect(android.graphics.RectF(left, top, right, top + bh), 10f, 10f,
-            Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true })
-        val maxW = right - left - 16f
-        fun fit(txt: String, p: Paint): String {
-            if (p.measureText(txt) <= maxW) return txt
-            var t = txt
-            while (t.length > 1 && p.measureText("$t…") > maxW) t = t.dropLast(1)
-            return "$t…"
+        // build-477 (Sếp 17/11): khung bên PHẢI, rộng ~40% phần bản đồ (đường tím ở giữa vẫn thấy), cao co giãn theo nội dung.
+        // build-485: bỏ số phút còn lại ở góc dưới phải → khung tin nhắn giãn tới sát thanh firmware.
+        val mapL = if (PANELS_ALWAYS || (skActive && skRoute != null)) w * PANEL_W_FRAC else 0f
+        val right = w - 6f
+        val left = right - (w - mapL) * 0.40f
+        val top = h * 0.03f
+        val bottomMax = h * FW_TOP_FRAC - h * 0.015f
+        val pad = 8f
+        val maxW = right - left - pad * 2
+        val tp = Paint().apply { color = Color.WHITE; textSize = h * 0.075f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+        val bp = Paint().apply { color = Color.rgb(225, 225, 230); textSize = h * 0.065f; isAntiAlias = true }
+        fun wrap(txt: String, p: Paint): List<String> {
+            val out = ArrayList<String>(); var line = ""
+            for (word in txt.replace('\n', ' ').split(' ').filter { it.isNotEmpty() }) {
+                val cand = if (line.isEmpty()) word else "$line $word"
+                if (p.measureText(cand) <= maxW) line = cand
+                else {
+                    if (line.isNotEmpty()) out.add(line)
+                    var wd = word
+                    while (p.measureText(wd) > maxW && wd.length > 1) { var k = wd.length; while (k > 1 && p.measureText(wd.substring(0, k)) > maxW) k--; out.add(wd.substring(0, k)); wd = wd.substring(k) }
+                    line = wd
+                }
+            }
+            if (line.isNotEmpty()) out.add(line)
+            return out
         }
-        val tp = Paint().apply { color = Color.WHITE; textSize = h * 0.085f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
         val head = (if (Live.noticeCall) "Gọi: " else (Live.noticeApp?.let { "$it: " } ?: "")) + title
-        c.drawText(fit(head, tp), left + 8f, top + bh * 0.44f, tp)
-        val body = Live.noticeText
-        if (!body.isNullOrBlank()) {
-            val bp = Paint().apply { color = Color.rgb(225, 225, 230); textSize = h * 0.07f; isAntiAlias = true }
-            c.drawText(fit(body.replace('\n', ' '), bp), left + 8f, top + bh * 0.86f, bp)
-        }
+        val hl = wrap(head, tp).take(2)
+        val th = tp.textSize * 1.15f; val bhL = bp.textSize * 1.15f
+        val room = ((bottomMax - top - pad * 2 - hl.size * th) / bhL).toInt().coerceAtLeast(0)
+        var bl = Live.noticeText?.takeIf { it.isNotBlank() }?.let { wrap(it, bp) } ?: emptyList()
+        if (bl.size > room) { bl = bl.take(room); if (bl.isNotEmpty()) bl = bl.dropLast(1) + (bl.last().dropLast(1) + "…") }
+        val boxH = pad * 2 + hl.size * th + bl.size * bhL
+        val rect = android.graphics.RectF(left, top, right, top + boxH)
+        c.drawRoundRect(rect, 10f, 10f, Paint().apply { color = if (Live.noticeCall) Color.rgb(20, 110, 40) else Color.argb(235, 18, 18, 22); isAntiAlias = true })
+        c.drawRoundRect(rect, 10f, 10f, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true })
+        var y = top + pad - tp.fontMetrics.ascent * 0.95f
+        for (l in hl) { c.drawText(l, left + pad, y, tp); y += th }
+        y += (bhL - th)
+        for (l in bl) { c.drawText(l, left + pad, y, bp); y += bhL }
     }
 
     /**
@@ -2551,7 +2463,7 @@ object TftLink {
             val tw = big.measureText(num) + small.measureText(unit) + h * 0.01f
             var bx = cx - tw / 2f
             if (tw > pw - 8f) { big.textSize *= (pw - 8f) / tw; bx = 4f }
-            val by = h * 0.19f
+            val by = h * 0.14f // build-496 (Sếp 21/11): dời số m tới điểm rẽ lên trên (trước h*0.19f)
             big.textAlign = Paint.Align.LEFT
             c.drawText(num, bx, by, big)
             c.drawText(unit, bx + big.measureText(num) + h * 0.01f, by, small)
@@ -2572,28 +2484,14 @@ object TftLink {
             c.drawText(l1, cx, base - lh, sp)
             c.drawText(side, cx, base, sp)
         }
-        // build-430 (Sếp): bỏ dải dưới. Giờ tới (ETA) nằm trong khung đen, dưới nút − của đồng hồ;
-        // thời gian còn lại + km còn lại ở góc dưới bên phải bản đồ, không nền (viền chữ), trên thanh firmware.
+        // build-430 (Sếp): bỏ dải dưới. Giờ tới (ETA) nằm trong khung đen, dưới nút − của đồng hồ.
+        // build-486 (Sếp 17/11): bỏ hẳn số km góc dưới phải — bên trái (ô vuông) đã có km còn lại rồi.
         if (skEtaMs > 0L) {
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
             val etaTxt = String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
             val ep = tp(h * 0.13f, true, Paint.Align.CENTER) // build-432: to hơn, thấp hơn (Sếp)
             if (ep.measureText(etaTxt) > pw - 6f) ep.textSize *= (pw - 6f) / ep.measureText(etaTxt)
             if (!nearDest) c.drawText(etaTxt, cx, hb - h * 0.004f, ep)
-            val remMin = (skEtaMs / 60000L).toInt()
-            val leftTxt = if (remMin >= 60) String.format(java.util.Locale.US, "%d g %02d", remMin / 60, remMin % 60) else "$remMin ph"
-            val km = skRemainingM / 1000.0
-            val kmTxt = (if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')) + " km"
-            val rp = Paint().apply { color = if (dk) Color.WHITE else Color.BLACK; textSize = h * 0.10f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.RIGHT }
-            val halo = Paint(rp).apply { color = if (dk) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
-            val fm = rp.fontMetrics
-            val lineH = (fm.descent - fm.ascent) * 0.92f
-            val right = w - w * 0.02f
-            val base = hb - h * 0.03f
-            listOf(leftTxt, kmTxt).forEachIndexed { k, s ->
-                val y = base - lineH * (1 - k)
-                c.drawText(s, right, y, halo); c.drawText(s, right, y, rp)
-            }
         }
     }
 
@@ -2804,7 +2702,9 @@ object TftLink {
                 // build-441 (Sếp: "đỡ nóng máy"): chỉ dựng ảnh khi sắp cần gửi. Trước dựng ~7,6 ảnh/s mà chỉ gửi ~1/s (87% bỏ).
                 // Hộp thư còn ảnh mới (≤150 ms; ≤400 ms nếu bộ gửi còn chờ ACK) thì chưa dựng.
                 val boxed = if (PIPE_V2) mailbox.get() else null
-                if (boxed != null && android.os.SystemClock.elapsedRealtime() - boxed.createdAtElapsedMs < (if (txAwaitingAck) 400L else 150L)) {
+                // build-470 (Sếp 16/11 "không bao giờ để đói ảnh"): bỏ giãn 900 ms của 469. Hộp thư luôn có ảnh ≤250 ms khi chờ ACK;
+                // ACK về là gửi NGAY (ảnh mới nếu có, không thì ảnh gần nhất sau ≤40 ms). Chuỗi gửi không bao giờ chờ dựng ảnh.
+                if (boxed != null && android.os.SystemClock.elapsedRealtime() - boxed.createdAtElapsedMs < (if (txAwaitingAck) 400L else 150L)) { // build-482: về đúng 400/150 ms như chuyến tối 16/11 (build 465)
                     sleepQuiet(30); continue
                 }
                 if (!calibRunning && !routeTestRunning) {
@@ -3140,6 +3040,7 @@ object TftLink {
     /** Gọi khi xe gửi cmd 49 (bấm nút "Dừng dẫn đường" trên màn xe) — DriveService gán để dừng
      * dẫn đường thật khi người dùng bấm nút này trên đồng hồ xe thay vì trong app. */
     @Volatile var onStopRequested: (() -> Unit)? = null
+    @Volatile private var textDeferred = false
     // build-417 (Sếp: "setup các nút như zin"): menu của màn xe — Về nhà (53), Đi làm (54), Yêu thích (55·3), Trạm xăng (55·4),
     // chọn 1 mục trong danh sách (48), Dừng dẫn đường (49). Mã lệnh theo tài liệu công khai của NmaxConnect (docs/bike-protocol.md).
     @Volatile var homeSaved = false
@@ -3684,6 +3585,7 @@ object TftLink {
                             if (v == 1) {
                                 val was = dashPaused
                                 dashPaused = false
+                                if (textDeferred) { textDeferred = false; try { TripLog.ev("tftTextAfterResume") } catch (_: Exception) {} } // build-474: không gửi lại tên điểm đến/bật dẫn đường lần 2
                                 resumeCount++
                                 sendInitBurst(onResume = true)
                                 try { TripLog.ev("tftResume", "wasPaused" to was,
@@ -3808,10 +3710,7 @@ object TftLink {
             lastFrameError = "Gửi khung lỗi (mất kết nối)"
             return false
         }
-        synchronized(recentFrames) {
-            recentFrames.addLast(seq to jpeg)
-            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
-        }
+        captureFrame(seq, jpeg)
 
         var softTimeoutLogged = false
         var hardTimeout = false
@@ -3906,10 +3805,7 @@ object TftLink {
         val ok = sendPaced(pack(payload, 0, 1))
         lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt()
         if (!ok) { lastFrameError = "Gửi khung lỗi (mất kết nối)"; return false }
-        synchronized(recentFrames) {
-            recentFrames.addLast(seq to jpeg)
-            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
-        }
+        captureFrame(seq, jpeg)
         statBytes += jpeg.size
         v2Sent++
         frameTxCount++
@@ -4074,10 +3970,7 @@ object TftLink {
         val ok = sendPaced(packet)
         lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt()
         if (!ok) { lastFrameError = "Gửi khung lỗi (mất kết nối)"; return null }
-        synchronized(recentFrames) {
-            recentFrames.addLast(seq to jpeg)
-            while (recentFrames.size > RECENT_FRAMES) recentFrames.removeFirst()
-        }
+        captureFrame(seq, jpeg)
         var timedOut = false
         synchronized(ackLock) {
             while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
@@ -4394,6 +4287,7 @@ object TftLink {
         return String.format(java.util.Locale.US, "ETA: %02d:%02d - %02d:%02d - ", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), remMin / 60, remMin % 60) + kmTxt
     }
 
+    @Volatile var navCycle5min = false
     @Volatile private var navModeSentAt = 0L
     @Volatile private var dupSkipped = 0
     // build-460 (Sếp 16/11 14:21): ride b459 với lọc ảnh trùng (~55 ảnh/phút thay vì ~270) đứng hình 27% (b456 sáng nay 3%) → tắt lại.
@@ -4405,6 +4299,9 @@ object TftLink {
 
     fun update(active: Boolean, sign: Int, roundabout: Boolean, distanceM: Int, road: String, currentStreet: String, etaMinutes: Int) {
         if (!authed) return
+        // build-473 (Sếp 16/11, ý số 5): bấm Home/Work trên tay lái làm xe vào menu (tạm dừng) — không gửi gói chữ/bật dẫn đường lúc đó
+        // (nghi gây rớt 1 lần); gửi sau khi xe cho tiếp tục (55 v=1).
+        if (dashPaused) { textDeferred = true; return }
         if (textOffNow()) { textWasOff = true; return }
         if (textWasOff) { textWasOff = false; lastSentKey = ""; lastSentName = ""; lastSentEta = -1 }
         // Nhãn nguồn dưới tam giác vị trí trên xe: đã đổi qua lại vài lần qua các bản (tên đường
@@ -4432,7 +4329,7 @@ object TftLink {
         }
         // build-447 (Sếp 15/11): log 11 chuyến — 0–6 phút sau khi bật dẫn đường đứng hình ~18%, sau 10 phút ~30%.
         // build-449 (Sếp 15/11): mỗi 5 phút gửi TẮT rồi ~0,5 s sau BẬT dẫn đường (giống huỷ rồi mở lại chuyến), không gửi tên điểm đến.
-        if (lastSentKey != "off" && lastSentKey.isNotEmpty() && System.currentTimeMillis() - navModeSentAt >= NAV_MODE_REFRESH_MS) {
+        if (navCycle5min && lastSentKey != "off" && lastSentKey.isNotEmpty() && System.currentTimeMillis() - navModeSentAt >= NAV_MODE_REFRESH_MS) { // build-484: option thử lại (mặc định tắt, build-474 từng tắt vì gây nháy)
             navModeSentAt = System.currentTimeMillis()
             Thread {
                 try {

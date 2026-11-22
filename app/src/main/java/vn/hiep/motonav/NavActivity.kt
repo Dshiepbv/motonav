@@ -3,6 +3,7 @@ package vn.hiep.motonav
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -12,6 +13,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -1235,6 +1237,21 @@ class NavActivity : Activity() {
         }
     }
 
+    /** build-472 (Sếp): đang trong ô tìm kiếm thì Back chỉ đóng tìm kiếm, quay về bản đồ — không thoát app. */
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        val searching = searchInput.hasFocus() || results.childCount > 0 || searchInput.text.isNotEmpty() || portraitMap?.visibility == View.GONE
+        if (searching) {
+            ui.removeCallbacks(searchRunnable)
+            results.removeAllViews()
+            searchInput.setText("")
+            hideKeyboard()
+            searchMode(false)
+            return
+        }
+        super.onBackPressed()
+    }
+
     private fun hideKeyboard() {
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
@@ -1330,10 +1347,25 @@ class NavActivity : Activity() {
                 Live.userStopped = false
                 DriveService.start(this)
             }
+            askIgnoreBatteryOptimizations()
         } else {
             requestPermissions(basePerms(), 7)
             return
         }
+    }
+
+    // build-504 (Sếp 21/11): xin bỏ tối ưu hoá pin — nghi OPPO chặn/làm chậm app chạy nền lúc xe
+    // đứng yên, màn hình tắt (log cho thấy đứng hình nặng 46-82% đúng những lúc đó). Hỏi 1 lần/phiên.
+    private var askedBatteryOpt = false
+    private fun askIgnoreBatteryOptimizations() {
+        if (askedBatteryOpt) return
+        askedBatteryOpt = true
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            if (pm.isIgnoringBatteryOptimizations(packageName)) return
+            val i = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+            startActivity(i)
+        } catch (_: Exception) {}
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -2368,6 +2400,7 @@ class NavActivity : Activity() {
             } else lines.add("Chưa dẫn đường — chọn điểm đến ở ô tìm kiếm")
             lines.add("☂ " + (RainAlert.boxText ?: "Không có mưa phía trước"))
             Live.wxSummary?.let { lines.add(it) }
+            if (nav && Live.destFlag) TripStats.hint(this, Live.destLat, Live.destLon)?.let { lines.add("📊 $it") }
             hubCard.text = lines.joinToString("\n")
         }
         // Đã chuyển bản đồ nền VietMap sang ảnh raster .png (phương án B, tạm) — mảnh không còn là

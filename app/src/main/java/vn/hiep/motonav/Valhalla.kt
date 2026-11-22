@@ -30,9 +30,10 @@ object Valhalla {
             put("costing", "motorcycle")
             put("costing_options", JSONObject().put("motorcycle", JSONObject().apply {
                 put("use_highways", 0.8)   // build-466 (Sếp: Xa lộ sao lại vào đường số 2) 0.5 → 0.8
-                put("maneuver_penalty", 30)  // build-466 (Sếp: quẹo vô lý, về Xuân Thủy quẹo thêm 2 lần) — mỗi lần rẽ +30 s (mặc định 5)
+                put("maneuver_penalty", 8)  // build-466: 12s (Sếp: quẹo vô lý, về Xuân Thủy quẹo thêm 2 lần); build-495 (Sếp 21/11): 12s vẫn dẫn lung tung → giảm 8s (mặc định 5; build-477: 30 s quá nặng → dẫn đường vòng)
                 // build-336: 0 phạt cả trunk (QL1/Xa lộ HN) → vòng vào hẻm ở Suối Tiên; cao tốc thật đã có motorcycle=no
-                put("use_primary", 1.0)    // build-335: ưu tiên đường chính tối đa (Hiệp: "dẫn vào đường xấu")
+                put("use_primary", 0.7)    // build-335: 1.0 (Hiệp: "dẫn vào đường xấu"); build-501 (Sếp 21/11): "Hạ thử đi" —
+                // 1.0 làm app vòng qua đường lớn (Cộng Hoà) dù có đường chính khác nối thẳng (Tân Kỳ Tân Quý/Tân Sơn Nhì) → hạ xuống 0.7 để thử
                 put("use_trails", 0.0)
                 put("use_tolls", 0.5)
                 put("use_tracks", 0.0)          // không đi đường đất/ruộng
@@ -112,6 +113,24 @@ object Valhalla {
         }
     }
 
+    /** build-496 (Sếp 21/11): "Cùng 1 tên đường thì cộng khoảng cách vào, vẫn đi thẳng mà cứ chia đoạn
+     *  ra làm gì" — Valhalla hay chia 1 con đường dài thành nhiều Step (đổi ref/tốc độ cho phép...)
+     *  dù tên đường không đổi. Gộp các Step liên tiếp CÙNG TÊN ĐƯỜNG (không rỗng) lại, cộng dồn
+     *  khoảng cách; giữ chỉ dẫn (sign/text) của Step ĐẦU — đó là quyết định rẽ thật, Step sau chỉ là
+     *  tiếp tục trên cùng con đường. */
+    private fun mergeSameStreet(steps: ArrayList<Step>) {
+        var i = 0
+        while (i + 1 < steps.size) {
+            val a = steps[i]; val b = steps[i + 1]
+            if (a.street.isNotBlank() && a.street == b.street) {
+                steps[i] = Step(a.sign, a.text, a.street, a.distance + b.distance, a.from, b.to, a.exitNumber)
+                steps.removeAt(i + 1)
+                continue
+            }
+            i++
+        }
+    }
+
     private fun signOf(t: Int): Int = when (t) {
         4, 5, 6 -> 4
         9 -> 1
@@ -157,6 +176,7 @@ object Valhalla {
         }
         if (la.size < 2) throw RuntimeException("Tuyến Valhalla rỗng")
         mergeStaggered(steps, la, lo)
+        mergeSameStreet(steps)
         val sum = trip.optJSONObject("summary")
         val dist = (sum?.optDouble("length", 0.0) ?: 0.0) * 1000.0
         val time = ((sum?.optDouble("time", 0.0) ?: 0.0) * 1000).toLong()
