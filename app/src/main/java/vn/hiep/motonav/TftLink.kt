@@ -1789,58 +1789,12 @@ object TftLink {
                     routePx.add(floatArrayOf(lx, ly))
                 }
             }
-            // Nhãn tên-đường-sắp-rẽ gắn trên bản đồ (đường kẻ nối + nền đen) — giữ lại kiểu chỉ này
-            // theo yêu cầu, nhưng bỏ chấm tròn ở đầu đường kẻ, và neo KHÔNG còn đúng tại điểm rẽ
-            // (skManLat/skManLon) nữa — ở đó nhiều đường giao cắt chồng lên nhau trên hình, chấm/đường
-            // kẻ trông mơ hồ không rõ đang chỉ con đường nào. SỬA LẠI theo yêu cầu: neo không lùi về
-            // phía đường ĐANG ĐI nữa (hướng cũ, sai) mà tiến TỚI khoảng 50m vào ĐƯỜNG SẮP QUẸO (đoạn
-            // tuyến sau điểm rẽ) — đúng là "cọc chỉ dẫn" cắm trên con đường sắp đi tới, không phải
-            // con đường hiện tại.
-            val nextSt = skNextStreet
-            // build-520 (Sếp 23/11, "ô đường trắng xuống góc phải phía dưới kèm khoảng cách tới"):
-            // bỏ hẳn kiểu neo-theo-điểm-rẽ + đường kẻ nối + dò hướng né tuyến đỏ (build-443/506/517) —
-            // giờ CỐ ĐỊNH 1 ô trắng góc phải dưới, luôn hiện TÊN ĐƯỜNG SẮP QUẸO + KHOẢNG CÁCH còn lại,
-            // không phụ thuộc điểm rẽ trong/ngoài màn nữa.
-            if (!nextSt.isNullOrBlank()) {
-                // build-521 (Sếp 23/11, "khung dưới để trắng mờ, kích thước mỗi chiều bằng 1/3 khung
-                // hiển thị, phải trên thanh firmware"): kích thước CỐ ĐỊNH w/3 × h/3, nền trắng mờ
-                // (không đặc), chữ đen, luôn nằm TRÊN thanh firmware (đáy ô chạm mốc hb).
-                val boxW = w / 3f
-                val boxH = h / 3f
-                val right = w - 2f; val left = right - boxW
-                val fwTop = h * FW_TOP_FRAC
-                val bottom = fwTop - 2f; val top = bottom - boxH
-                val padX = boxW * 0.08f
-                val cxBox = (left + right) / 2f
-                // build-522 (Sếp 23/11, "tên đường trong ô trắng nằm 1 dòng, số to hẳn ra"): tên
-                // đường LUÔN 1 dòng (co chữ nhỏ lại nếu dài, không xuống dòng nữa); số khoảng cách to
-                // hẳn lên (trước nhỏ hơn tên đường, nay lớn hơn hẳn).
-                val dM = skDistanceM
-                val distTxt = if (dM >= 0) (if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000.0).replace('.', ',') else "$dM m") else null
-                val labelPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.17f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                val distPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.34f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                val maxTw = boxW - padX * 2
-                val lw = labelPaint.measureText(nextSt)
-                if (lw > maxTw) labelPaint.textSize *= maxTw / lw
-                val dw = distTxt?.let { distPaint.measureText(it) } ?: 0f
-                if (dw > maxTw) distPaint.textSize *= maxTw / dw
-                val fm3 = labelPaint.fontMetrics
-                val fmD = distPaint.fontMetrics
-                val lineH = fm3.descent - fm3.ascent
-                val distLineH = fmD.descent - fmD.ascent
-                val contentH = lineH + (if (distTxt != null) distLineH else 0f)
-                var ly0 = (top + bottom) / 2f - contentH / 2f - fm3.ascent
-                c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), boxH * 0.08f, boxH * 0.08f,
-                    Paint().apply { color = Color.argb(190, 255, 255, 255); style = Paint.Style.FILL; isAntiAlias = true })
-                c.drawText(nextSt, cxBox, ly0, labelPaint)
-                if (distTxt != null) c.drawText(distTxt, cxBox, ly0 - fm3.descent + distLineH + fmD.ascent, distPaint)
-            }
             // build-503 (Sếp 21/11): bỏ hẳn biển tên đường nhánh (OSM ways) trên nền bản đồ — Sếp đã
             // yêu cầu bỏ thỉnh thoảng-hiện-tên-đường-nhánh trước đó; lần trước chỉ bỏ nhầm layer khác
             // (motonav_road_name trong MapSnap) còn khối này (phương án A, build-443) vẫn chạy.
-            // Tuyến chính đỏ tươi — vẽ SAU CÙNG trong phần bản đồ (sau nhánh đường + nhãn) để không gì
-            // che được. Thêm viền đen dày bên dưới: JPEG chất lượng thấp (4:2:0) làm nhạt màu đỏ ở
-            // chỗ nét đỏ chạm sát nét trắng; nền đen đồng nhất quanh nét giữ màu đỏ rõ hơn.
+            // build-523 (Sếp 23/11, "đường dẫn nằm dưới bảng trắng và dưới cả chữ trên map"): tuyến
+            // vẽ TRƯỚC (trước: vẽ SAU CÙNG để không gì che được) — giờ ô trắng tên-đường/khoảng cách
+            // và mọi nhãn/chữ phía dưới sẽ đè lên tuyến nếu chồng nhau, không phải ngược lại.
             // build-379 (Sếp): góc quẹo VUÔNG đúng hình thật, nét thẳng mịn kiểu Waze — bỏ nối cong qua trung điểm
             // (bản 220 bo tròn mọi góc), lọc điểm lệch nhỏ bằng Douglas–Peucker (≤ 2 px) rồi nối đoạn thẳng, góc nhọn (MITER).
             // build-517 (Sếp 23/11, "đường dẫn chuyển sang màu trắng"): trắng viền đen đậm (trước: tím hồng viền tím).
@@ -1880,8 +1834,68 @@ object TftLink {
             } else path
             c.drawPath(drawPath, casingPaint)
             c.drawPath(drawPath, linePaint)
-            // build-517 (Sếp 23/11, "mũi tên trên đường dẫn bỏ đi"): đã bỏ hẳn mũi tên trắng kiểu Waze
-            // từng vẽ ở khúc quẹo sắp tới (build-379) — nay đường dẫn chỉ còn nét trắng viền đen.
+            // Nhãn tên-đường-sắp-rẽ gắn trên bản đồ (đường kẻ nối + nền đen) — giữ lại kiểu chỉ này
+            // theo yêu cầu, nhưng bỏ chấm tròn ở đầu đường kẻ, và neo KHÔNG còn đúng tại điểm rẽ
+            // (skManLat/skManLon) nữa — ở đó nhiều đường giao cắt chồng lên nhau trên hình, chấm/đường
+            // kẻ trông mơ hồ không rõ đang chỉ con đường nào. SỬA LẠI theo yêu cầu: neo không lùi về
+            // phía đường ĐANG ĐI nữa (hướng cũ, sai) mà tiến TỚI khoảng 50m vào ĐƯỜNG SẮP QUẸO (đoạn
+            // tuyến sau điểm rẽ) — đúng là "cọc chỉ dẫn" cắm trên con đường sắp đi tới, không phải
+            // con đường hiện tại.
+            val nextSt = skNextStreet
+            val nearDest = Live.maneuverSign == 4
+            // build-520 (Sếp 23/11, "ô đường trắng xuống góc phải phía dưới kèm khoảng cách tới"):
+            // bỏ hẳn kiểu neo-theo-điểm-rẽ + đường kẻ nối + dò hướng né tuyến đỏ (build-443/506/517) —
+            // giờ CỐ ĐỊNH 1 ô trắng góc phải dưới. build-523 (Sếp 23/11, "gần đích thì hiện Điểm đến
+            // bên trái/phải/phía trước, số m vẫn đếm ngược tới đích"): khi gần đích, dòng tên đường
+            // đổi thành "Điểm đến <hướng>" — số khoảng cách GIỮ NGUYÊN (skDistanceM lúc này chính là
+            // khoảng cách còn lại tới đích).
+            val titleTxt = if (nearDest) {
+                val lbl = Live.maneuverLabel ?: ""
+                val side = when { lbl.contains("trái") -> "bên trái"; lbl.contains("phải") -> "bên phải"; else -> "phía trước" }
+                "Điểm đến $side"
+            } else nextSt
+            if (!titleTxt.isNullOrBlank()) {
+                // build-521 (Sếp 23/11, "khung dưới để trắng mờ, kích thước mỗi chiều bằng 1/3 khung
+                // hiển thị, phải trên thanh firmware"): kích thước CỐ ĐỊNH w/3 × h/3, nền trắng mờ
+                // (không đặc), chữ đen, luôn nằm TRÊN thanh firmware (đáy ô chạm mốc hb).
+                val boxW = w / 3f
+                val boxH = h / 3f
+                val right = w - 2f; val left = right - boxW
+                val fwTop = h * FW_TOP_FRAC
+                val bottom = fwTop - 2f; val top = bottom - boxH
+                // build-524 (Sếp 23/11, "chữ để gần mép, ko cần lọt trong bảng" + "bảng dư mà chữ bé
+                // tí"): lề tối thiểu, và LUÔN co chữ (cả to lên lẫn nhỏ xuống) để vừa khít bề rộng ô —
+                // chữ ngắn (tên đường/số ít chữ số) vẫn to hết cỡ thay vì bé tí giữa khung trống.
+                val padX = boxW * 0.025f
+                val cxBox = (left + right) / 2f
+                val dM = skDistanceM
+                val distTxt = if (dM >= 0) (if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000.0).replace('.', ',') else "$dM m") else null
+                val labelPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.2f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val distPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.2f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val maxTw = boxW - padX * 2
+                val lw = labelPaint.measureText(titleTxt)
+                if (lw > 0f) labelPaint.textSize *= maxTw / lw
+                val dw = distTxt?.let { distPaint.measureText(it) } ?: 0f
+                if (dw > 0f) distPaint.textSize *= (maxTw * 1.15f) / dw // số đếm ngược to hơn hẳn tên đường
+                var fm3 = labelPaint.fontMetrics
+                var fmD = distPaint.fontMetrics
+                var lineH = fm3.descent - fm3.ascent
+                var distLineH = fmD.descent - fmD.ascent
+                var contentH = lineH + (if (distTxt != null) distLineH else 0f)
+                val maxContentH = boxH - padX * 2
+                if (contentH > maxContentH) {
+                    val sc = maxContentH / contentH
+                    labelPaint.textSize *= sc; distPaint.textSize *= sc
+                    fm3 = labelPaint.fontMetrics; fmD = distPaint.fontMetrics
+                    lineH = fm3.descent - fm3.ascent; distLineH = fmD.descent - fmD.ascent
+                    contentH = lineH + (if (distTxt != null) distLineH else 0f)
+                }
+                var ly0 = (top + bottom) / 2f - contentH / 2f - fm3.ascent
+                c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), boxH * 0.08f, boxH * 0.08f,
+                    Paint().apply { color = Color.argb(190, 255, 255, 255); style = Paint.Style.FILL; isAntiAlias = true })
+                c.drawText(titleTxt, cxBox, ly0, labelPaint)
+                if (distTxt != null) c.drawText(distTxt, cxBox, ly0 - fm3.descent + distLineH + fmD.ascent, distPaint)
+            }
             // build-321: ghim nổi kiểu Garmin — cây xăng (xanh) và camera (đỏ) trong tầm nhìn phía trước.
             try {
                 val pins = ArrayList<Triple<Float, Float, Int>>() // sx, sy, loại (0 xăng, 1 camera)
@@ -2307,13 +2321,10 @@ object TftLink {
      */
     private fun drawGarminPanels(c: Canvas, w: Int, h: Int, dk: Boolean) {
         if (!(skActive && skRoute != null)) return
-        val hb = h * FW_TOP_FRAC
         fun tp(sz: Float, bold: Boolean, al: Paint.Align, col: Int = Color.WHITE) = Paint().apply {
             color = col; textSize = sz; isAntiAlias = true; textAlign = al
             typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         }
-        val cx = w * 0.11f
-        val nearDest = Live.maneuverSign == 4
         // build-520/521 (Sếp 23/11, "tgian còn lại để hh:mm, để giây làm gì"): số mét tới chỗ rẽ đã
         // dời xuống ô tên-đường góc phải dưới (xem block nextSt phía trên) — ở đây chỉ còn đếm ngược
         // thời gian còn lại, dạng hh:mm (không hiện giây).
@@ -2327,18 +2338,9 @@ object TftLink {
             val by = h * 0.14f
             c.drawText(timeTxt, bx, by, halo); c.drawText(timeTxt, bx, by, big)
         }
-        // build-450 (Sếp 15/11): gần tới đích → "Đích bên trái/phải" thay cho số mét.
-        if (nearDest) {
-            val lbl = Live.maneuverLabel ?: ""
-            val side = when { lbl.contains("trái") -> "bên trái"; lbl.contains("phải") -> "bên phải"; else -> "phía trước" }
-            val l1 = "Điểm đến"
-            val sp = tp(h * 0.10f, true, Paint.Align.LEFT)
-            val halo2 = Paint(sp).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.02f; strokeJoin = Paint.Join.ROUND }
-            val lh = sp.textSize * 1.05f
-            val base = hb + h * 0.012f
-            c.drawText(l1, cx, base - lh, halo2); c.drawText(l1, cx, base - lh, sp)
-            c.drawText(side, cx, base, halo2); c.drawText(side, cx, base, sp)
-        }
+        // build-523 (Sếp 23/11): "Điểm đến bên trái/phải/phía trước" dời vào ô trắng góc phải dưới
+        // (thay cho tên đường lúc gần đích, xem block titleTxt trong buildSketchFrame) — bỏ bản vẽ
+        // trùng lặp ở đây (trước: build-450).
     }
 
     /** build-410: biển cấm rẽ kiểu VN (P.123a/b, P.124): viền đỏ, nền trắng, mũi tên đen, gạch chéo đỏ. */
