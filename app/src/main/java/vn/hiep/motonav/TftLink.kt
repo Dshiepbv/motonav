@@ -1880,17 +1880,23 @@ object TftLink {
                 if (dM >= 0) {
                     val (numTxt, unitTxt) = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f", dM / 1000.0).replace('.', ',') to "km" else "$dM" to "m"
                     val numPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.34f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                    val unitPaint = Paint().apply { color = Color.rgb(70, 70, 76); textSize = boxH * 0.11f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                    val unitPaint = Paint().apply { color = Color.rgb(70, 70, 76); textSize = boxH * 0.14f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                     val maxNumW = (colSplit - left) - padX * 2
+                    // build-530 (Sếp 23/11, "kích cỡ số cố định bằng kích thước giống hàng chục bây giờ
+                    // kiểu 80 60m"): cỡ số CỐ ĐỊNH theo chuẩn 2 ký tự ("00"), không co giãn theo số chữ số
+                    // thật nữa (trước đây mỗi số 1-4 ký tự lại ra cỡ khác nhau) — chỉ co nhỏ lại nếu số thật
+                    // (ví dụ "1,2") rộng hơn mức chuẩn đó, không bao giờ phóng to hơn chuẩn.
+                    val refW = numPaint.measureText("00")
+                    if (refW > 0f) numPaint.textSize *= maxNumW / refW
                     val nw = numPaint.measureText(numTxt)
-                    if (nw > 0f) numPaint.textSize *= maxNumW / nw
+                    if (nw > maxNumW) numPaint.textSize *= maxNumW / nw
                     val uw = unitPaint.measureText(unitTxt)
                     if (uw > 0f) unitPaint.textSize *= minOf(1f, maxNumW / uw)
                     val cxNum = (left + colSplit) / 2f
                     val fmN = numPaint.fontMetrics; val fmU = unitPaint.fontMetrics
-                    // build-528 (Sếp 23/11, "tôi kêu chữ km dời xuống chứ ai kêu số dời xuống"): số đếm
-                    // giữ sát ĐỈNH ô như cũ (build-525 trở về trước), CHỈ chữ km/m một mình bị kéo xuống đáy.
-                    val numY = top + padY - fmN.ascent
+                    // build-530 (Sếp 23/11, "sao cho số sát lên trên rồi, phải để ngay giữa chứ"): số đếm
+                    // CĂN GIỮA theo chiều cao cả ô; chữ km/m vẫn đứng riêng, ép sát ĐÁY ô (build-528).
+                    val numY = (top + bottom) / 2f - (fmN.ascent + fmN.descent) / 2f
                     c.drawText(numTxt, cxNum, numY, numPaint)
                     val unitY = bottom - padY - fmU.descent
                     c.drawText(unitTxt, cxNum, unitY, unitPaint)
@@ -1909,7 +1915,7 @@ object TftLink {
                     if (cur.isNotEmpty()) out.add(cur)
                     return out
                 }
-                val titlePaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.23f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val titlePaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.27f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 var lines = wrapWords(titleTxt, titlePaint).take(3)
                 val widest = lines.maxOfOrNull { titlePaint.measureText(it) } ?: 0f
                 if (widest > maxRw) titlePaint.textSize *= maxRw / widest

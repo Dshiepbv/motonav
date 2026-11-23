@@ -786,7 +786,12 @@ class NavEngine(
         }
         Live.maneuverLat = r.lats[mIdx]
         Live.maneuverLon = r.lons[mIdx]
-        Live.maneuverLabel = bridgeText ?: (if (next.sign == 4) phrase else if (next.street.isNotBlank()) next.street else Maneuver.verb(next.sign))
+        // build-531 (Sếp 23/11, "vào vòng xuyến có phải đường đâu... phải là địa danh"): vòng xuyến
+        // (sign=6) hầu như không có street_names riêng (Valhalla gắn tên đường vào Step SAU khi ra
+        // khỏi vòng xuyến, không phải Step vào) → nếu street rỗng, lấy luôn tên đường của Step kế tiếp
+        // thay cho câu chung "vào vòng xuyến".
+        val roundaboutExitStreet = if (next.sign == 6 && next.street.isBlank()) r.steps.getOrNull(nextIdx + 1)?.street?.ifBlank { null } else null
+        Live.maneuverLabel = bridgeText ?: (if (next.sign == 4) phrase else if (next.street.isNotBlank()) next.street else roundaboutExitStreet ?: Maneuver.verb(next.sign))
         Live.maneuverSign = next.sign
         Live.maneuverExit = next.exitNumber
         Live.maneuverStreet = next.street.ifBlank { null }
