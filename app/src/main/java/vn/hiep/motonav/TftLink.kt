@@ -4385,13 +4385,14 @@ object TftLink {
             navModeSentAt = System.currentTimeMillis()
             try { TripLog.ev("tftNavMode", "on" to true) } catch (_: Exception) {}
         }
-        // build-517 (Sếp 23/11, "giờ tới gửi số cho màn hiện như zin"): giờ đến gửi qua kênh chữ
-        // cmd3 (thanh dưới của xe, chữ/vị trí do xe tự vẽ) — độc lập với payload[0]/cmd4/1, nên vẫn
-        // gửi dù V2_FUSE_TEXT=true (đường tắt bên dưới chỉ chặn cmd4/1, không chặn cmd3 này).
-        if (etaChanged) {
-            val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.MINUTE, etaMinutes) }
-            val etaTxt = String.format(java.util.Locale.US, "Đến %02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
-            send(namePacket(etaTxt))
+        // build-517 (Sếp 23/11, "góc dưới hiện: Võ Văn Ngân 1,8 km (đếm ngược)" — ko dồn kc vào ô số
+        // tự vẽ): tên đường sắp quẹo + khoảng cách còn lại gửi qua kênh chữ cmd3 (thanh dưới của xe,
+        // chữ/vị trí do xe tự vẽ) — độc lập với payload[0]/cmd4/1, nên vẫn gửi dù V2_FUSE_TEXT=true
+        // (đường tắt bên dưới chỉ chặn cmd4/1, không chặn cmd3 này).
+        if (key != lastSentKey && road.isNotBlank()) {
+            val dKm = distanceM / 1000.0
+            val dTxt = if (distanceM >= 1000) String.format(java.util.Locale.US, "%.1f km", dKm).replace('.', ',') else "$distanceM m"
+            send(namePacket("$road $dTxt"))
             statTextTx++
         }
         if (PIPE_V2 && V2_FUSE_TEXT) {
