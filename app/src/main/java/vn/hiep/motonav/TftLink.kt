@@ -326,6 +326,10 @@ object TftLink {
     @Volatile private var v2PrevTimedOut = false
     @Volatile private var sessionStartElapsedMs = 0L
     @Volatile private var lastAckSuccessElapsedMs = 0L
+    // build-512 (Sếp 23/11, hạng mục 4 của brief): xác nhận 1 lần/phiên xem JPEG xuất ra đúng
+    // chuẩn Baseline SOF0 + subsampling nào (lo ngại trong brief: YUV 4:4:4 khiến MCU nhúng của
+    // CCU không giải mã được bằng phần cứng, phải rơi về giải mã phần mềm, chậm/nghẽn).
+    @Volatile private var jpegProfileLogged = false
     private var phaseLastStallRelMs = -1L
     private var phaseLastClusterRelMs = -1L
     private var phaseOriginRelMs = -1L
@@ -3428,6 +3432,7 @@ object TftLink {
             v2FrameAgeTotalMs = 0L; v2FrameAgeMaxMs = 0L; v2LastTxAt = 0L
             v2PrevTimedOut = false
             sessionStartElapsedMs = 0L; lastAckSuccessElapsedMs = 0L
+            jpegProfileLogged = false
             resetPhaseLearning()
         }
         waitingSeq = -1
@@ -3819,8 +3824,41 @@ object TftLink {
         return true
     }
 
+    /** build-512: đọc marker SOF0/SOF2 (0xFFC0/0xFFC2) trong header JPEG và subsampling của
+     * component Y (byte "HxV") để xác nhận ảnh xuất ra có đúng Baseline DCT + 4:2:0 như brief
+     * nghi ngờ hay không — chỉ đọc header, không decode ảnh. Trả về null nếu không tìm thấy SOF. */
+    private fun jpegHeaderProfile(jpeg: ByteArray): String? {
+        var i = 2 // bỏ SOI 0xFFD8
+        while (i + 3 < jpeg.size) {
+            if ((jpeg[i].toInt() and 0xFF) != 0xFF) { i++; continue }
+            val marker = jpeg[i + 1].toInt() and 0xFF
+            if (marker == 0xC0 || marker == 0xC2) { // SOF0 baseline / SOF2 progressive
+                val segStart = i + 4
+                if (segStart + 5 < jpeg.size) {
+                    val numComponents = jpeg[segStart + 5].toInt() and 0xFF
+                    if (numComponents >= 1 && segStart + 6 + 2 < jpeg.size) {
+                        val samp = jpeg[segStart + 6 + 2].toInt() and 0xFF
+                        val sofName = if (marker == 0xC0) "SOF0" else "SOF2"
+                        return "$sofName h${(samp shr 4) and 0xF}v${samp and 0xF} comp$numComponents"
+                    }
+                }
+                return if (marker == 0xC0) "SOF0" else "SOF2"
+            }
+            if (marker in 0xD0..0xD9 || marker == 0x01) { i += 2; continue } // không có length field
+            if (i + 3 < jpeg.size) {
+                val len = ((jpeg[i + 2].toInt() and 0xFF) shl 8) or (jpeg[i + 3].toInt() and 0xFF)
+                i += 2 + len
+            } else break
+        }
+        return null
+    }
+
     /** build-380: ghi 1 khung lên dây, KHÔNG chờ ACK (nhịp 400/800). Trả false nếu mất kết nối. */
     private fun writeFrameOnly(jpeg: ByteArray, tag: String, frameAgeMs: Long, copy: Int): Boolean {
+        if (!jpegProfileLogged) {
+            jpegProfileLogged = true
+            try { TripLog.ev("jpegHeaderProfile", "profile" to (jpegHeaderProfile(jpeg) ?: "unknown"), "bytes" to jpeg.size) } catch (_: Exception) {}
+        }
         val seq = (frameSeq + 1) and 0xFFFF
         frameSeq = seq
         var body = jpeg
