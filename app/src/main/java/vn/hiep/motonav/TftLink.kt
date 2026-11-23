@@ -1797,116 +1797,49 @@ object TftLink {
             // tuyến sau điểm rẽ) — đúng là "cọc chỉ dẫn" cắm trên con đường sắp đi tới, không phải
             // con đường hiện tại.
             val nextSt = skNextStreet
-            // build-514 (Sếp 23/11, test "xe tự vẽ hộp chỉ đường" đúng nghĩa): khi V2_FUSE_TEXT=false
-            // (đang gửi cmd 4/1 thật), KHÔNG vẽ nhãn tên-đường-sắp-rẽ vào ảnh nữa, để xem xe có tự
-            // hiện hộp chỉ đường của nó không — bài test sạch, không bị icon vẽ sẵn che/trộn lẫn.
-            if (V2_FUSE_TEXT && !nextSt.isNullOrBlank()) {
-                val turnCumTarget = cum0 + (skDistanceM.takeIf { it >= 0 }?.toDouble() ?: 0.0)
-                var mIdx = idx0
-                while (mIdx < iEnd0 - 1 && route.cum[mIdx] < turnCumTarget) mIdx++
-                var aIdx = mIdx
-                while (aIdx < iEnd0 - 1 && route.cum[aIdx] - route.cum[mIdx] < 50.0) aIdx++
-                val mdx = proj.x(route.lons[aIdx]); val mdy = proj.y(route.lats[aIdx])
-                val mrx = mdx * cosH - mdy * sinH; val mry = mdx * sinH + mdy * cosH
-                val (mx, my) = toScreen(mrx, mry)
+            // build-520 (Sếp 23/11, "ô đường trắng xuống góc phải phía dưới kèm khoảng cách tới"):
+            // bỏ hẳn kiểu neo-theo-điểm-rẽ + đường kẻ nối + dò hướng né tuyến đỏ (build-443/506/517) —
+            // giờ CỐ ĐỊNH 1 ô trắng góc phải dưới, luôn hiện TÊN ĐƯỜNG SẮP QUẸO + KHOẢNG CÁCH còn lại,
+            // không phụ thuộc điểm rẽ trong/ngoài màn nữa.
+            if (!nextSt.isNullOrBlank()) {
                 val labelPaint = Paint().apply { color = if (dk) Color.BLACK else Color.WHITE; textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
-                val leaderPaint = Paint().apply { color = Color.rgb(60, 64, 72); style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
+                val distPaint = Paint().apply { color = if (dk) Color.rgb(50, 50, 54) else Color.rgb(90, 90, 96); textSize = h * 0.075f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 val padX = h * 0.022f; val padY = h * 0.02f
-                // build-517 (Sếp 23/11, "ô chỉ đường quẹo nếu ngoài màn giờ cố định ở góc phải phía
-                // dưới, mục đích là hiện tên đường sắp quẹo vào, ko cần hiện rẽ trái/rẽ phải/đi
-                // thẳng"): điểm neo (chỗ sắp rẽ) nằm NGOÀI màn hiển thị → ghim cố định GÓC PHẢI PHÍA
-                // DƯỚI (trước: build-506 ghim cạnh trên, trái/phải theo hướng rẽ — nay bỏ phân biệt
-                // hướng, luôn góc phải dưới); tên đường dài quá 4-5 chữ thì xuống dòng (tối đa 2 dòng).
-                val anchorOffscreen = mx < mapL || mx > w || my < 0f || my > h
-                if (anchorOffscreen) {
-                    fun wrapLabel(s: String): List<String> {
-                        if (s.length <= 5) return listOf(s)
-                        val sp = s.lastIndexOf(' ', s.length / 2 + 2).let { if (it <= 0) s.indexOf(' ', 4) else it }
-                        return if (sp in 1 until s.length - 1) listOf(s.substring(0, sp), s.substring(sp + 1)) else listOf(s)
-                    }
-                    val lines = wrapLabel(nextSt)
-                    val tw2 = lines.maxOf { labelPaint.measureText(it) }
-                    val fm3 = labelPaint.fontMetrics
-                    val lineH = fm3.descent - fm3.ascent
-                    val lx0 = w - tw2 / 2f - padX - 2f
-                    val bottomMargin = h * 0.1f
-                    val boxH = lineH * lines.size
-                    val top = h - bottomMargin - boxH - padY * 2
-                    val ly0 = top + padY - fm3.ascent
-                    val left = lx0 - tw2 / 2f - padX; val right = lx0 + tw2 / 2f + padX
-                    val bottom = top + boxH + padY * 2
-                    c.drawLine(mx.coerceIn(mapL, w.toFloat()), my.coerceIn(0f, h.toFloat()), lx0, ly0, leaderPaint)
-                    if (snapShot != null) {
-                        val pf = if (dk) Color.WHITE else Color.BLACK
-                        val pt2 = if (dk) Color.BLACK else Color.WHITE
-                        c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), h * 0.03f, h * 0.03f,
-                            Paint().apply { color = pf; style = Paint.Style.FILL; isAntiAlias = true })
-                        for ((li, ln) in lines.withIndex()) c.drawText(ln, lx0, ly0 + lineH * li, Paint(labelPaint).apply { color = pt2 })
-                    } else {
-                        val outlinePaint2 = Paint(labelPaint).apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
-                        for ((li, ln) in lines.withIndex()) { c.drawText(ln, lx0, ly0 + lineH * li, outlinePaint2); c.drawText(ln, lx0, ly0 + lineH * li, labelPaint) }
-                    }
-                } else {
-                val tw = labelPaint.measureText(nextSt)
-                // Ảnh thực tế (27/10): nền đen của nhãn nằm ĐÈ lên đúng đoạn tuyến đỏ quanh khúc rẽ
-                // (nhãn vẽ sau tuyến, neo lệch lên-phải cố định) — nhìn như tuyến đỏ bị mất đoạn. Thử 4
-                // hướng đặt nhãn quanh điểm neo, chọn hướng có ít điểm tuyến lọt vào khung nhãn nhất.
-                // Tuyến đỏ vẫn được vẽ SAU nhãn (bên dưới) nên kể cả lúc buộc phải chồng lên vẫn thấy đỏ.
-                // Theo yêu cầu "tên đường né đường đỏ, đừng đè lên nhau": trước chỉ đếm ĐỈNH tuyến lọt
-                // vào khung nhãn, nên đoạn thẳng dài cắt ngang khung (không có đỉnh bên trong) vẫn bị
-                // coi là không chạm. Giờ xét từng ĐOẠN tuyến cắt khung (kể cả lề 8 px), thử 8 hướng × 3
-                // khoảng cách quanh điểm neo, lấy vị trí không chạm gần neo nhất; nếu chỗ nào cũng
-                // chạm thì lấy vị trí chạm ít đoạn nhất.
-                fun segHitsBox(x1: Float, y1: Float, x2: Float, y2: Float, l: Float, t: Float, r: Float, b: Float): Boolean {
-                    if (maxOf(x1, x2) < l || minOf(x1, x2) > r || maxOf(y1, y2) < t || minOf(y1, y2) > b) return false
-                    val n = (Math.hypot((x2 - x1).toDouble(), (y2 - y1).toDouble()) / 3.0).toInt().coerceAtLeast(1)
-                    for (k in 0..n) {
-                        val f = k.toFloat() / n
-                        val x = x1 + (x2 - x1) * f; val y = y1 + (y2 - y1) * f
-                        if (x in l..r && y in t..b) return true
-                    }
-                    return false
+                fun wrapLabel(s: String): List<String> {
+                    if (s.length <= 5) return listOf(s)
+                    val sp = s.lastIndexOf(' ', s.length / 2 + 2).let { if (it <= 0) s.indexOf(' ', 4) else it }
+                    return if (sp in 1 until s.length - 1) listOf(s.substring(0, sp), s.substring(sp + 1)) else listOf(s)
                 }
-                val dirs = arrayOf(floatArrayOf(1f, -0.6f), floatArrayOf(-1f, -0.6f), floatArrayOf(1f, 0.7f), floatArrayOf(-1f, 0.7f),
-                    floatArrayOf(0f, -1f), floatArrayOf(0f, 1f), floatArrayOf(1.3f, 0f), floatArrayOf(-1.3f, 0f))
-                val radii = floatArrayOf(0.16f, 0.28f, 0.42f)
-                var bestBox: FloatArray? = null
-                var bestScore = Float.MAX_VALUE
-                val m = 8f
-                search@ for (rad in radii) for (d in dirs) {
-                    val lx0 = (mx + h * rad * d[0]).coerceIn(mapL + tw / 2f + padX + 4f, (w - tw / 2f - padX - 2f).coerceAtLeast(mapL + tw / 2f + padX + 4f))
-                    val ly0 = (my + h * rad * d[1]).coerceIn(h * 0.1f + padY, minOf(h * 0.95f, mapB - h * 0.03f - padY))
-                    val left = lx0 - tw / 2f - padX
-                    val right = lx0 + tw / 2f + padX
-                    val top = ly0 - h * 0.08f - padY
-                    val bottom = ly0 + h * 0.026f + padY
-                    var hits = 0
-                    for (q in 1 until routePx.size) {
-                        val p0 = routePx[q - 1]; val p1 = routePx[q]
-                        if (segHitsBox(p0[0], p0[1], p1[0], p1[1], left - m, top - m, right + m, bottom + m)) hits++
-                    }
-                    val score = hits * 10000f + Math.hypot((lx0 - mx).toDouble(), (ly0 - my).toDouble()).toFloat()
-                    if (score < bestScore) { bestScore = score; bestBox = floatArrayOf(lx0, ly0, left, right, top, bottom) }
-                    if (hits == 0) break@search
-                }
-                val bx = bestBox!!
-                for (k in 0 until 6) bx[k] = Math.round(bx[k]).toFloat() // build-443: đặt tròn điểm ảnh cho chữ nét
-                c.drawLine(mx, my, bx[0], bx[1], leaderPaint)
-                val cxText = (bx[2] + bx[3]) / 2f
-                // Chữ trắng viền đen (không nền): vẽ nét viền đen dày trước rồi chữ trắng đè lên.
-                val outlinePaint = Paint(labelPaint).apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
+                val lines = wrapLabel(nextSt)
+                val dM = skDistanceM
+                val distTxt = if (dM >= 0) (if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000.0).replace('.', ',') else "$dM m") else null
+                val fm3 = labelPaint.fontMetrics
+                val fmD = distPaint.fontMetrics
+                val lineH = fm3.descent - fm3.ascent
+                val distLineH = fmD.descent - fmD.ascent
+                val tw2 = maxOf(lines.maxOf { labelPaint.measureText(it) }, distTxt?.let { distPaint.measureText(it) } ?: 0f)
+                val lx0 = w - tw2 / 2f - padX - 2f
+                val bottomMargin = h * 0.1f
+                val boxH = lineH * lines.size + (if (distTxt != null) distLineH else 0f)
+                val top = h - bottomMargin - boxH - padY * 2
+                var ly0 = top + padY - fm3.ascent
+                val left = lx0 - tw2 / 2f - padX; val right = lx0 + tw2 / 2f + padX
+                val bottom = top + boxH + padY * 2
                 if (snapShot != null) {
                     val pf = if (dk) Color.WHITE else Color.BLACK
                     val pt2 = if (dk) Color.BLACK else Color.WHITE
-                    val fm3 = labelPaint.fontMetrics
-                    c.drawRoundRect(android.graphics.RectF(bx[2], bx[1] + fm3.ascent - padY * 0.6f, bx[3], bx[1] + fm3.descent + padY * 0.6f), h * 0.03f, h * 0.03f,
+                    c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), h * 0.03f, h * 0.03f,
                         Paint().apply { color = pf; style = Paint.Style.FILL; isAntiAlias = true })
-                    c.drawText(nextSt, cxText, bx[1], Paint(labelPaint).apply { color = pt2 })
+                    for (ln in lines) { c.drawText(ln, lx0, ly0, Paint(labelPaint).apply { color = pt2 }); ly0 += lineH }
+                    if (distTxt != null) c.drawText(distTxt, lx0, ly0 - fm3.descent + distLineH + fmD.ascent, Paint(distPaint).apply { color = pt2 })
                 } else {
-                    c.drawText(nextSt, cxText, bx[1], outlinePaint)
-                    c.drawText(nextSt, cxText, bx[1], labelPaint)
-                }
+                    val outlinePaint2 = Paint(labelPaint).apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
+                    for (ln in lines) { c.drawText(ln, lx0, ly0, outlinePaint2); c.drawText(ln, lx0, ly0, labelPaint); ly0 += lineH }
+                    if (distTxt != null) {
+                        val dy = ly0 - fm3.descent + distLineH + fmD.ascent
+                        val outlineD = Paint(distPaint).apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.022f; strokeJoin = Paint.Join.ROUND }
+                        c.drawText(distTxt, lx0, dy, outlineD); c.drawText(distTxt, lx0, dy, distPaint)
+                    }
                 }
             }
             // build-503 (Sếp 21/11): bỏ hẳn biển tên đường nhánh (OSM ways) trên nền bản đồ — Sếp đã
@@ -2374,10 +2307,10 @@ object TftLink {
     }
 
     /**
-     * build-517 (Sếp 23/11): "Dải màu đen giữ lại mỗi kc tới điểm quẹo. Còn lại bỏ hết, bỏ cả nền
-     * đen luôn" — bỏ hẳn khung đen (bg/separator), bỏ km đi/còn lại và ô ETA tự vẽ (giờ gửi qua kênh
-     * chữ của xe, xem etaBarText()/update()). Chỉ còn SỐ MÉT TỚI CHỖ RẼ, vẽ nổi trực tiếp trên bản đồ
-     * (chữ trắng viền đen như các nhãn khác), không còn vùng dành riêng bên trái.
+     * build-517/520 (Sếp 23/11): bỏ hẳn khung đen (bg/separator), bỏ km đi/còn lại. Góc trên-trái:
+     * đếm ngược thời gian còn lại (mm:ss, build-520 — trước là số mét tới chỗ rẽ, nay dời sang ô
+     * tên-đường-sắp-quẹo ở góc phải dưới, xem block nextSt trong buildSketchFrame). Không còn vùng
+     * dành riêng bên trái, chữ nổi trực tiếp trên bản đồ (viền đen).
      */
     private fun drawGarminPanels(c: Canvas, w: Int, h: Int, dk: Boolean) {
         if (!(skActive && skRoute != null)) return
@@ -2387,19 +2320,19 @@ object TftLink {
             typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         }
         val cx = w * 0.11f
-        val dM = skDistanceM
         val nearDest = Live.maneuverSign == 4
-        if (dM >= 0) {
+        // build-520 (Sếp 23/11, "khoảng cách góc trên trái bỏ đi, thay bằng 00:00 thời gian còn lại"):
+        // số mét tới chỗ rẽ đã dời xuống ô tên-đường góc phải dưới (xem block nextSt phía trên) — ở
+        // đây giờ chỉ còn đếm ngược thời gian còn lại, dạng mm:ss (qua giờ thì hh:mm).
+        if (skEtaMs > 0L) {
+            val totalSec = (skEtaMs / 1000L).coerceAtLeast(0L)
+            val a = (totalSec / 3600L).toInt(); val b = ((totalSec % 3600L) / 60L).toInt(); val cSec = (totalSec % 60L).toInt()
+            val timeTxt = if (a > 0) String.format(java.util.Locale.US, "%d:%02d", a, b) else String.format(java.util.Locale.US, "%02d:%02d", b, cSec)
             val big = tp(h * 0.15f, true, Paint.Align.LEFT)
             val halo = Paint(big).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.02f; strokeJoin = Paint.Join.ROUND }
-            val (num, unit) = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f", dM / 1000f).replace('.', ',') to "km" else "$dM" to "m"
-            val small = tp(h * 0.08f, true, Paint.Align.LEFT)
-            val smallHalo = Paint(small).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.018f; strokeJoin = Paint.Join.ROUND }
             val bx = 4f
             val by = h * 0.14f
-            c.drawText(num, bx, by, halo); c.drawText(num, bx, by, big)
-            val ux = bx + big.measureText(num) + h * 0.01f
-            c.drawText(unit, ux, by, smallHalo); c.drawText(unit, ux, by, small)
+            c.drawText(timeTxt, bx, by, halo); c.drawText(timeTxt, bx, by, big)
         }
         // build-450 (Sếp 15/11): gần tới đích → "Đích bên trái/phải" thay cho số mét.
         if (nearDest) {
@@ -4315,16 +4248,9 @@ object TftLink {
             navModeSentAt = System.currentTimeMillis()
             try { TripLog.ev("tftNavMode", "on" to true) } catch (_: Exception) {}
         }
-        // build-517 (Sếp 23/11, "góc dưới hiện: Võ Văn Ngân 1,8 km (đếm ngược)" — ko dồn kc vào ô số
-        // tự vẽ): tên đường sắp quẹo + khoảng cách còn lại gửi qua kênh chữ cmd3 (thanh dưới của xe,
-        // chữ/vị trí do xe tự vẽ) — độc lập với payload[0]/cmd4/1, nên vẫn gửi dù V2_FUSE_TEXT=true
-        // (đường tắt bên dưới chỉ chặn cmd4/1, không chặn cmd3 này).
-        if (key != lastSentKey && road.isNotBlank()) {
-            val dKm = distanceM / 1000.0
-            val dTxt = if (distanceM >= 1000) String.format(java.util.Locale.US, "%.1f km", dKm).replace('.', ',') else "$distanceM m"
-            send(namePacket("$road $dTxt"))
-            statTextTx++
-        }
+        // build-520 (Sếp 23/11, "thanh firmware clear đi, ko gửi gì"): tên đường + khoảng cách giờ vẽ
+        // hẳn vào ảnh (ô trắng góc phải dưới, xem nextSt trong buildSketchFrame) — ngưng gửi gói chữ
+        // cmd3 (namePacket) thử ở build-518, quay lại trạng thái build-511 (không gửi gì lên thanh chữ).
         if (PIPE_V2 && V2_FUSE_TEXT) {
             lastSentKey = key
             lastSentEta = etaMinutes
