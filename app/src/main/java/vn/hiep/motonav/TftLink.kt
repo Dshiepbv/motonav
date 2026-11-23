@@ -302,7 +302,9 @@ object TftLink {
     // chưa chắc byte mode 3 của app mình có cùng nghĩa "xe tự vẽ hộp" như tài liệu xe khác hay không
     // (ghi chú cũ: "mã icon CHƯA xác nhận hiển thị đúng trên màn thật"). Mục đích bản này CHỈ để xem
     // xe có nhận/phản ứng gì với cmd 4/1 không (qua log + quan sát màn), không gỡ icon vẽ sẵn.
-    const val V2_FUSE_TEXT = false
+    // build-516 (Sếp 23/11): trả về true — thử mode 0 (xe tự vẽ) gây rớt kết nối + xáo trộn layout
+    // (nút +/- của xe lệch vị trí), không thấy đỡ lag. Về lại giao diện/mode 3 ổn định như trước.
+    const val V2_FUSE_TEXT = true
     const val V2_STRICT_CRC = false
     private data class QueuedFrame(val jpeg: ByteArray, val createdAtElapsedMs: Long)
     private val mailbox = java.util.concurrent.atomic.AtomicReference<QueuedFrame?>(null)
