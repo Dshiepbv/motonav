@@ -1156,12 +1156,11 @@ object TftLink {
         // "var" vì ở nhánh có tuyến, anchorY được tính lại theo toScreen(0,0) — vị trí xe trên màn
         // đổi theo mức nghiêng camera 3D (skTiltT), xem bên dưới.
         var anchorY = h * 0.72f
-        // build-427 (Sếp): khung đen = "dải phân cách cứng" — bản đồ, tuyến, nhãn tên đường chỉ vẽ trong vùng bản đồ.
-        // build-515 (Sếp 23/11, "trả lại nền bản đồ full màn xem map hiện gì"): test tắt panel đen
-        // khi đang chạy test cmd4/1 (V2_FUSE_TEXT=false) để xem vùng đó xe tự vẽ gì không.
-        val navPanels = V2_FUSE_TEXT && (PANELS_ALWAYS || (skActive && skRoute != null))
-        val mapL = if (navPanels) w * PANEL_W_FRAC else 0f
-        val mapB = if (navPanels) h * FW_TOP_FRAC - h * 0.24f else h.toFloat() // build-430: nhãn né cụm km/phút góc dưới + thanh firmware
+        // build-517 (Sếp 23/11): bỏ hẳn panel đen bên trái — bản đồ full màn vĩnh viễn (không còn gate
+        // theo V2_FUSE_TEXT, panel/km-widget đã xoá hoàn toàn khỏi UI, xem drawGarminPanels()).
+        val navPanels = false
+        val mapL = 0f
+        val mapB = h.toFloat()
         var mapClip = -1
         val dk = isDark()
         if ((route == null || route.lats.size < 2) && FREE_MAP && (skLat != 0.0 || skLon != 0.0)) {
@@ -1179,7 +1178,7 @@ object TftLink {
                 val aheadM = ((h + MapSnap.EXTRA_H) / 2.0 - 0.72 * h).coerceAtLeast(0.0) * mPerPx
                 val tLat = skLat + cosH * aheadM / 110540.0
                 val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                val fw = if (PANELS_ALWAYS && V2_FUSE_TEXT) (w - (w * PANEL_W_FRAC).toInt()) else w
+                val fw = w
                 MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 0.0, fw, h, plain = bgPlainNow())?.also { it.dx = (w - fw).toFloat() }
             } else null
             if (snap != null) {
@@ -1372,7 +1371,7 @@ object TftLink {
                 // build-434 (Sếp: "đường tím phải thẳng lên"): KHÔNG lệch camera sang bên nữa (lệch tâm làm đường thẳng
                 // phía trước bị nghiêng về điểm tụ giữa màn) — chụp ảnh đúng bề rộng phần bản đồ rồi vẽ dời sang phải.
                 val sideM = 0.0
-                val mapW = if (skActive && V2_FUSE_TEXT) (w - (w * PANEL_W_FRAC).toInt()) else w
+                val mapW = w
                 val tLat = skLat + (cosH * aheadM + sinH * sideM) / 110540.0
                 val tLon = skLon + (sinH * aheadM - cosH * sideM) / (111320.0 * Math.cos(Math.toRadians(skLat)))
                 MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 60.0, mapW, h, plain = bgPlainNow())?.also { it.dx = (w - mapW).toFloat() }
@@ -2065,51 +2064,12 @@ object TftLink {
             c.drawPath(carPath, carPaint)
         } else drawCar3D(c, carX, anchorY, carR)
         if (mapClip >= 0) { c.restoreToCount(mapClip); mapClip = -1 }
-        val panels = V2_FUSE_TEXT && (PANELS_ALWAYS || (skActive && skRoute != null))
-        if (panels) drawGarminPanels(c, w, h, dk)
+        // build-517 (Sếp 23/11): bỏ hẳn panel riêng bên trái — bản đồ full màn luôn, chỉ còn số m tới
+        // điểm quẹo vẽ nổi trực tiếp (xem drawGarminPanels). Bỏ hẳn ô phân số km đi/còn lại (build-496/515).
+        val panels = false
+        if (skActive && skRoute != null) drawGarminPanels(c, w, h, dk)
         val lim = skLimitKmh
-        val limBottomY = h * 0.03f // build-496: chỉ còn giữ cho nhánh dead-code (if(false)) phía dưới dùng tới tên biến.
-        // build-496 (Sếp 21/11): "Bỏ hết mảng tốc độ tối đa, chỗ đó hiện số km đã đi được, kiểu phân
-        // số: trên là km đã đi, gạch ngang, dưới là km còn lại, cuối chữ km bé" — bỏ hẳn biển tốc độ
-        // tối đa + biển sắp đổi tốc độ trên màn xe (giữ nguyên biển giới hạn/cảnh báo tốc độ ở màn
-        // điện thoại, chỉ bỏ hình vẽ này); gộp luôn ô "km còn lại" cũ (build-494) vào chung 1 ô phân số.
-        try {
-            // build-515 (Sếp 23/11, "thử tắt km đi được và km còn lại"): tắt luôn ô phân số km này
-            // trong lúc test bản đồ full màn, để xem vùng đó xe tự vẽ gì không.
-            if (V2_FUSE_TEXT && skActive && skRoute != null && Live.maneuverSign != 4) {
-                fun fmtKm(km: Double) = if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')
-                val remKm = skRemainingM / 1000.0
-                val travKm = skTraveledM / 1000.0
-                val fcx = if (panels) w * 0.158f else w * 0.90f
-                val linePaint = Paint().apply { color = Color.WHITE; strokeWidth = h * 0.006f; isAntiAlias = true }
-                if (panels) {
-                    // build-501 (Sếp 21/11): gọn lại vào giữa khe 2 nút +/− (trước build-498/499 kéo dài xuống
-                    // sát thanh firmware) — km đã đi cao hơn 1 chút phía trên gạch, chữ "KM" (viết hoa) ngay
-                    // dưới chân số km còn lại thay vì tuốt dưới cùng.
-                    val yLine = h * 0.40f
-                    val travSz = h * 0.115f // build-502 (Sếp 21/11): "bé tí" — tăng lại từ 0.085f
-                    val remSz = h * 0.115f
-                    val travPaint = Paint().apply { color = Color.WHITE; textSize = travSz; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                    val remPaint = Paint().apply { color = Color.WHITE; textSize = remSz; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                    val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.055f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                    val lineHalfW = maxOf(travPaint.measureText(fmtKm(travKm)), remPaint.measureText(fmtKm(remKm))) * 0.6f
-                    val remBaseline = yLine + remSz * 1.05f
-                    c.drawText(fmtKm(travKm), fcx, yLine - travSz * 0.55f, travPaint)
-                    c.drawLine(fcx - lineHalfW, yLine, fcx + lineHalfW, yLine, linePaint)
-                    c.drawText(fmtKm(remKm), fcx, remBaseline, remPaint)
-                    c.drawText("KM", fcx, remBaseline + remSz * 0.55f, unitPaint2)
-                } else {
-                    val yTrav = h * 0.15f; val yLine = h * 0.185f; val yRem = h * 0.285f; val yUnit = h * 0.335f
-                    val numPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.12f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                    val unitPaint2 = Paint().apply { color = Color.WHITE; textSize = h * 0.055f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-                    val lineHalfW = numPaint2.measureText(fmtKm(maxOf(remKm, travKm))) * 0.75f
-                    c.drawText(fmtKm(travKm), fcx, yTrav, numPaint2)
-                    c.drawLine(fcx - lineHalfW, yLine, fcx + lineHalfW, yLine, linePaint)
-                    c.drawText(fmtKm(remKm), fcx, yRem, numPaint2)
-                    c.drawText("km", fcx, yUnit, unitPaint2)
-                }
-            }
-        } catch (_: Throwable) {}
+        val limBottomY = h * 0.03f // chỉ còn giữ cho nhánh dead-code (if(false)) phía dưới dùng tới tên biến.
         // build-457 (Sếp 16/11): dưới biển tốc độ = biểu tượng thời tiết (nắng/mây/mưa/bão); có mưa phía trước thì
         // dưới biểu tượng đếm ngược km tới vùng mưa.
         try {
@@ -2425,7 +2385,7 @@ object TftLink {
     /** build-456 (Sếp): ô xanh dương "Mưa vừa · 6 km · 12 ph" khi vùng mưa còn ở phía trước (RainAlert). */
     private fun drawRain(c: Canvas, w: Int, h: Int) {
         val txt = RainAlert.boxText ?: return
-        val left = if (V2_FUSE_TEXT && (PANELS_ALWAYS || (skActive && skRoute != null))) w * PANEL_W_FRAC + 6f else 6f
+        val left = 6f
         val tp = Paint().apply { color = Color.WHITE; textSize = h * 0.08f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
         val bw = (tp.measureText(txt) + 20f).coerceAtMost(w * 0.80f - left)
         val top = h * 0.02f
@@ -2443,7 +2403,7 @@ object TftLink {
         if (age > (if (Live.noticeCall) 45_000L else 8_000L)) { Live.noticeTitle = null; return }
         // build-477 (Sếp 17/11): khung bên PHẢI, rộng ~40% phần bản đồ (đường tím ở giữa vẫn thấy), cao co giãn theo nội dung.
         // build-485: bỏ số phút còn lại ở góc dưới phải → khung tin nhắn giãn tới sát thanh firmware.
-        val mapL = if (V2_FUSE_TEXT && (PANELS_ALWAYS || (skActive && skRoute != null))) w * PANEL_W_FRAC else 0f
+        val mapL = 0f
         val right = w - 6f
         val left = right - (w - mapL) * 0.40f
         val top = h * 0.03f
@@ -2484,72 +2444,44 @@ object TftLink {
     }
 
     /**
-     * build-424 (Sếp, kiểu Garmin): khung ĐEN bên trái (dưới nút +/− của đồng hồ) — góc trên = khoảng cách tới chỗ rẽ,
-     * gần tới đích thì "Đích bên trái/phải"; dải ĐEN dưới đáy: km còn lại | tên đường đang đi | thời gian còn lại + giờ tới.
+     * build-517 (Sếp 23/11): "Dải màu đen giữ lại mỗi kc tới điểm quẹo. Còn lại bỏ hết, bỏ cả nền
+     * đen luôn" — bỏ hẳn khung đen (bg/separator), bỏ km đi/còn lại và ô ETA tự vẽ (giờ gửi qua kênh
+     * chữ của xe, xem etaBarText()/update()). Chỉ còn SỐ MÉT TỚI CHỖ RẼ, vẽ nổi trực tiếp trên bản đồ
+     * (chữ trắng viền đen như các nhãn khác), không còn vùng dành riêng bên trái.
      */
     private fun drawGarminPanels(c: Canvas, w: Int, h: Int, dk: Boolean) {
-        val pw = w * PANEL_W_FRAC
-        val bh = h * BOTTOM_H_FRAC
-        // build-426 (Sếp): thanh firmware dưới của đồng hồ che ~22% đáy ảnh → cả cụm nằm TRÊN mốc FW_TOP; phần dưới tô đen.
+        if (!(skActive && skRoute != null)) return
         val hb = h * FW_TOP_FRAC
-        val bg = Paint().apply { color = Color.rgb(12, 12, 14); style = Paint.Style.FILL }
-        c.drawRect(0f, 0f, pw, h.toFloat(), bg)
-        val sep = Paint().apply { color = Color.rgb(70, 70, 76); strokeWidth = 2f }
-        c.drawLine(pw, 0f, pw, hb, sep)
         fun tp(sz: Float, bold: Boolean, al: Paint.Align, col: Int = Color.WHITE) = Paint().apply {
             color = col; textSize = sz; isAntiAlias = true; textAlign = al
             typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         }
-        val gray = Color.rgb(170, 170, 178)
-        // build-466: không dẫn đường (bản đồ chờ / đã tới nơi) → khung đen giữ nguyên, ô giờ tới hiện giờ hiện tại.
-        if (!(skActive && skRoute != null)) {
-            val cal = java.util.Calendar.getInstance()
-            val t = String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
-            val ep = tp(h * 0.13f, true, Paint.Align.CENTER)
-            if (ep.measureText(t) > pw - 6f) ep.textSize *= (pw - 6f) / ep.measureText(t)
-            c.drawText(t, pw / 2f, hb - h * 0.004f, ep)
-            return
-        }
-        // --- góc trên khung trái: khoảng cách tới chỗ rẽ / đích bên nào ---
-        val cx = pw / 2f
+        val cx = w * 0.11f
         val dM = skDistanceM
         val nearDest = Live.maneuverSign == 4
         if (dM >= 0) {
-            val big = tp(h * 0.15f, true, Paint.Align.CENTER)
+            val big = tp(h * 0.15f, true, Paint.Align.LEFT)
+            val halo = Paint(big).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.02f; strokeJoin = Paint.Join.ROUND }
             val (num, unit) = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f", dM / 1000f).replace('.', ',') to "km" else "$dM" to "m"
             val small = tp(h * 0.08f, true, Paint.Align.LEFT)
-            val tw = big.measureText(num) + small.measureText(unit) + h * 0.01f
-            var bx = cx - tw / 2f
-            if (tw > pw - 8f) { big.textSize *= (pw - 8f) / tw; bx = 4f }
-            val by = h * 0.14f // build-496 (Sếp 21/11): dời số m tới điểm rẽ lên trên (trước h*0.19f)
-            big.textAlign = Paint.Align.LEFT
-            c.drawText(num, bx, by, big)
-            c.drawText(unit, bx + big.measureText(num) + h * 0.01f, by, small)
+            val smallHalo = Paint(small).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.018f; strokeJoin = Paint.Join.ROUND }
+            val bx = 4f
+            val by = h * 0.14f
+            c.drawText(num, bx, by, halo); c.drawText(num, bx, by, big)
+            val ux = bx + big.measureText(num) + h * 0.01f
+            c.drawText(unit, ux, by, smallHalo); c.drawText(unit, ux, by, small)
         }
-        // build-450 (Sếp 15/11): gần tới đích không ghi chữ "Đích" dưới số m (bị nút zoom của đồng hồ che).
-        // Thay ô giờ tới (ETA) bằng hướng điểm đến, chữ trắng to — lúc này ETA không còn quan trọng.
+        // build-450 (Sếp 15/11): gần tới đích → "Đích bên trái/phải" thay cho số mét.
         if (nearDest) {
             val lbl = Live.maneuverLabel ?: ""
-            // build-451 (Sếp): ghi "Điểm đến" / "bên trái" — 2 dòng để chữ đủ to trong khung hẹp.
             val side = when { lbl.contains("trái") -> "bên trái"; lbl.contains("phải") -> "bên phải"; else -> "phía trước" }
             val l1 = "Điểm đến"
-            val sp = tp(h * 0.10f, true, Paint.Align.CENTER)
-            val mw = maxOf(sp.measureText(l1), sp.measureText(side))
-            if (mw > pw - 6f) sp.textSize *= (pw - 6f) / mw
+            val sp = tp(h * 0.10f, true, Paint.Align.LEFT)
+            val halo2 = Paint(sp).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.02f; strokeJoin = Paint.Join.ROUND }
             val lh = sp.textSize * 1.05f
-            // build-457 (Sếp): dịch xuống chút — dòng trên bị cấn nút zoom (−) của đồng hồ.
             val base = hb + h * 0.012f
-            c.drawText(l1, cx, base - lh, sp)
-            c.drawText(side, cx, base, sp)
-        }
-        // build-430 (Sếp): bỏ dải dưới. Giờ tới (ETA) nằm trong khung đen, dưới nút − của đồng hồ.
-        // build-486 (Sếp 17/11): bỏ hẳn số km góc dưới phải — bên trái (ô vuông) đã có km còn lại rồi.
-        if (skEtaMs > 0L) {
-            val cal = java.util.Calendar.getInstance().apply { timeInMillis = System.currentTimeMillis() + skEtaMs }
-            val etaTxt = String.format(java.util.Locale.US, "%02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
-            val ep = tp(h * 0.13f, true, Paint.Align.CENTER) // build-432: to hơn, thấp hơn (Sếp)
-            if (ep.measureText(etaTxt) > pw - 6f) ep.textSize *= (pw - 6f) / ep.measureText(etaTxt)
-            if (!nearDest) c.drawText(etaTxt, cx, hb - h * 0.004f, ep)
+            c.drawText(l1, cx, base - lh, halo2); c.drawText(l1, cx, base - lh, sp)
+            c.drawText(side, cx, base, halo2); c.drawText(side, cx, base, sp)
         }
     }
 
@@ -4452,6 +4384,15 @@ object TftLink {
             send(navActivePacket(true))
             navModeSentAt = System.currentTimeMillis()
             try { TripLog.ev("tftNavMode", "on" to true) } catch (_: Exception) {}
+        }
+        // build-517 (Sếp 23/11, "giờ tới gửi số cho màn hiện như zin"): giờ đến gửi qua kênh chữ
+        // cmd3 (thanh dưới của xe, chữ/vị trí do xe tự vẽ) — độc lập với payload[0]/cmd4/1, nên vẫn
+        // gửi dù V2_FUSE_TEXT=true (đường tắt bên dưới chỉ chặn cmd4/1, không chặn cmd3 này).
+        if (etaChanged) {
+            val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.MINUTE, etaMinutes) }
+            val etaTxt = String.format(java.util.Locale.US, "Đến %02d:%02d", cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
+            send(namePacket(etaTxt))
+            statTextTx++
         }
         if (PIPE_V2 && V2_FUSE_TEXT) {
             lastSentKey = key
