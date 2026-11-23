@@ -1789,7 +1789,10 @@ object TftLink {
             // tuyến sau điểm rẽ) — đúng là "cọc chỉ dẫn" cắm trên con đường sắp đi tới, không phải
             // con đường hiện tại.
             val nextSt = skNextStreet
-            if (!nextSt.isNullOrBlank()) {
+            // build-514 (Sếp 23/11, test "xe tự vẽ hộp chỉ đường" đúng nghĩa): khi V2_FUSE_TEXT=false
+            // (đang gửi cmd 4/1 thật), KHÔNG vẽ nhãn tên-đường-sắp-rẽ vào ảnh nữa, để xem xe có tự
+            // hiện hộp chỉ đường của nó không — bài test sạch, không bị icon vẽ sẵn che/trộn lẫn.
+            if (V2_FUSE_TEXT && !nextSt.isNullOrBlank()) {
                 val turnCumTarget = cum0 + (skDistanceM.takeIf { it >= 0 }?.toDouble() ?: 0.0)
                 var mIdx = idx0
                 while (mIdx < iEnd0 - 1 && route.cum[mIdx] < turnCumTarget) mIdx++
@@ -3870,7 +3873,12 @@ object TftLink {
         var body = jpeg
         if (body.size <= 2048) body = body.copyOf(2050)
         val payload = ByteArray(body.size + 3)
-        payload[0] = 3
+        // build-514: byte mode của khung — 3 = bình thường (xe không tự vẽ gì thêm ngoài chrome cố
+        // định). Test "xe tự vẽ hộp chỉ đường" (Sếp 23/11, "cứ đúng test mà làm"): khi đang gửi cmd
+        // 4/1 thật (V2_FUSE_TEXT=false) VÀ đang dẫn đường, đổi sang 0 để xem xe có tự vẽ hộp rẽ/ETA
+        // của chính nó không. RỦI RO: chưa xác nhận byte 0 có đúng nghĩa này trên máy Sếp — nếu màn
+        // không hiện gì ở vùng chỉ đường, báo lại để trả về 3 ngay.
+        payload[0] = (if (!V2_FUSE_TEXT && skActive) 0 else 3).toByte()
         payload[1] = (seq and 0xFF).toByte()
         payload[2] = ((seq ushr 8) and 0xFF).toByte()
         System.arraycopy(body, 0, payload, 3, body.size)
@@ -3891,7 +3899,7 @@ object TftLink {
         try {
             TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace,
                 "tag" to tag, "unacked" to 1, "copy" to copy, "step" to stepMs, "safety" to safetyMs, "nmax" to nmaxStyle, "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "v" to 4,
-                "bg" to (if (bgPlainNow()) "plain" else "map"), "q" to jpegQOf(jpeg))
+                "bg" to (if (bgPlainNow()) "plain" else "map"), "q" to jpegQOf(jpeg), "mode" to payload[0].toInt())
         } catch (_: Exception) {}
         return true
     }
