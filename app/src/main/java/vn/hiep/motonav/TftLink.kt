@@ -1870,12 +1870,14 @@ object TftLink {
                 val padX = boxW * 0.05f; val padY = boxH * 0.06f
                 c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), boxH * 0.08f, boxH * 0.08f,
                     Paint().apply { color = Color.argb(190, 255, 255, 255); style = Paint.Style.FILL; isAntiAlias = true })
-                val colSplit = left + boxW / 3f
+                // build-527 (Sếp 23/11, "số km to ra tí"): số luôn được co giãn khớp đúng chiều rộng cột
+                // trái, nên muốn to hơn phải nới rộng cột trái ra (1/3 → 0.4) chứ không phải đổi cỡ gốc.
+                val colSplit = left + boxW * 0.4f
                 // --- cột trái (1/3): số khoảng cách, nhỏ lại, "km"/"m" bé ở dưới chân ---
                 val dM = skDistanceM
                 if (dM >= 0) {
                     val (numTxt, unitTxt) = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f", dM / 1000.0).replace('.', ',') to "km" else "$dM" to "m"
-                    val numPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.26f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                    val numPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.34f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                     val unitPaint = Paint().apply { color = Color.rgb(70, 70, 76); textSize = boxH * 0.11f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                     val maxNumW = (colSplit - left) - padX * 2
                     val nw = numPaint.measureText(numTxt)
