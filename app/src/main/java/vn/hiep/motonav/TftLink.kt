@@ -1863,38 +1863,61 @@ object TftLink {
                 val right = w - 2f; val left = right - boxW
                 val fwTop = h * FW_TOP_FRAC
                 val bottom = fwTop - 2f; val top = bottom - boxH
-                // build-524 (Sếp 23/11, "chữ để gần mép, ko cần lọt trong bảng" + "bảng dư mà chữ bé
-                // tí"): lề tối thiểu, và LUÔN co chữ (cả to lên lẫn nhỏ xuống) để vừa khít bề rộng ô —
-                // chữ ngắn (tên đường/số ít chữ số) vẫn to hết cỡ thay vì bé tí giữa khung trống.
-                val padX = boxW * 0.025f
-                val cxBox = (left + right) / 2f
-                val dM = skDistanceM
-                val distTxt = if (dM >= 0) (if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000.0).replace('.', ',') else "$dM m") else null
-                val labelPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.2f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                val distPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.2f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                val maxTw = boxW - padX * 2
-                val lw = labelPaint.measureText(titleTxt)
-                if (lw > 0f) labelPaint.textSize *= maxTw / lw
-                val dw = distTxt?.let { distPaint.measureText(it) } ?: 0f
-                if (dw > 0f) distPaint.textSize *= (maxTw * 1.15f) / dw // số đếm ngược to hơn hẳn tên đường
-                var fm3 = labelPaint.fontMetrics
-                var fmD = distPaint.fontMetrics
-                var lineH = fm3.descent - fm3.ascent
-                var distLineH = fmD.descent - fmD.ascent
-                var contentH = lineH + (if (distTxt != null) distLineH else 0f)
-                val maxContentH = boxH - padX * 2
-                if (contentH > maxContentH) {
-                    val sc = maxContentH / contentH
-                    labelPaint.textSize *= sc; distPaint.textSize *= sc
-                    fm3 = labelPaint.fontMetrics; fmD = distPaint.fontMetrics
-                    lineH = fm3.descent - fm3.ascent; distLineH = fmD.descent - fmD.ascent
-                    contentH = lineH + (if (distTxt != null) distLineH else 0f)
-                }
-                var ly0 = (top + bottom) / 2f - contentH / 2f - fm3.ascent
+                // build-525 (Sếp 23/11, "chia 2 cột: 1/3 trái số km (bé lại, chữ km nhỏ dưới chân),
+                // 2/3 phải tên đường (to hơn, tự xuống dòng 2-3 dòng, ko tràn ra ngoài)"): bỏ bố cục
+                // xếp-chồng-2-dòng (build-521/522), chuyển sang 2 CỘT riêng trong cùng 1 ô trắng.
+                val padX = boxW * 0.05f; val padY = boxH * 0.06f
                 c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), boxH * 0.08f, boxH * 0.08f,
                     Paint().apply { color = Color.argb(190, 255, 255, 255); style = Paint.Style.FILL; isAntiAlias = true })
-                c.drawText(titleTxt, cxBox, ly0, labelPaint)
-                if (distTxt != null) c.drawText(distTxt, cxBox, ly0 - fm3.descent + distLineH + fmD.ascent, distPaint)
+                val colSplit = left + boxW / 3f
+                // --- cột trái (1/3): số khoảng cách, nhỏ lại, "km"/"m" bé ở dưới chân ---
+                val dM = skDistanceM
+                if (dM >= 0) {
+                    val (numTxt, unitTxt) = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f", dM / 1000.0).replace('.', ',') to "km" else "$dM" to "m"
+                    val numPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.26f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                    val unitPaint = Paint().apply { color = Color.rgb(70, 70, 76); textSize = boxH * 0.11f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                    val maxNumW = (colSplit - left) - padX * 2
+                    val nw = numPaint.measureText(numTxt)
+                    if (nw > 0f) numPaint.textSize *= maxNumW / nw
+                    val uw = unitPaint.measureText(unitTxt)
+                    if (uw > 0f) unitPaint.textSize *= minOf(1f, maxNumW / uw)
+                    val cxNum = (left + colSplit) / 2f
+                    val fmN = numPaint.fontMetrics; val fmU = unitPaint.fontMetrics
+                    val nLineH = fmN.descent - fmN.ascent; val uLineH = fmU.descent - fmU.ascent
+                    val numContentH = nLineH + uLineH
+                    var numY = (top + bottom) / 2f - numContentH / 2f - fmN.ascent
+                    c.drawText(numTxt, cxNum, numY, numPaint)
+                    c.drawText(unitTxt, cxNum, numY - fmN.descent + uLineH + fmU.ascent, unitPaint)
+                }
+                // --- cột phải (2/3): tên đường / "Điểm đến ...", to hơn, tự xuống dòng tối đa 3 dòng ---
+                val rLeft = colSplit + padX; val rRight = right - padX
+                val maxRw = (rRight - rLeft).coerceAtLeast(1f)
+                fun wrapWords(s: String, p: Paint): List<String> {
+                    val words = s.split(' ').filter { it.isNotEmpty() }
+                    val out = ArrayList<String>(); var cur = ""
+                    for (wd in words) {
+                        val cand = if (cur.isEmpty()) wd else "$cur $wd"
+                        if (cur.isEmpty() || p.measureText(cand) <= maxRw) cur = cand
+                        else { out.add(cur); cur = wd }
+                    }
+                    if (cur.isNotEmpty()) out.add(cur)
+                    return out
+                }
+                val titlePaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.19f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                var lines = wrapWords(titleTxt, titlePaint).take(3)
+                val widest = lines.maxOfOrNull { titlePaint.measureText(it) } ?: 0f
+                if (widest > maxRw) titlePaint.textSize *= maxRw / widest
+                var fmT = titlePaint.fontMetrics
+                var tLineH = fmT.descent - fmT.ascent
+                val maxTh = boxH - padY * 2
+                if (tLineH * lines.size > maxTh) {
+                    titlePaint.textSize *= maxTh / (tLineH * lines.size)
+                    fmT = titlePaint.fontMetrics; tLineH = fmT.descent - fmT.ascent
+                    lines = wrapWords(titleTxt, titlePaint).take(3)
+                }
+                val cxTitle = (rLeft + rRight) / 2f
+                var tY = (top + bottom) / 2f - (tLineH * lines.size) / 2f - fmT.ascent
+                for (ln in lines) { c.drawText(ln, cxTitle, tY, titlePaint); tY += tLineH }
             }
             // build-321: ghim nổi kiểu Garmin — cây xăng (xanh) và camera (đỏ) trong tầm nhìn phía trước.
             try {
