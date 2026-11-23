@@ -30,7 +30,7 @@ object Valhalla {
             put("costing", "motorcycle")
             put("costing_options", JSONObject().put("motorcycle", JSONObject().apply {
                 put("use_highways", 0.8)   // build-466 (Sếp: Xa lộ sao lại vào đường số 2) 0.5 → 0.8
-                put("maneuver_penalty", 8)  // build-466: 12s (Sếp: quẹo vô lý, về Xuân Thủy quẹo thêm 2 lần); build-495 (Sếp 21/11): 12s vẫn dẫn lung tung → giảm 8s (mặc định 5; build-477: 30 s quá nặng → dẫn đường vòng)
+                put("maneuver_penalty", 6)  // build-517 (Sếp 23/11, "giảm phạt quẹo về 6s, đó ko phải phương án sửa dẫn sai"): 8→6; build-466: 12s (Sếp: quẹo vô lý, về Xuân Thủy quẹo thêm 2 lần); build-495 (Sếp 21/11): 12s vẫn dẫn lung tung → giảm 8s (mặc định 5; build-477: 30 s quá nặng → dẫn đường vòng)
                 // build-336: 0 phạt cả trunk (QL1/Xa lộ HN) → vòng vào hẻm ở Suối Tiên; cao tốc thật đã có motorcycle=no
                 put("use_primary", 0.7)    // build-335: 1.0 (Hiệp: "dẫn vào đường xấu"); build-501 (Sếp 21/11): "Hạ thử đi" —
                 // 1.0 làm app vòng qua đường lớn (Cộng Hoà) dù có đường chính khác nối thẳng (Tân Kỳ Tân Quý/Tân Sơn Nhì) → hạ xuống 0.7 để thử

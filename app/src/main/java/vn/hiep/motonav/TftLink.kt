@@ -1813,9 +1813,11 @@ object TftLink {
                 val bgPaint = Paint().apply { color = Color.argb(190, 0, 0, 0); style = Paint.Style.FILL }
                 val leaderPaint = Paint().apply { color = Color.rgb(60, 64, 72); style = Paint.Style.STROKE; strokeWidth = 2f; isAntiAlias = true }
                 val padX = h * 0.022f; val padY = h * 0.02f
-                // build-506 (Sếp 22/11): điểm neo (chỗ sắp rẽ) nằm NGOÀI màn hiển thị → thay vì tìm
-                // hướng đặt nhãn quanh 1 điểm ngoài màn (vô nghĩa), ghim cố định ở CẠNH TRÊN: rẽ trái
-                // → bên trái, rẽ phải → bên phải; tên đường dài quá 4-5 chữ thì xuống dòng (tối đa 2 dòng).
+                // build-517 (Sếp 23/11, "ô chỉ đường quẹo nếu ngoài màn giờ cố định ở góc phải phía
+                // dưới, mục đích là hiện tên đường sắp quẹo vào, ko cần hiện rẽ trái/rẽ phải/đi
+                // thẳng"): điểm neo (chỗ sắp rẽ) nằm NGOÀI màn hiển thị → ghim cố định GÓC PHẢI PHÍA
+                // DƯỚI (trước: build-506 ghim cạnh trên, trái/phải theo hướng rẽ — nay bỏ phân biệt
+                // hướng, luôn góc phải dưới); tên đường dài quá 4-5 chữ thì xuống dòng (tối đa 2 dòng).
                 val anchorOffscreen = mx < mapL || mx > w || my < 0f || my > h
                 if (anchorOffscreen) {
                     fun wrapLabel(s: String): List<String> {
@@ -1827,11 +1829,13 @@ object TftLink {
                     val tw2 = lines.maxOf { labelPaint.measureText(it) }
                     val fm3 = labelPaint.fontMetrics
                     val lineH = fm3.descent - fm3.ascent
-                    val goLeft = skSign < 0
-                    val lx0 = if (goLeft) mapL + tw2 / 2f + padX + 4f else w - tw2 / 2f - padX - 2f
-                    val ly0 = h * 0.1f + padY - fm3.ascent
+                    val lx0 = w - tw2 / 2f - padX - 2f
+                    val bottomMargin = h * 0.1f
+                    val boxH = lineH * lines.size
+                    val top = h - bottomMargin - boxH - padY * 2
+                    val ly0 = top + padY - fm3.ascent
                     val left = lx0 - tw2 / 2f - padX; val right = lx0 + tw2 / 2f + padX
-                    val top = ly0 + fm3.ascent - padY; val bottom = ly0 + fm3.ascent + lineH * lines.size - fm3.ascent + padY
+                    val bottom = top + boxH + padY * 2
                     c.drawLine(mx.coerceIn(mapL, w.toFloat()), my.coerceIn(0f, h.toFloat()), lx0, ly0, leaderPaint)
                     if (snapShot != null) {
                         val pf = if (dk) Color.WHITE else Color.BLACK
@@ -1913,9 +1917,9 @@ object TftLink {
             // chỗ nét đỏ chạm sát nét trắng; nền đen đồng nhất quanh nét giữ màu đỏ rõ hơn.
             // build-379 (Sếp): góc quẹo VUÔNG đúng hình thật, nét thẳng mịn kiểu Waze — bỏ nối cong qua trung điểm
             // (bản 220 bo tròn mọi góc), lọc điểm lệch nhỏ bằng Douglas–Peucker (≤ 2 px) rồi nối đoạn thẳng, góc nhọn (MITER).
-            // build-421 (Sếp: "đường dẫn màu tím như Garmin, mịn"): tím hồng viền tím đậm, nối/đầu bo tròn.
-            val casingPaint = Paint().apply { color = Color.rgb(120, 20, 120); style = Paint.Style.STROKE; strokeWidth = 15f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND } // build-432: tím 11 px (Sếp)
-            val linePaint = Paint().apply { color = Color.rgb(232, 60, 220); style = Paint.Style.STROKE; strokeWidth = 11f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+            // build-517 (Sếp 23/11, "đường dẫn chuyển sang màu trắng"): trắng viền đen đậm (trước: tím hồng viền tím).
+            val casingPaint = Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 15f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+            val linePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 11f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
             fun simplifyPx(pts: List<FloatArray>, eps: Float): List<FloatArray> {
                 if (pts.size < 3) return pts
                 val keep = BooleanArray(pts.size); keep[0] = true; keep[pts.size - 1] = true
@@ -1950,82 +1954,8 @@ object TftLink {
             } else path
             c.drawPath(drawPath, casingPaint)
             c.drawPath(drawPath, linePaint)
-            // build-379 (Sếp): mũi tên TRẮNG kiểu Waze nằm ngay trên tuyến ở khúc quẹo sắp tới, bám theo tuyến
-            // từ ~25 m trước điểm quẹo tới ~25 m sau, có đầu mũi tên. Đi thẳng / tới nơi thì không vẽ.
-            try {
-                val sg = skSign
-                val isTurn = skRoundabout || sg in 1..3 || sg in -3..-1 || sg == 6 || sg == 7 || sg == -7 || sg == 8 || sg == -8
-                if (isTurn && (skManLat != 0.0 || skManLon != 0.0)) {
-                    val mx = proj.x(skManLon); val my = proj.y(skManLat)
-                    var mi = -1; var md = 25.0
-                    for (k in idx0.coerceAtLeast(0) until iEnd.coerceAtMost(route.lats.size)) {
-                        val d = Math.hypot(proj.x(route.lons[k]) - mx, proj.y(route.lats[k]) - my)
-                        if (d < md) { md = d; mi = k }
-                    }
-                    if (mi >= 0) {
-                        val lead = 75.0; val tail = 95.0 // build-432 (Sếp): nghiêng 60° làm mũi tên bị bẹp → kéo dài (trước 60/60 m)
-                        fun pt(k: Int): DoubleArray = shifted(k)
-                        // lùi về trước điểm quẹo
-                        val back = ArrayList<DoubleArray>()
-                        run {
-                            var acc = 0.0; var k = mi; var cur = pt(mi); back.add(cur)
-                            while (k - 1 >= idx0.coerceAtLeast(0) && acc < lead) {
-                                val nx = pt(k - 1); val seg = Math.hypot(nx[0] - cur[0], nx[1] - cur[1])
-                                if (acc + seg >= lead && seg > 0.01) { val f = (lead - acc) / seg; back.add(doubleArrayOf(cur[0] + (nx[0] - cur[0]) * f, cur[1] + (nx[1] - cur[1]) * f)); acc = lead; break }
-                                acc += seg; back.add(nx); cur = nx; k--
-                            }
-                        }
-                        val fwd = ArrayList<DoubleArray>()
-                        run {
-                            var acc = 0.0; var k = mi; var cur = pt(mi)
-                            while (k + 1 < route.lats.size && acc < tail) {
-                                val nx = pt(k + 1); val seg = Math.hypot(nx[0] - cur[0], nx[1] - cur[1])
-                                if (acc + seg >= tail && seg > 0.01) { val f = (tail - acc) / seg; fwd.add(doubleArrayOf(cur[0] + (nx[0] - cur[0]) * f, cur[1] + (nx[1] - cur[1]) * f)); break }
-                                acc += seg; fwd.add(nx); cur = nx; k++
-                            }
-                        }
-                        val ms = ArrayList<DoubleArray>(); ms.addAll(back.reversed()); ms.addAll(fwd)
-                        val ap = ArrayList<FloatArray>()
-                        for (m in ms) {
-                            val rx = m[0] * cosH - m[1] * sinH; val ry = m[0] * sinH + m[1] * cosH
-                            if (ry < behindLimit) continue
-                            val (sx, sy) = toScreen(rx, ry)
-                            if (badPt(ry, sx, sy)) continue
-                            val last = ap.lastOrNull()
-                            if (last == null || Math.hypot((sx - last[0]).toDouble(), (sy - last[1]).toDouble()) >= 1.0) ap.add(floatArrayOf(sx, sy))
-                        }
-                        val aps = simplifyPx(ap, 1.5f)
-                        if (aps.size >= 2) {
-                            val ex = aps[aps.size - 1]; val pv = aps[aps.size - 2]
-                            var ux = ex[0] - pv[0]; var uy = ex[1] - pv[1]
-                            val ul = Math.hypot(ux.toDouble(), uy.toDouble()).toFloat()
-                            if (ul > 0.5f) {
-                                ux /= ul; uy /= ul
-                                val headL = 16f; val headW = 11f
-                                // thân mũi tên dừng ở chân đầu mũi tên để đầu nhọn gọn
-                                val bx = ex[0] - ux * headL * 0.7f; val by = ex[1] - uy * headL * 0.7f
-                                val shaft = android.graphics.Path().apply {
-                                    moveTo(aps[0][0], aps[0][1])
-                                    for (k in 1 until aps.size - 1) lineTo(aps[k][0], aps[k][1])
-                                    lineTo(bx, by)
-                                }
-                                val head = android.graphics.Path().apply {
-                                    moveTo(ex[0] + ux * 3f, ex[1] + uy * 3f)
-                                    lineTo(bx - ux * headL * 0.3f - uy * headW, by - uy * headL * 0.3f + ux * headW)
-                                    lineTo(bx - ux * headL * 0.3f + uy * headW, by - uy * headL * 0.3f - ux * headW)
-                                    close()
-                                }
-                                val aOut = Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 8.5f; isAntiAlias = true; strokeCap = Paint.Cap.BUTT; strokeJoin = Paint.Join.MITER; strokeMiter = 3f }
-                                val aIn = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 5f; isAntiAlias = true; strokeCap = Paint.Cap.BUTT; strokeJoin = Paint.Join.MITER; strokeMiter = 3f }
-                                val hOut = Paint().apply { color = Color.BLACK; style = Paint.Style.FILL_AND_STROKE; strokeWidth = 3f; isAntiAlias = true; strokeJoin = Paint.Join.MITER }
-                                val hIn = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
-                                c.drawPath(shaft, aOut); c.drawPath(head, hOut)
-                                c.drawPath(shaft, aIn); c.drawPath(head, hIn)
-                            }
-                        }
-                    }
-                }
-            } catch (_: Throwable) {}
+            // build-517 (Sếp 23/11, "mũi tên trên đường dẫn bỏ đi"): đã bỏ hẳn mũi tên trắng kiểu Waze
+            // từng vẽ ở khúc quẹo sắp tới (build-379) — nay đường dẫn chỉ còn nét trắng viền đen.
             // build-321: ghim nổi kiểu Garmin — cây xăng (xanh) và camera (đỏ) trong tầm nhìn phía trước.
             try {
                 val pins = ArrayList<Triple<Float, Float, Int>>() // sx, sy, loại (0 xăng, 1 camera)
