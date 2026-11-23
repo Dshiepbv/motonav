@@ -1798,7 +1798,8 @@ object TftLink {
             // build-379 (Sếp): góc quẹo VUÔNG đúng hình thật, nét thẳng mịn kiểu Waze — bỏ nối cong qua trung điểm
             // (bản 220 bo tròn mọi góc), lọc điểm lệch nhỏ bằng Douglas–Peucker (≤ 2 px) rồi nối đoạn thẳng, góc nhọn (MITER).
             // build-517 (Sếp 23/11, "đường dẫn chuyển sang màu trắng"): trắng viền đen đậm (trước: tím hồng viền tím).
-            val casingPaint = Paint().apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = 15f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+            // build-524 (Sếp 23/11, "đường dẫn tô viền đỏ vào"): viền đen → đỏ.
+            val casingPaint = Paint().apply { color = Color.rgb(224, 38, 43); style = Paint.Style.STROKE; strokeWidth = 15f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
             val linePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 11f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
             fun simplifyPx(pts: List<FloatArray>, eps: Float): List<FloatArray> {
                 if (pts.size < 3) return pts
@@ -1883,11 +1884,12 @@ object TftLink {
                     if (uw > 0f) unitPaint.textSize *= minOf(1f, maxNumW / uw)
                     val cxNum = (left + colSplit) / 2f
                     val fmN = numPaint.fontMetrics; val fmU = unitPaint.fontMetrics
-                    val nLineH = fmN.descent - fmN.ascent; val uLineH = fmU.descent - fmU.ascent
-                    val numContentH = nLineH + uLineH
-                    var numY = (top + bottom) / 2f - numContentH / 2f - fmN.ascent
+                    // build-526 (Sếp 23/11, "chữ km dịch xuống dưới số đếm, đang giữa ô"): tách số
+                    // đếm ra giữa phần TRÊN của ô, chữ km/m ép sát ĐÁY ô (không còn gộp khối rồi căn giữa cả ô).
+                    val numY = (top + bottom) / 2f - fmN.ascent - (fmN.descent - fmN.ascent) * 0.15f
                     c.drawText(numTxt, cxNum, numY, numPaint)
-                    c.drawText(unitTxt, cxNum, numY - fmN.descent + uLineH + fmU.ascent, unitPaint)
+                    val unitY = bottom - padY - fmU.descent
+                    c.drawText(unitTxt, cxNum, unitY, unitPaint)
                 }
                 // --- cột phải (2/3): tên đường / "Điểm đến ...", to hơn, tự xuống dòng tối đa 3 dòng ---
                 val rLeft = colSplit + padX; val rRight = right - padX
@@ -1903,7 +1905,7 @@ object TftLink {
                     if (cur.isNotEmpty()) out.add(cur)
                     return out
                 }
-                val titlePaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.19f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val titlePaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.23f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 var lines = wrapWords(titleTxt, titlePaint).take(3)
                 val widest = lines.maxOfOrNull { titlePaint.measureText(it) } ?: 0f
                 if (widest > maxRw) titlePaint.textSize *= maxRw / widest
