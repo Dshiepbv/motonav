@@ -1879,15 +1879,13 @@ object TftLink {
                 val dM = skDistanceM
                 if (dM >= 0) {
                     val (numTxt, unitTxt) = if (dM >= 1000) String.format(java.util.Locale.US, "%.1f", dM / 1000.0).replace('.', ',') to "km" else "$dM" to "m"
-                    val numPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.34f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                    val unitPaint = Paint().apply { color = Color.rgb(70, 70, 76); textSize = boxH * 0.14f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                    // build-532 (Sếp 23/11, "cố định cỡ chữ trong mọi trường hợp, bằng cỡ chữ tgian còn
+                    // lại ở góc trên bên trái"): dùng ĐÚNG cỡ chữ hh:mm (h*0.15f, xem drawGarminPanels)
+                    // làm chuẩn cố định, không còn tự co theo bề rộng cột ("00") như build-530.
+                    val numPaint = Paint().apply { color = Color.BLACK; textSize = h * 0.15f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                    val unitPaint = Paint().apply { color = Color.rgb(70, 70, 76); textSize = boxH * 0.17f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                     val maxNumW = (colSplit - left) - padX * 2
-                    // build-530 (Sếp 23/11, "kích cỡ số cố định bằng kích thước giống hàng chục bây giờ
-                    // kiểu 80 60m"): cỡ số CỐ ĐỊNH theo chuẩn 2 ký tự ("00"), không co giãn theo số chữ số
-                    // thật nữa (trước đây mỗi số 1-4 ký tự lại ra cỡ khác nhau) — chỉ co nhỏ lại nếu số thật
-                    // (ví dụ "1,2") rộng hơn mức chuẩn đó, không bao giờ phóng to hơn chuẩn.
-                    val refW = numPaint.measureText("00")
-                    if (refW > 0f) numPaint.textSize *= maxNumW / refW
+                    // an toàn: chỉ co nhỏ lại nếu số thật (ví dụ "1,2") vẫn tràn khỏi cột, không phóng to.
                     val nw = numPaint.measureText(numTxt)
                     if (nw > maxNumW) numPaint.textSize *= maxNumW / nw
                     val uw = unitPaint.measureText(unitTxt)
