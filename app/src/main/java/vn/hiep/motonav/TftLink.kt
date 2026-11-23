@@ -1799,7 +1799,9 @@ object TftLink {
             // (bản 220 bo tròn mọi góc), lọc điểm lệch nhỏ bằng Douglas–Peucker (≤ 2 px) rồi nối đoạn thẳng, góc nhọn (MITER).
             // build-517 (Sếp 23/11, "đường dẫn chuyển sang màu trắng"): trắng viền đen đậm (trước: tím hồng viền tím).
             // build-524 (Sếp 23/11, "đường dẫn tô viền đỏ vào"): viền đen → đỏ.
-            val casingPaint = Paint().apply { color = Color.rgb(224, 38, 43); style = Paint.Style.STROKE; strokeWidth = 15f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+            // build-529 (Sếp 23/11, "tăng viền đỏ lên, nhìn mờ nhạt quá"): đỏ thương hiệu (224,38,43) nhạt
+            // vì viền lõi trắng nuốt gần hết bề rộng → đỏ tươi hơn + viền dày hơn (15→19) để lộ rõ hơn.
+            val casingPaint = Paint().apply { color = Color.rgb(255, 20, 20); style = Paint.Style.STROKE; strokeWidth = 19f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
             val linePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 11f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
             fun simplifyPx(pts: List<FloatArray>, eps: Float): List<FloatArray> {
                 if (pts.size < 3) return pts
