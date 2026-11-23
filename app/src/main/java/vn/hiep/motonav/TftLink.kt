@@ -184,9 +184,14 @@ object TftLink {
         return pack(out.toByteArray(), 4, 1)
     }
 
-    /** cmd 1 / sub 1: giờ đến còn lại (phút), 0..1439. */
-    private fun etaPacket(minutes: Int): ByteArray {
-        val m = minutes.coerceIn(0, 1439)
+    /** cmd 1 / sub 1: giờ ĐẾN (không phải số phút còn lại) — build-515 (Sếp 23/11, log test cmd4/1
+     * build-514): gửi "phút còn lại" (15) khiến xe hiện giờ gần nửa đêm ("12:38am") thay vì giờ
+     * tới thật — suy ra xe hiểu tham số này là PHÚT-TRONG-NGÀY của giờ đến (0..1439, vd 870 = 14:30),
+     * không phải khoảng cách thời gian còn lại. Đổi sang tính giờ đến thật rồi quy ra phút-trong-ngày.
+     * Chưa có xác nhận chính thức từ tài liệu — suy luận từ log thực tế, cần xem lại trên xe. */
+    private fun etaPacket(remainingMinutes: Int): ByteArray {
+        val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.MINUTE, remainingMinutes) }
+        val m = (cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)).coerceIn(0, 1439)
         return pack(byteArrayOf(m.toByte(), (m shr 8).toByte(), 0, 0), 1, 1)
     }
 
@@ -1150,7 +1155,9 @@ object TftLink {
         // đổi theo mức nghiêng camera 3D (skTiltT), xem bên dưới.
         var anchorY = h * 0.72f
         // build-427 (Sếp): khung đen = "dải phân cách cứng" — bản đồ, tuyến, nhãn tên đường chỉ vẽ trong vùng bản đồ.
-        val navPanels = PANELS_ALWAYS || (skActive && skRoute != null)
+        // build-515 (Sếp 23/11, "trả lại nền bản đồ full màn xem map hiện gì"): test tắt panel đen
+        // khi đang chạy test cmd4/1 (V2_FUSE_TEXT=false) để xem vùng đó xe tự vẽ gì không.
+        val navPanels = V2_FUSE_TEXT && (PANELS_ALWAYS || (skActive && skRoute != null))
         val mapL = if (navPanels) w * PANEL_W_FRAC else 0f
         val mapB = if (navPanels) h * FW_TOP_FRAC - h * 0.24f else h.toFloat() // build-430: nhãn né cụm km/phút góc dưới + thanh firmware
         var mapClip = -1
@@ -1170,7 +1177,7 @@ object TftLink {
                 val aheadM = ((h + MapSnap.EXTRA_H) / 2.0 - 0.72 * h).coerceAtLeast(0.0) * mPerPx
                 val tLat = skLat + cosH * aheadM / 110540.0
                 val tLon = skLon + sinH * aheadM / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                val fw = if (PANELS_ALWAYS) (w - (w * PANEL_W_FRAC).toInt()) else w
+                val fw = if (PANELS_ALWAYS && V2_FUSE_TEXT) (w - (w * PANEL_W_FRAC).toInt()) else w
                 MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 0.0, fw, h, plain = bgPlainNow())?.also { it.dx = (w - fw).toFloat() }
             } else null
             if (snap != null) {
@@ -1363,7 +1370,7 @@ object TftLink {
                 // build-434 (Sếp: "đường tím phải thẳng lên"): KHÔNG lệch camera sang bên nữa (lệch tâm làm đường thẳng
                 // phía trước bị nghiêng về điểm tụ giữa màn) — chụp ảnh đúng bề rộng phần bản đồ rồi vẽ dời sang phải.
                 val sideM = 0.0
-                val mapW = if (skActive) (w - (w * PANEL_W_FRAC).toInt()) else w
+                val mapW = if (skActive && V2_FUSE_TEXT) (w - (w * PANEL_W_FRAC).toInt()) else w
                 val tLat = skLat + (cosH * aheadM + sinH * sideM) / 110540.0
                 val tLon = skLon + (sinH * aheadM - cosH * sideM) / (111320.0 * Math.cos(Math.toRadians(skLat)))
                 MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 60.0, mapW, h, plain = bgPlainNow())?.also { it.dx = (w - mapW).toFloat() }
@@ -2056,7 +2063,7 @@ object TftLink {
             c.drawPath(carPath, carPaint)
         } else drawCar3D(c, carX, anchorY, carR)
         if (mapClip >= 0) { c.restoreToCount(mapClip); mapClip = -1 }
-        val panels = PANELS_ALWAYS || (skActive && skRoute != null)
+        val panels = V2_FUSE_TEXT && (PANELS_ALWAYS || (skActive && skRoute != null))
         if (panels) drawGarminPanels(c, w, h, dk)
         val lim = skLimitKmh
         val limBottomY = h * 0.03f // build-496: chỉ còn giữ cho nhánh dead-code (if(false)) phía dưới dùng tới tên biến.
@@ -2065,7 +2072,9 @@ object TftLink {
         // tối đa + biển sắp đổi tốc độ trên màn xe (giữ nguyên biển giới hạn/cảnh báo tốc độ ở màn
         // điện thoại, chỉ bỏ hình vẽ này); gộp luôn ô "km còn lại" cũ (build-494) vào chung 1 ô phân số.
         try {
-            if (skActive && skRoute != null && Live.maneuverSign != 4) {
+            // build-515 (Sếp 23/11, "thử tắt km đi được và km còn lại"): tắt luôn ô phân số km này
+            // trong lúc test bản đồ full màn, để xem vùng đó xe tự vẽ gì không.
+            if (V2_FUSE_TEXT && skActive && skRoute != null && Live.maneuverSign != 4) {
                 fun fmtKm(km: Double) = if (km >= 10) "${km.toInt()}" else String.format(java.util.Locale.US, "%.1f", km).replace('.', ',')
                 val remKm = skRemainingM / 1000.0
                 val travKm = skTraveledM / 1000.0
@@ -2414,7 +2423,7 @@ object TftLink {
     /** build-456 (Sếp): ô xanh dương "Mưa vừa · 6 km · 12 ph" khi vùng mưa còn ở phía trước (RainAlert). */
     private fun drawRain(c: Canvas, w: Int, h: Int) {
         val txt = RainAlert.boxText ?: return
-        val left = if (PANELS_ALWAYS || (skActive && skRoute != null)) w * PANEL_W_FRAC + 6f else 6f
+        val left = if (V2_FUSE_TEXT && (PANELS_ALWAYS || (skActive && skRoute != null))) w * PANEL_W_FRAC + 6f else 6f
         val tp = Paint().apply { color = Color.WHITE; textSize = h * 0.08f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
         val bw = (tp.measureText(txt) + 20f).coerceAtMost(w * 0.80f - left)
         val top = h * 0.02f
@@ -2432,7 +2441,7 @@ object TftLink {
         if (age > (if (Live.noticeCall) 45_000L else 8_000L)) { Live.noticeTitle = null; return }
         // build-477 (Sếp 17/11): khung bên PHẢI, rộng ~40% phần bản đồ (đường tím ở giữa vẫn thấy), cao co giãn theo nội dung.
         // build-485: bỏ số phút còn lại ở góc dưới phải → khung tin nhắn giãn tới sát thanh firmware.
-        val mapL = if (PANELS_ALWAYS || (skActive && skRoute != null)) w * PANEL_W_FRAC else 0f
+        val mapL = if (V2_FUSE_TEXT && (PANELS_ALWAYS || (skActive && skRoute != null))) w * PANEL_W_FRAC else 0f
         val right = w - 6f
         val left = right - (w - mapL) * 0.40f
         val top = h * 0.03f
