@@ -1802,9 +1802,16 @@ object TftLink {
             // giờ CỐ ĐỊNH 1 ô trắng góc phải dưới, luôn hiện TÊN ĐƯỜNG SẮP QUẸO + KHOẢNG CÁCH còn lại,
             // không phụ thuộc điểm rẽ trong/ngoài màn nữa.
             if (!nextSt.isNullOrBlank()) {
-                val labelPaint = Paint().apply { color = if (dk) Color.BLACK else Color.WHITE; textSize = h * 0.09f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                val distPaint = Paint().apply { color = if (dk) Color.rgb(50, 50, 54) else Color.rgb(90, 90, 96); textSize = h * 0.075f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                val padX = h * 0.022f; val padY = h * 0.02f
+                // build-521 (Sếp 23/11, "khung dưới để trắng mờ, kích thước mỗi chiều bằng 1/3 khung
+                // hiển thị, phải trên thanh firmware"): kích thước CỐ ĐỊNH w/3 × h/3, nền trắng mờ
+                // (không đặc), chữ đen, luôn nằm TRÊN thanh firmware (đáy ô chạm mốc hb).
+                val boxW = w / 3f
+                val boxH = h / 3f
+                val right = w - 2f; val left = right - boxW
+                val fwTop = h * FW_TOP_FRAC
+                val bottom = fwTop - 2f; val top = bottom - boxH
+                val padX = boxW * 0.08f; val padY = boxH * 0.06f
+                val cxBox = (left + right) / 2f
                 fun wrapLabel(s: String): List<String> {
                     if (s.length <= 5) return listOf(s)
                     val sp = s.lastIndexOf(' ', s.length / 2 + 2).let { if (it <= 0) s.indexOf(' ', 4) else it }
@@ -1813,34 +1820,21 @@ object TftLink {
                 val lines = wrapLabel(nextSt)
                 val dM = skDistanceM
                 val distTxt = if (dM >= 0) (if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000.0).replace('.', ',') else "$dM m") else null
+                val labelPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.22f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val distPaint = Paint().apply { color = Color.rgb(70, 70, 76); textSize = boxH * 0.17f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val maxTw = boxW - padX * 2
+                val widest = maxOf(lines.maxOf { labelPaint.measureText(it) }, distTxt?.let { distPaint.measureText(it) } ?: 0f)
+                if (widest > maxTw) { val sc = maxTw / widest; labelPaint.textSize *= sc; distPaint.textSize *= sc }
                 val fm3 = labelPaint.fontMetrics
                 val fmD = distPaint.fontMetrics
                 val lineH = fm3.descent - fm3.ascent
                 val distLineH = fmD.descent - fmD.ascent
-                val tw2 = maxOf(lines.maxOf { labelPaint.measureText(it) }, distTxt?.let { distPaint.measureText(it) } ?: 0f)
-                val lx0 = w - tw2 / 2f - padX - 2f
-                val bottomMargin = h * 0.1f
-                val boxH = lineH * lines.size + (if (distTxt != null) distLineH else 0f)
-                val top = h - bottomMargin - boxH - padY * 2
-                var ly0 = top + padY - fm3.ascent
-                val left = lx0 - tw2 / 2f - padX; val right = lx0 + tw2 / 2f + padX
-                val bottom = top + boxH + padY * 2
-                if (snapShot != null) {
-                    val pf = if (dk) Color.WHITE else Color.BLACK
-                    val pt2 = if (dk) Color.BLACK else Color.WHITE
-                    c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), h * 0.03f, h * 0.03f,
-                        Paint().apply { color = pf; style = Paint.Style.FILL; isAntiAlias = true })
-                    for (ln in lines) { c.drawText(ln, lx0, ly0, Paint(labelPaint).apply { color = pt2 }); ly0 += lineH }
-                    if (distTxt != null) c.drawText(distTxt, lx0, ly0 - fm3.descent + distLineH + fmD.ascent, Paint(distPaint).apply { color = pt2 })
-                } else {
-                    val outlinePaint2 = Paint(labelPaint).apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.028f; strokeJoin = Paint.Join.ROUND }
-                    for (ln in lines) { c.drawText(ln, lx0, ly0, outlinePaint2); c.drawText(ln, lx0, ly0, labelPaint); ly0 += lineH }
-                    if (distTxt != null) {
-                        val dy = ly0 - fm3.descent + distLineH + fmD.ascent
-                        val outlineD = Paint(distPaint).apply { color = if (dk) Color.WHITE else Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.022f; strokeJoin = Paint.Join.ROUND }
-                        c.drawText(distTxt, lx0, dy, outlineD); c.drawText(distTxt, lx0, dy, distPaint)
-                    }
-                }
+                val contentH = lineH * lines.size + (if (distTxt != null) distLineH else 0f)
+                var ly0 = (top + bottom) / 2f - contentH / 2f - fm3.ascent
+                c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), boxH * 0.08f, boxH * 0.08f,
+                    Paint().apply { color = Color.argb(190, 255, 255, 255); style = Paint.Style.FILL; isAntiAlias = true })
+                for (ln in lines) { c.drawText(ln, cxBox, ly0, labelPaint); ly0 += lineH }
+                if (distTxt != null) c.drawText(distTxt, cxBox, ly0 - fm3.descent + distLineH + fmD.ascent, distPaint)
             }
             // build-503 (Sếp 21/11): bỏ hẳn biển tên đường nhánh (OSM ways) trên nền bản đồ — Sếp đã
             // yêu cầu bỏ thỉnh thoảng-hiện-tên-đường-nhánh trước đó; lần trước chỉ bỏ nhầm layer khác
@@ -2321,13 +2315,13 @@ object TftLink {
         }
         val cx = w * 0.11f
         val nearDest = Live.maneuverSign == 4
-        // build-520 (Sếp 23/11, "khoảng cách góc trên trái bỏ đi, thay bằng 00:00 thời gian còn lại"):
-        // số mét tới chỗ rẽ đã dời xuống ô tên-đường góc phải dưới (xem block nextSt phía trên) — ở
-        // đây giờ chỉ còn đếm ngược thời gian còn lại, dạng mm:ss (qua giờ thì hh:mm).
+        // build-520/521 (Sếp 23/11, "tgian còn lại để hh:mm, để giây làm gì"): số mét tới chỗ rẽ đã
+        // dời xuống ô tên-đường góc phải dưới (xem block nextSt phía trên) — ở đây chỉ còn đếm ngược
+        // thời gian còn lại, dạng hh:mm (không hiện giây).
         if (skEtaMs > 0L) {
-            val totalSec = (skEtaMs / 1000L).coerceAtLeast(0L)
-            val a = (totalSec / 3600L).toInt(); val b = ((totalSec % 3600L) / 60L).toInt(); val cSec = (totalSec % 60L).toInt()
-            val timeTxt = if (a > 0) String.format(java.util.Locale.US, "%d:%02d", a, b) else String.format(java.util.Locale.US, "%02d:%02d", b, cSec)
+            val totalMin = (skEtaMs / 60000L).coerceAtLeast(0L)
+            val a = (totalMin / 60L).toInt(); val b = (totalMin % 60L).toInt()
+            val timeTxt = String.format(java.util.Locale.US, "%d:%02d", a, b)
             val big = tp(h * 0.15f, true, Paint.Align.LEFT)
             val halo = Paint(big).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = h * 0.02f; strokeJoin = Paint.Join.ROUND }
             val bx = 4f
@@ -3704,17 +3698,22 @@ object TftLink {
         val relSend = if (sessionStartElapsedMs > 0L) sentElapsed - sessionStartElapsedMs else -1L
         try {
             TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs, "pace" to lastPace,
-                "tag" to tag, "unacked" to 1, "copy" to copy, "step" to stepMs, "safety" to safetyMs, "nmax" to nmaxStyle, "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "v" to 4,
+                "tag" to tag, "unacked" to copy, "copy" to copy, "step" to stepMs, "safety" to safetyMs, "nmax" to nmaxStyle, "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "v" to 4,
                 "bg" to (if (bgPlainNow()) "plain" else "map"), "q" to jpegQOf(jpeg), "mode" to payload[0].toInt())
         } catch (_: Exception) {}
         return true
     }
 
-    // build-383 (Sếp 8/11): giữ nhịp 400/800/keepalive nhưng TUYỆT ĐỐI 1 khung trên dây (maxdash: ≥2 khung chưa ACK → dash xoay).
-    // - Đang chờ ACK: tới mốc 400 / 800 ms chỉ "review" — lấy ảnh mới nhất làm ảnh chờ, KHÔNG gửi.
-    // - ACK về: gửi ảnh chờ mới nhất, nhưng không sớm hơn 400 ms kể từ lúc gửi khung trước (nhịp 400).
+    // build-383 (Sếp 8/11): giữ nhịp 400/800/keepalive, trước giới hạn TUYỆT ĐỐI 1 khung trên dây.
+    // build-521 (Sếp 23/11, "để max unack=2 đi, dis nhiều lag nhiều như đói ảnh"): maxdash repo đã
+    // đính chính (9/11, xem memory [[maxdash-repo-findings]]) — cửa sổ 2 khung chưa ACK vẫn ổn, chỉ
+    // ≥3 mới làm xe xoay vòng loading; cho phép tối đa V2_MAX_INFLIGHT=2 khung đang bay cùng lúc.
+    // - Đang chờ ACK (còn chỗ): tới mốc 400/800 ms chỉ "review" khung CŨ NHẤT đang chờ — lấy ảnh mới
+    //   nhất làm ảnh chờ, KHÔNG gửi riêng khung đó; nếu còn chỗ (<2 khung bay) vẫn gửi thêm khung mới.
+    // - ACK về: bỏ khung CŨ NHẤT đang chờ khỏi hàng đợi (BT RFCOMM là luồng có thứ tự → ACK luôn khớp
+    //   khung gửi trước).
     // - Không có khung bay & không có ảnh mới: keepalive lastJpeg mỗi 400 ms.
-    // - An toàn: chờ quá safetyMs (dash bỏ hẳn khung) → gửi lại 1 bản ảnh mới nhất rồi lại chờ.
+    // - An toàn: khung cũ nhất chờ quá safetyMs/DEAD41_MS → đóng socket gọi lại (như trước).
     private const val DEAD41_MS = 6000L
     private const val DEAD_ACK_MS = 15000L
     @Volatile private var deadReconnectAt = 0L
@@ -3722,12 +3721,17 @@ object TftLink {
     /** build-441: bộ gửi đang chờ ACK khung trước — vòng dựng ảnh dựa vào đây để không dựng thừa. */
     @Volatile private var txAwaitingAck = false
 
+    private const val V2_MAX_INFLIGHT = 2 // build-521 (Sếp 23/11): trước luôn =1, xem comment phía trên.
+
     private fun txLoopFast400() {
         var lastJpeg: ByteArray? = null
         var pending: QueuedFrame? = null
         var lastSendAt = 0L
-        var sentAt = 0L
-        var inFlight = false; txAwaitingAck = false
+        // build-521: hàng đợi thời điểm gửi (elapsedRealtime) của các khung đang chờ ACK, CŨ NHẤT ở
+        // đầu — tối đa V2_MAX_INFLIGHT phần tử. BT RFCOMM là luồng có thứ tự nên ACK luôn khớp khung
+        // cũ nhất còn lại trước.
+        val sentTimes = ArrayDeque<Long>()
+        txAwaitingAck = false
         var didReview400 = false
         var didReview800 = false
         var ackSeen = anyAckCount
@@ -3758,25 +3762,33 @@ object TftLink {
             // build-399 (Sếp): xe vừa cho tiếp tục → khung đang chờ ACK coi như xe đã bỏ; gửi ngay ảnh mới nhất.
             if (resumeCount != resumeSeen) {
                 resumeSeen = resumeCount
-                if (inFlight) try { TripLog.ev("tftResumeFresh", "droppedWaitMs" to (android.os.SystemClock.elapsedRealtime() - sentAt)) } catch (_: Exception) {}
-                inFlight = false; txAwaitingAck = false; freezeHold = false; didReview400 = false; didReview800 = false
+                if (sentTimes.isNotEmpty()) try { TripLog.ev("tftResumeFresh", "droppedWaitMs" to (android.os.SystemClock.elapsedRealtime() - sentTimes.first())) } catch (_: Exception) {}
+                sentTimes.clear(); txAwaitingAck = false; freezeHold = false; didReview400 = false; didReview800 = false
                 f4Series.clear(); ackSeen = anyAckCount; lastSendAt = 0L
             }
             val now = android.os.SystemClock.elapsedRealtime()
             val ackNow = anyAckCount
             if (ackNow != ackSeen) {
+                val delta = (ackNow - ackSeen).coerceAtLeast(0L)
                 ackSeen = ackNow
-                if (inFlight) {
+                val stuckSentAt = sentTimes.firstOrNull()
+                var popped = 0L
+                while (popped < delta && sentTimes.isNotEmpty()) { sentTimes.removeFirst(); popped++ }
+                if (sentTimes.isEmpty()) {
                     if (freezeHold) try {
-                        TripLog.ev("tftWake", "from" to "ack4", "stuckMs" to (now - sentAt))
+                        TripLog.ev("tftWake", "from" to "ack4", "stuckMs" to (now - (stuckSentAt ?: now)))
                         TripLog.ev("tftLoadingEnd", "source" to "ack_recovered_proxy", "visualConfirmed" to false)
                     } catch (_: Exception) {}
                     freezeHold = false
-                    inFlight = false; txAwaitingAck = false; didReview400 = false; didReview800 = false
+                    txAwaitingAck = false; didReview400 = false; didReview800 = false
+                } else {
+                    // vẫn còn khung (cũ hơn) đang chờ ACK — chỉ đặt lại mốc review theo khung đó, không coi là "hết chờ".
+                    didReview400 = false; didReview800 = false
                 }
             }
             var tag: String? = null
-            if (inFlight) {
+            if (sentTimes.isNotEmpty()) {
+                val sentAt = sentTimes.first()
                 val el = now - sentAt
                 if (el >= stepMs && !didReview400) { didReview400 = true; review() }
                 if (el >= F4_HARD_MS && !freezeHold) {
@@ -3798,19 +3810,22 @@ object TftLink {
                     try { activeSocket?.close() } catch (_: Exception) {}
                     break
                 }
-            } else if (nmaxStyle) {
-                review()
-                // build-459 (Sếp 16/11): log 15/11 — ~4,6 ảnh/s nhưng chỉ ~1 ảnh mới/s (4–5 ảnh liền giống hệt nhau).
-                // Ảnh giống hệt ảnh vừa gửi → bỏ; vẫn gửi lại 1 lần/giây (keepalive) để giữ kết nối như NmaxConnect gốc.
-                val pj = pending
-                if (dupSkipOn && pj != null && lastJpeg != null && pj.jpeg.contentEquals(lastJpeg)) {
-                    pending = null; dupSkipped++
-                    if (dupSkipped % 200 == 0) try { TripLog.ev("tftDupSkip", "n" to dupSkipped) } catch (_: Exception) {}
+            }
+            if (sentTimes.size < V2_MAX_INFLIGHT) {
+                if (nmaxStyle) {
+                    review()
+                    // build-459 (Sếp 16/11): log 15/11 — ~4,6 ảnh/s nhưng chỉ ~1 ảnh mới/s (4–5 ảnh liền giống hệt nhau).
+                    // Ảnh giống hệt ảnh vừa gửi → bỏ; vẫn gửi lại 1 lần/giây (keepalive) để giữ kết nối như NmaxConnect gốc.
+                    val pj = pending
+                    if (dupSkipOn && pj != null && lastJpeg != null && pj.jpeg.contentEquals(lastJpeg)) {
+                        pending = null; dupSkipped++
+                        if (dupSkipped % 200 == 0) try { TripLog.ev("tftDupSkip", "n" to dupSkipped) } catch (_: Exception) {}
+                    }
+                    tag = if (pending != null) "next" else if (lastJpeg != null && now - lastSendAt >= NMAX_FILL_MS) "keepalive" else null
+                } else if (lastSendAt == 0L || now - lastSendAt >= stepMs) {
+                    review()
+                    tag = if (pending != null) "next" else if (lastJpeg != null) "keepalive" else null
                 }
-                tag = if (pending != null) "next" else if (lastJpeg != null && now - lastSendAt >= NMAX_FILL_MS) "keepalive" else null
-            } else if (lastSendAt == 0L || now - lastSendAt >= stepMs) {
-                review()
-                tag = if (pending != null) "next" else if (lastJpeg != null) "keepalive" else null
             }
             if (tag == null) {
                 synchronized(ackLock) { if (anyAckCount == ackSeen) try { (ackLock as Object).wait(20L) } catch (_: InterruptedException) { return } }
@@ -3822,7 +3837,8 @@ object TftLink {
             var age = -1L
             if (p0 != null) { jpeg = p0.jpeg; age = (now - p0.createdAtElapsedMs).coerceAtLeast(0L); pending = null; lastJpeg = jpeg }
             else jpeg = lastJpeg ?: continue
-            if (!inFlight) { f4Series.clear(); sentAt = now; inFlight = true; txAwaitingAck = true }
+            if (sentTimes.isEmpty()) f4Series.clear()
+            sentTimes.addLast(now); txAwaitingAck = true
             f4Series.add((frameSeq + 1) and 0xFFFF)
             if (!writeFrameOnly(jpeg, if (age < 0 && tag == "next") "nextLast" else tag, age.coerceAtLeast(0L), f4Series.size)) break
             lastSendAt = android.os.SystemClock.elapsedRealtime()
