@@ -1886,9 +1886,9 @@ object TftLink {
                     if (uw > 0f) unitPaint.textSize *= minOf(1f, maxNumW / uw)
                     val cxNum = (left + colSplit) / 2f
                     val fmN = numPaint.fontMetrics; val fmU = unitPaint.fontMetrics
-                    // build-526 (Sếp 23/11, "chữ km dịch xuống dưới số đếm, đang giữa ô"): tách số
-                    // đếm ra giữa phần TRÊN của ô, chữ km/m ép sát ĐÁY ô (không còn gộp khối rồi căn giữa cả ô).
-                    val numY = (top + bottom) / 2f - fmN.ascent - (fmN.descent - fmN.ascent) * 0.15f
+                    // build-528 (Sếp 23/11, "tôi kêu chữ km dời xuống chứ ai kêu số dời xuống"): số đếm
+                    // giữ sát ĐỈNH ô như cũ (build-525 trở về trước), CHỈ chữ km/m một mình bị kéo xuống đáy.
+                    val numY = top + padY - fmN.ascent
                     c.drawText(numTxt, cxNum, numY, numPaint)
                     val unitY = bottom - padY - fmU.descent
                     c.drawText(unitTxt, cxNum, unitY, unitPaint)
