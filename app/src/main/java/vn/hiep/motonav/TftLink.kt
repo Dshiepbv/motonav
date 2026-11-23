@@ -1810,30 +1810,29 @@ object TftLink {
                 val right = w - 2f; val left = right - boxW
                 val fwTop = h * FW_TOP_FRAC
                 val bottom = fwTop - 2f; val top = bottom - boxH
-                val padX = boxW * 0.08f; val padY = boxH * 0.06f
+                val padX = boxW * 0.08f
                 val cxBox = (left + right) / 2f
-                fun wrapLabel(s: String): List<String> {
-                    if (s.length <= 5) return listOf(s)
-                    val sp = s.lastIndexOf(' ', s.length / 2 + 2).let { if (it <= 0) s.indexOf(' ', 4) else it }
-                    return if (sp in 1 until s.length - 1) listOf(s.substring(0, sp), s.substring(sp + 1)) else listOf(s)
-                }
-                val lines = wrapLabel(nextSt)
+                // build-522 (Sếp 23/11, "tên đường trong ô trắng nằm 1 dòng, số to hẳn ra"): tên
+                // đường LUÔN 1 dòng (co chữ nhỏ lại nếu dài, không xuống dòng nữa); số khoảng cách to
+                // hẳn lên (trước nhỏ hơn tên đường, nay lớn hơn hẳn).
                 val dM = skDistanceM
                 val distTxt = if (dM >= 0) (if (dM >= 1000) String.format(java.util.Locale.US, "%.1f km", dM / 1000.0).replace('.', ',') else "$dM m") else null
-                val labelPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.22f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                val distPaint = Paint().apply { color = Color.rgb(70, 70, 76); textSize = boxH * 0.17f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val labelPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.17f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val distPaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.34f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
                 val maxTw = boxW - padX * 2
-                val widest = maxOf(lines.maxOf { labelPaint.measureText(it) }, distTxt?.let { distPaint.measureText(it) } ?: 0f)
-                if (widest > maxTw) { val sc = maxTw / widest; labelPaint.textSize *= sc; distPaint.textSize *= sc }
+                val lw = labelPaint.measureText(nextSt)
+                if (lw > maxTw) labelPaint.textSize *= maxTw / lw
+                val dw = distTxt?.let { distPaint.measureText(it) } ?: 0f
+                if (dw > maxTw) distPaint.textSize *= maxTw / dw
                 val fm3 = labelPaint.fontMetrics
                 val fmD = distPaint.fontMetrics
                 val lineH = fm3.descent - fm3.ascent
                 val distLineH = fmD.descent - fmD.ascent
-                val contentH = lineH * lines.size + (if (distTxt != null) distLineH else 0f)
+                val contentH = lineH + (if (distTxt != null) distLineH else 0f)
                 var ly0 = (top + bottom) / 2f - contentH / 2f - fm3.ascent
                 c.drawRoundRect(android.graphics.RectF(left, top, right, bottom), boxH * 0.08f, boxH * 0.08f,
                     Paint().apply { color = Color.argb(190, 255, 255, 255); style = Paint.Style.FILL; isAntiAlias = true })
-                for (ln in lines) { c.drawText(ln, cxBox, ly0, labelPaint); ly0 += lineH }
+                c.drawText(nextSt, cxBox, ly0, labelPaint)
                 if (distTxt != null) c.drawText(distTxt, cxBox, ly0 - fm3.descent + distLineH + fmD.ascent, distPaint)
             }
             // build-503 (Sếp 21/11): bỏ hẳn biển tên đường nhánh (OSM ways) trên nền bản đồ — Sếp đã
