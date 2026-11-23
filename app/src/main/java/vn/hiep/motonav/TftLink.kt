@@ -291,7 +291,13 @@ object TftLink {
     /** build-368: chưa dẫn đường mà có GPS → TFT hiện bản đồ quanh xe thay cho logo. */
     const val FREE_MAP = true
     private const val V2_FREEZE_TIMEOUTS = 3
-    const val V2_FUSE_TEXT = true
+    // build-513 (Sếp 23/11, test hạng mục "xe tự vẽ hộp chỉ đường"): TẮT fuse-text để turnPacket/etaPacket
+    // (cmd 4/1, đã có sẵn code từ trước, chỉ đang bị return sớm khi fuse) được gửi thật lên xe. KHÔNG
+    // đổi payload[0] (mode byte, đang =3) — giữ icon/khoảng cách/tên đường vẫn vẽ vào ảnh như cũ, vì
+    // chưa chắc byte mode 3 của app mình có cùng nghĩa "xe tự vẽ hộp" như tài liệu xe khác hay không
+    // (ghi chú cũ: "mã icon CHƯA xác nhận hiển thị đúng trên màn thật"). Mục đích bản này CHỈ để xem
+    // xe có nhận/phản ứng gì với cmd 4/1 không (qua log + quan sát màn), không gỡ icon vẽ sẵn.
+    const val V2_FUSE_TEXT = false
     const val V2_STRICT_CRC = false
     private data class QueuedFrame(val jpeg: ByteArray, val createdAtElapsedMs: Long)
     private val mailbox = java.util.concurrent.atomic.AtomicReference<QueuedFrame?>(null)
