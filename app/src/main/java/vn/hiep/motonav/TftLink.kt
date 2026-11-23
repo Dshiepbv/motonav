@@ -1827,7 +1827,11 @@ object TftLink {
                     var s0 = 0
                     for (e in routeBreaks + routePx.size) {
                         if (e - s0 >= 2) {
-                            val sp = simplifyPx(routePx.subList(s0, e), 2f)
+                            // build-533 (Sếp 23/11, "đường thẳng vẽ lởm chởm răng cưa, khúc quẹo cần vuông
+                            // cạnh"): eps 2px quá nhỏ, chừa lại nhiều điểm lệch vài px do làm tròn toạ độ
+                            // trên đoạn thẳng → trông như răng cưa. Tăng lên 4.5px để lọc sạch các điểm
+                            // nhiễu nhỏ đó; góc quẹo thật lệch hàng chục px nên vẫn được giữ (không bị bo tròn).
+                            val sp = simplifyPx(routePx.subList(s0, e), 4.5f)
                             moveTo(sp[0][0], sp[0][1])
                             for (k in 1 until sp.size) lineTo(sp[k][0], sp[k][1])
                         }
