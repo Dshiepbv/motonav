@@ -1075,6 +1075,11 @@ object TftLink {
         skNextLimitDist = nextLimitDistM
         skExit = exitNum
         skActive = active
+        // build-534: báo cho MapSnap biết tuyến MỚI (so sánh theo tham chiếu, không phải mỗi khung
+        // hình) để nó chèn tuyến thành lớp thật trong style bản đồ — xem MapSnap.setRoute().
+        if (route !== skRoute) {
+            if (route != null && route.lats.size >= 2) MapSnap.setRoute(route.lats, route.lons) else MapSnap.clearRoute()
+        }
         skRoute = route
         // build-284: dự đoán vị trí — màn xe đứng 3–6 s mỗi 5–10 s (lỗi phía TFT), khung hiện lúc đó nên nằm ở GIỮA đợt
         // đứng (xe tiến ~2 s) để lúc màn chạy lại xe nhảy ít hơn. Chỉ khi đang chạy >8 km/h, không dự đoán sát chỗ rẽ
@@ -1363,18 +1368,16 @@ object TftLink {
                 if (st == null || cx == null) return@run null // build-377: nền trơn vẫn chụp ảnh map (bỏ lớp nước/cây) để đường đúng tỉ lệ
                 val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(13.8, 17.8)
                 val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
-                // build-423 (Sếp): nghiêng 60° (trước 45°) cho nhìn xa hơn; hệ số 1.54 = 1.15 × 1.34 (tỉ lệ quãng đất
-                // dưới tâm ảnh khi nghiêng 60° so với 45°, camera MapLibre fov 36,87°) để xe vẫn nằm đúng chỗ cũ.
-                // build-424 (Sếp): xe cao lên chút (0.22 → 0.16) + bản đồ dời sang phải né khung đen bên trái:
-                // tâm camera lệch sang TRÁI hướng đi nửa bề rộng khung → xe nằm giữa phần bản đồ còn lại.
-                val aheadM = (0.20 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.54 // build-426: xe ~0.48h (né thanh firmware dưới)
-                // build-434 (Sếp: "đường tím phải thẳng lên"): KHÔNG lệch camera sang bên nữa (lệch tâm làm đường thẳng
-                // phía trước bị nghiêng về điểm tụ giữa màn) — chụp ảnh đúng bề rộng phần bản đồ rồi vẽ dời sang phải.
+                // build-534 (Sếp 24/11, "giống Waze — phẳng, chỉ zoom theo khúc quẹo, không nghiêng
+                // 2.5D"): bỏ hẳn camera nghiêng 60° (trước đó 45°→60° qua build-423/424/434) — giờ
+                // PHẲNG (tilt=0), tầm nhìn xa/gần chỉ còn nhờ đổi mức zoom (zoomLvl/turnZoom ở trên,
+                // không đổi). Hệ số foreshortening 1.54 (chỉ cần khi nghiêng) không còn áp dụng.
+                val aheadM = (0.20 * h - MapSnap.EXTRA_H / 2.0) * mPerPx // build-426: xe ~0.48h (né thanh firmware dưới)
                 val sideM = 0.0
                 val mapW = w
                 val tLat = skLat + (cosH * aheadM + sinH * sideM) / 110540.0
                 val tLon = skLon + (sinH * aheadM - cosH * sideM) / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 60.0, mapW, h, plain = bgPlainNow())?.also { it.dx = (w - mapW).toFloat() }
+                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 0.0, mapW, h, plain = bgPlainNow())?.also { it.dx = (w - mapW).toFloat() }
             }
             // rx/ry (mét thật, đã xoay theo hướng xe) -> toạ độ pixel, nén bán kính theo căn bậc hai
             // (mũ 0.55) quanh vị trí xe: gần xe gần như không nén (dễ thấy rẽ), xa xe nén mạnh hơn.
@@ -1394,7 +1397,9 @@ object TftLink {
             // (đã tự zoom theo skSpdTier) làm chuẩn cho cả 2 công thức, chỉ thêm độ "xoè ngang" kiểu
             // phối cảnh camera ảo (lùi sau xe 12m, cao 6m, cúp 50° ở mức nghiêng đầy) rồi TRỘN với
             // công thức phẳng cũ theo [skTiltT] — không chuyển thẳng, tránh giật khung khi đổi tốc độ.
-            val tiltTarget = when (skSpdTier) { 3 -> 1.0; 2 -> 1.0; 1 -> 0.55; else -> 0.0 }
+            // build-534 (Sếp 24/11, "giống Waze — phẳng, không 2.5D"): bỏ hẳn nghiêng 3D theo tốc độ,
+            // luôn phẳng (0.0) kể cả ở nhánh vector dự phòng (không có ảnh bản đồ).
+            val tiltTarget = 0.0
             val nowMs = System.currentTimeMillis()
             val dtMs = (if (skTiltLastMs == 0L) 400L else (nowMs - skTiltLastMs)).coerceIn(50L, 2000L)
             skTiltLastMs = nowMs
@@ -1839,8 +1844,14 @@ object TftLink {
                     }
                 }
             } else path
-            c.drawPath(drawPath, casingPaint)
-            c.drawPath(drawPath, linePaint)
+            // build-534 (Sếp 24/11): có ảnh bản đồ (snapShot != null) thì tuyến đã được MapLibre tự vẽ
+            // THẬT trong chính ảnh đó (MapSnap.setRoute() + styleWithRoute(), nằm dưới mọi nhãn tự thêm)
+            // — không vẽ chồng thêm bằng Canvas nữa (vẽ lại đè lên sẽ làm tuyến lại nổi trên chữ như cũ).
+            // Chỉ còn vẽ bằng Canvas khi KHÔNG có ảnh bản đồ (nhánh vector dự phòng, snapShot null).
+            if (snapShot == null) {
+                c.drawPath(drawPath, casingPaint)
+                c.drawPath(drawPath, linePaint)
+            }
             // Nhãn tên-đường-sắp-rẽ gắn trên bản đồ (đường kẻ nối + nền đen) — giữ lại kiểu chỉ này
             // theo yêu cầu, nhưng bỏ chấm tròn ở đầu đường kẻ, và neo KHÔNG còn đúng tại điểm rẽ
             // (skManLat/skManLon) nữa — ở đó nhiều đường giao cắt chồng lên nhau trên hình, chấm/đường

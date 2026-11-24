@@ -115,10 +115,10 @@ object MapSnap {
                 val cam = CameraPosition.Builder().target(LatLng(lat, lon)).zoom(zoom).bearing(bearing).tilt(tilt).build()
                 var s = snapshotter
                 val tk = tKey(dark, plain)
-                val styleKey = styleUrl + (if (tweakedMap[tk] != null) "#t" else "") + (if (dark) "d" else "l") + (if (plain) "p" else "") + (if (offlineOn()) "o" else "")
+                val styleKey = styleUrl + (if (tweakedMap[tk] != null) "#t" else "") + (if (dark) "d" else "l") + (if (plain) "p" else "") + (if (offlineOn()) "o" else "") + "#r" + routeGen
                 if (s == null || curStyle != styleKey || curW != w || curH != h) {
                     try { s?.cancel() } catch (_: Throwable) {}
-                    val sj = tweakedStyle(styleUrl, dark, plain)
+                    val sj = styleWithRoute(styleUrl, dark, plain)
                     val opts = MapSnapshotter.Options(w, h)
                         .withStyleBuilder(if (sj != null) Style.Builder().fromJson(sj) else Style.Builder().fromUri(styleUrl))
                         .withCameraPosition(cam)
@@ -157,6 +157,81 @@ object MapSnap {
         return res
     }
 
+
+    // build-534 (Sếp 24/11, "chữ trên map vẫn nằm dưới đường dẫn"): tuyến giờ được CHÈN THẲNG vào
+    // chính style bản đồ (nguồn GeoJSON + lớp line thật của MapLibre), nằm TRƯỚC các lớp nhãn
+    // (motonav_place/poi/park) trong mảng layers — nhờ vậy MapLibre tự vẽ chữ ĐÈ LÊN tuyến khi
+    // chồng nhau, đúng như yêu cầu (trước đây tuyến chỉ vẽ bằng Canvas SAU KHI ảnh nền (đã có sẵn
+    // chữ) được chụp xong, nên không cách nào chữ nổi lên trên được). Tuyến chỉ đổi khi có tuyến
+    // MỚI (reroute), không phải mỗi khung hình, nên không tốn thêm chi phí dựng ảnh mỗi khung —
+    // chỉ chụp lại 1 lần khi đổi tuyến, y hệt cơ chế đổi sáng/tối đã có.
+    @Volatile private var routeGeoJson: String? = null
+    @Volatile private var routeGen = 0
+    private val routeStyleMap = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** Gọi khi có tuyến MỚI (đổi route object), không phải mỗi khung hình. */
+    fun setRoute(lats: DoubleArray, lons: DoubleArray) {
+        try {
+            val coords = org.json.JSONArray()
+            val n = lats.size
+            if (n < 2) { clearRoute(); return }
+            val step = (n / 2000).coerceAtLeast(1) // an toàn: tuyến rất dài vẫn giới hạn số điểm
+            var i = 0
+            while (i < n) { coords.put(org.json.JSONArray().put(lons[i]).put(lats[i])); i += step }
+            if ((i - step) != n - 1) coords.put(org.json.JSONArray().put(lons[n - 1]).put(lats[n - 1]))
+            routeGeoJson = coords.toString()
+            routeGen++
+        } catch (t: Throwable) { try { TripLog.ev("mapSnap", "setRouteErr" to (t.message ?: t.javaClass.simpleName)) } catch (_: Throwable) {} }
+    }
+
+    fun clearRoute() {
+        if (routeGeoJson == null) return
+        routeGeoJson = null
+        routeGen++
+    }
+
+    private fun styleWithRoute(url: String, dark: Boolean, plain: Boolean): String? {
+        val base = tweakedStyle(url, dark, plain) ?: return null
+        val rg = routeGeoJson ?: return base
+        val key = tKey(dark, plain) + "#r" + routeGen
+        routeStyleMap[key]?.let { return it }
+        val out = try {
+            val j = org.json.JSONObject(base)
+            val sources = j.getJSONObject("sources")
+            sources.put("motonav_route", org.json.JSONObject().apply {
+                put("type", "geojson")
+                put("data", org.json.JSONObject().apply {
+                    put("type", "Feature")
+                    put("geometry", org.json.JSONObject().apply { put("type", "LineString"); put("coordinates", org.json.JSONArray(rg)) })
+                })
+            })
+            val layers = j.getJSONArray("layers")
+            // Chèn NGAY TRƯỚC lớp nhãn tự thêm đầu tiên (motonav_park_label/poi/place...) — các lớp
+            // đó luôn ở cuối mảng (xem buildTweaked), nên chèn tuyến trước lớp motonav_ đầu tiên là
+            // tuyến nằm dưới MỌI nhãn tự thêm, nhưng vẫn trên đường/mảng màu nền.
+            var insertAt = layers.length()
+            for (li in 0 until layers.length()) {
+                if (layers.getJSONObject(li).optString("id").startsWith("motonav_")) { insertAt = li; break }
+            }
+            val casing = org.json.JSONObject("{\"id\":\"motonav_route_casing\",\"type\":\"line\",\"source\":\"motonav_route\"," +
+                "\"layout\":{\"line-cap\":\"round\",\"line-join\":\"round\"}," +
+                "\"paint\":{\"line-color\":\"#FF1414\",\"line-width\":7,\"line-opacity\":1}}")
+            val line = org.json.JSONObject("{\"id\":\"motonav_route_line\",\"type\":\"line\",\"source\":\"motonav_route\"," +
+                "\"layout\":{\"line-cap\":\"round\",\"line-join\":\"round\"}," +
+                "\"paint\":{\"line-color\":\"#FFFFFF\",\"line-width\":4,\"line-opacity\":1}}")
+            val newLayers = org.json.JSONArray()
+            for (li in 0 until insertAt) newLayers.put(layers.get(li))
+            newLayers.put(casing); newLayers.put(line)
+            for (li in insertAt until layers.length()) newLayers.put(layers.get(li))
+            j.put("layers", newLayers)
+            j.toString()
+        } catch (t: Throwable) {
+            try { TripLog.ev("mapSnap", "routeStyleErr" to (t.message ?: t.javaClass.simpleName)) } catch (_: Throwable) {}
+            base
+        }
+        routeStyleMap[key] = out
+        return out
+    }
 
     // ---- Chỉnh màu style OpenFreeMap cho màn TFT: đường xám, mảng xanh lá/xanh dương rõ, chữ đen viền trắng ----
     private val tweakedMap = java.util.concurrent.ConcurrentHashMap<String, String>()
