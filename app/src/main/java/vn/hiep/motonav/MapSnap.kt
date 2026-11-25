@@ -218,12 +218,14 @@ object MapSnap {
                 val ly = layers.getJSONObject(li)
                 if (ly.optString("type") == "symbol" && ly.optString("id").startsWith("motonav_")) { insertAt = li; break }
             }
+            // build-538 (Sếp 25/11, "đường dẫn bé tí rồi"): 7/4 quá mảnh so với bản Canvas cũ (19/11) —
+            // tăng lên cho đậm tương đương.
             val casing = org.json.JSONObject("{\"id\":\"motonav_route_casing\",\"type\":\"line\",\"source\":\"motonav_route\"," +
                 "\"layout\":{\"line-cap\":\"round\",\"line-join\":\"round\"}," +
-                "\"paint\":{\"line-color\":\"#FF1414\",\"line-width\":7,\"line-opacity\":1}}")
+                "\"paint\":{\"line-color\":\"#FF1414\",\"line-width\":19,\"line-opacity\":1}}")
             val line = org.json.JSONObject("{\"id\":\"motonav_route_line\",\"type\":\"line\",\"source\":\"motonav_route\"," +
                 "\"layout\":{\"line-cap\":\"round\",\"line-join\":\"round\"}," +
-                "\"paint\":{\"line-color\":\"#FFFFFF\",\"line-width\":4,\"line-opacity\":1}}")
+                "\"paint\":{\"line-color\":\"#FFFFFF\",\"line-width\":11,\"line-opacity\":1}}")
             val newLayers = org.json.JSONArray()
             for (li in 0 until insertAt) newLayers.put(layers.get(li))
             newLayers.put(casing); newLayers.put(line)

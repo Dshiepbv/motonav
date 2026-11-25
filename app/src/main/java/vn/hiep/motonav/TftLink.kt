@@ -1915,31 +1915,48 @@ object TftLink {
                     val unitY = bottom - padY - fmU.descent
                     c.drawText(unitTxt, cxNum, unitY, unitPaint)
                 }
-                // --- cột phải (2/3): tên đường / "Điểm đến ...", MỘT dòng, cỡ chữ cố định —
-                // build-537 (Sếp 25/11, "tên đường ko hiện hết thì chạy dọc"): bỏ kiểu co nhỏ/xuống
-                // dòng tối đa 3 dòng (build-525..530, chữ bé dần nếu tên dài) — giờ LUÔN một cỡ chữ cố
-                // định dễ đọc; tên dài không vừa khung thì chạy ngang (marquee) thay vì co nhỏ lại.
+                // --- cột phải (2/3): tên đường / "Điểm đến ...", xuống dòng theo TỪ, cỡ chữ cố định —
+                // build-538 (Sếp 25/11, "chữ chạy dọc lên chứ ko phải ngang. Vẫn để 3 hàng như hiện tại
+                // nhưng sắp xếp để ko bị rớt chữ"): bỏ marquee ngang (build-537, hiểu nhầm) — quay về
+                // xuống dòng theo TỪ (không cắt giữa từ), vẫn tối đa hiện 3 hàng; nếu nhiều hơn 3 hàng
+                // mới không vừa thì CUỘN DỌC lên liên tục qua hết các hàng (không co nhỏ chữ nữa).
                 val rLeft = colSplit + padX; val rRight = right - padX
                 val maxRw = (rRight - rLeft).coerceAtLeast(1f)
-                val titlePaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.27f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.LEFT }
+                fun wrapWords(s: String, p: Paint): List<String> {
+                    val words = s.split(' ').filter { it.isNotEmpty() }
+                    val out = ArrayList<String>(); var cur = ""
+                    for (wd in words) {
+                        val cand = if (cur.isEmpty()) wd else "$cur $wd"
+                        if (cur.isEmpty() || p.measureText(cand) <= maxRw) cur = cand
+                        else { out.add(cur); cur = wd }
+                    }
+                    if (cur.isNotEmpty()) out.add(cur)
+                    return out
+                }
+                val titlePaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.27f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+                val lines = wrapWords(titleTxt, titlePaint)
                 val fmT = titlePaint.fontMetrics
-                val tw = titlePaint.measureText(titleTxt)
-                val tY = (top + bottom) / 2f - (fmT.ascent + fmT.descent) / 2f
-                if (tw <= maxRw) {
-                    titlePaint.textAlign = Paint.Align.CENTER
-                    c.drawText(titleTxt, (rLeft + rRight) / 2f, tY, titlePaint)
+                val tLineH = fmT.descent - fmT.ascent
+                val cxTitle = (rLeft + rRight) / 2f
+                if (lines.size <= 3) {
+                    var ty = (top + bottom) / 2f - (tLineH * lines.size) / 2f - fmT.ascent
+                    for (ln in lines) { c.drawText(ln, cxTitle, ty, titlePaint); ty += tLineH }
                 } else {
-                    // Chạy liên tục, lặp vòng: vẽ 2 bản tên đường cách nhau 1 khoảng trống, cuộn theo
-                    // thời gian thực (không theo khung hình, để tốc độ cuộn ổn định dù tftFrame lúc
-                    // nhanh lúc chậm) rồi mod theo (tw + gap) để liền mạch không giật lúc lặp lại.
-                    val gap = maxRw * 0.5f
-                    val cycle = tw + gap
-                    val speedPxPerS = boxH * 0.55 // ~ chữ cao bao nhiêu thì chạy bấy nhiêu px/giây
-                    val off = ((System.currentTimeMillis() % 100000L) / 1000.0 * speedPxPerS).toFloat() % cycle
+                    // Cuộn dọc liên tục qua hết các hàng, có 1 hàng trống làm khoảng nghỉ giữa mỗi vòng
+                    // lặp; cuộn theo thời gian thực (ổn định dù nhịp khung hình nhanh/chậm).
+                    val clipTop = top + padY * 0.15f; val clipBottom = bottom - padY * 0.15f
+                    val totalH = tLineH * (lines.size + 1)
+                    val speedPxPerS = boxH * 0.22 // cuộn dọc chậm hơn ngang cho dễ đọc
+                    val offY = ((System.currentTimeMillis() % 600000L) / 1000.0 * speedPxPerS).toFloat() % totalH
                     c.save()
-                    c.clipRect(rLeft, top + padY * 0.3f, rRight, bottom - padY * 0.3f)
-                    var x0 = rLeft - off
-                    while (x0 < rRight) { c.drawText(titleTxt, x0, tY, titlePaint); x0 += cycle }
+                    c.clipRect(rLeft, clipTop, rRight, clipBottom)
+                    for (cycle in -1..1) {
+                        var y = clipTop - offY + cycle * totalH - fmT.ascent
+                        for (ln in lines) {
+                            if (y + fmT.descent >= clipTop - tLineH && y + fmT.ascent <= clipBottom + tLineH) c.drawText(ln, cxTitle, y, titlePaint)
+                            y += tLineH
+                        }
+                    }
                     c.restore()
                 }
             }
