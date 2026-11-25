@@ -3784,7 +3784,7 @@ object TftLink {
     /** build-441: bộ gửi đang chờ ACK khung trước — vòng dựng ảnh dựa vào đây để không dựng thừa. */
     @Volatile private var txAwaitingAck = false
 
-    private const val V2_MAX_INFLIGHT = 2 // build-521 (Sếp 23/11): trước luôn =1, xem comment phía trên.
+    private const val V2_MAX_INFLIGHT = 3 // build-521 =2; 25/11 Sếp: "Chạy test unack bằng 3" (maxdash: ≥3 có thể làm xe xoay loading — đang test). Trả về 2 nếu xấu hơn.
 
     private fun txLoopFast400() {
         var lastJpeg: ByteArray? = null
