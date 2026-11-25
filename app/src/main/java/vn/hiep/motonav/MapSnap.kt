@@ -202,16 +202,21 @@ object MapSnap {
                 put("type", "geojson")
                 put("data", org.json.JSONObject().apply {
                     put("type", "Feature")
+                    put("properties", org.json.JSONObject())
                     put("geometry", org.json.JSONObject().apply { put("type", "LineString"); put("coordinates", org.json.JSONArray(rg)) })
                 })
             })
             val layers = j.getJSONArray("layers")
-            // Chèn NGAY TRƯỚC lớp nhãn tự thêm đầu tiên (motonav_park_label/poi/place...) — các lớp
-            // đó luôn ở cuối mảng (xem buildTweaked), nên chèn tuyến trước lớp motonav_ đầu tiên là
-            // tuyến nằm dưới MỌI nhãn tự thêm, nhưng vẫn trên đường/mảng màu nền.
+            // build-536 (Sếp 25/11, "đường vẫn đè lên chữ"): bug — tìm lớp "tên bắt đầu bằng motonav_"
+            // để chèn tuyến trước đó, nhưng motonav_green_landcover/motonav_green_landuse (build-398,
+            // tô màu xanh cây/cỏ) CŨNG tên motonav_ và nằm tuốt ĐẦU mảng (trước cả đường/nước) — tuyến
+            // bị chèn nhầm vào đó, nằm dưới cả đường/nước nên coi như vô hình. Các lớp đó là "fill",
+            // còn lớp NHÃN thật (park_label/poi_major/poi_mid/place) luôn là "symbol" và nằm CUỐI mảng
+            // — lọc đúng theo type=="symbol" && id bắt đầu motonav_ để tránh nhầm.
             var insertAt = layers.length()
             for (li in 0 until layers.length()) {
-                if (layers.getJSONObject(li).optString("id").startsWith("motonav_")) { insertAt = li; break }
+                val ly = layers.getJSONObject(li)
+                if (ly.optString("type") == "symbol" && ly.optString("id").startsWith("motonav_")) { insertAt = li; break }
             }
             val casing = org.json.JSONObject("{\"id\":\"motonav_route_casing\",\"type\":\"line\",\"source\":\"motonav_route\"," +
                 "\"layout\":{\"line-cap\":\"round\",\"line-join\":\"round\"}," +
@@ -224,6 +229,7 @@ object MapSnap {
             newLayers.put(casing); newLayers.put(line)
             for (li in insertAt until layers.length()) newLayers.put(layers.get(li))
             j.put("layers", newLayers)
+            try { TripLog.ev("mapSnap", "routeStyleOk" to 1, "insertAt" to insertAt, "layers" to newLayers.length()) } catch (_: Throwable) {}
             j.toString()
         } catch (t: Throwable) {
             try { TripLog.ev("mapSnap", "routeStyleErr" to (t.message ?: t.javaClass.simpleName)) } catch (_: Throwable) {}

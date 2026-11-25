@@ -1844,13 +1844,15 @@ object TftLink {
                     }
                 }
             } else path
-            // build-535 (Sếp 25/11, "vẫn dẫn đường nhưng không hiện đường dẫn"): build-534 từng tắt vẽ
-            // Canvas khi có ảnh bản đồ (cho rằng tuyến chèn vào style đã đủ) — nhưng lớp tuyến chèn vào
-            // style KHÔNG hiện ra thật (chưa rõ nguyên nhân). Khôi phục vẽ Canvas vô điều kiện để tuyến
-            // CHẮC CHẮN hiện (an toàn hơn), giữ lớp chèn vào style chỉ để chữ bản đồ còn cơ hội nổi lên
-            // trên nếu lớp đó có hiện — không còn phụ thuộc hoàn toàn vào nó nữa.
-            c.drawPath(drawPath, casingPaint)
-            c.drawPath(drawPath, linePaint)
+            // build-536 (Sếp 25/11): đã tìm ra và sửa lỗi chèn nhầm vị trí lớp tuyến trong MapSnap
+            // (xem styleWithRoute() — lỡ chèn vào chỗ 2 lớp tô xanh cây/cỏ cũng tên motonav_, nằm dưới
+            // cả đường/nước nên vô hình). Giờ chèn ĐÚNG ngay trước lớp NHÃN (symbol) đầu tiên — bật lại
+            // việc tắt vẽ Canvas khi đã có ảnh bản đồ (snapShot != null), để chữ thật sự nổi lên trên
+            // tuyến. Nếu lại biến mất, quay về vẽ Canvas vô điều kiện như build-532.
+            if (snapShot == null) {
+                c.drawPath(drawPath, casingPaint)
+                c.drawPath(drawPath, linePaint)
+            }
             // Nhãn tên-đường-sắp-rẽ gắn trên bản đồ (đường kẻ nối + nền đen) — giữ lại kiểu chỉ này
             // theo yêu cầu, nhưng bỏ chấm tròn ở đầu đường kẻ, và neo KHÔNG còn đúng tại điểm rẽ
             // (skManLat/skManLon) nữa — ở đó nhiều đường giao cắt chồng lên nhau trên hình, chấm/đường
