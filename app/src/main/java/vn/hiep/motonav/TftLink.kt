@@ -1368,16 +1368,15 @@ object TftLink {
                 if (st == null || cx == null) return@run null // build-377: nền trơn vẫn chụp ảnh map (bỏ lớp nước/cây) để đường đúng tỉ lệ
                 val zoomLvl = (16.6 - Math.log(maxAhead / 450.0) / Math.log(2.0)).coerceIn(13.8, 17.8)
                 val mPerPx = 78271.517 * Math.cos(Math.toRadians(skLat)) / Math.pow(2.0, zoomLvl)
-                // build-534 (Sếp 24/11, "giống Waze — phẳng, chỉ zoom theo khúc quẹo, không nghiêng
-                // 2.5D"): bỏ hẳn camera nghiêng 60° (trước đó 45°→60° qua build-423/424/434) — giờ
-                // PHẲNG (tilt=0), tầm nhìn xa/gần chỉ còn nhờ đổi mức zoom (zoomLvl/turnZoom ở trên,
-                // không đổi). Hệ số foreshortening 1.54 (chỉ cần khi nghiêng) không còn áp dụng.
-                val aheadM = (0.20 * h - MapSnap.EXTRA_H / 2.0) * mPerPx // build-426: xe ~0.48h (né thanh firmware dưới)
+                // Sếp 25/11 (sau khi chạy bản phẳng): "vùng hiển thị ngắn quá, hiện nghiêng map để nhìn xa hơn" →
+                // bật lại camera nghiêng 60° như build-423/434; hệ số 1.54 = tỉ lệ quãng đất dưới tâm ảnh khi nghiêng 60°
+                // (camera MapLibre fov 36,87°) để xe vẫn nằm đúng chỗ cũ. Tuyến vẫn là lớp thật trong style (dưới nhãn chữ).
+                val aheadM = (0.20 * h - MapSnap.EXTRA_H / 2.0) * mPerPx * 1.54 // build-426: xe ~0.48h (né thanh firmware dưới)
                 val sideM = 0.0
                 val mapW = w
                 val tLat = skLat + (cosH * aheadM + sinH * sideM) / 110540.0
                 val tLon = skLon + (sinH * aheadM - cosH * sideM) / (111320.0 * Math.cos(Math.toRadians(skLat)))
-                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 0.0, mapW, h, plain = bgPlainNow())?.also { it.dx = (w - mapW).toFloat() }
+                MapSnap.render(cx, st, dk, tLat, tLon, headingNow, zoomLvl, 60.0, mapW, h, plain = bgPlainNow())?.also { it.dx = (w - mapW).toFloat() }
             }
             // rx/ry (mét thật, đã xoay theo hướng xe) -> toạ độ pixel, nén bán kính theo căn bậc hai
             // (mũ 0.55) quanh vị trí xe: gần xe gần như không nén (dễ thấy rẽ), xa xe nén mạnh hơn.
@@ -1397,9 +1396,8 @@ object TftLink {
             // (đã tự zoom theo skSpdTier) làm chuẩn cho cả 2 công thức, chỉ thêm độ "xoè ngang" kiểu
             // phối cảnh camera ảo (lùi sau xe 12m, cao 6m, cúp 50° ở mức nghiêng đầy) rồi TRỘN với
             // công thức phẳng cũ theo [skTiltT] — không chuyển thẳng, tránh giật khung khi đổi tốc độ.
-            // build-534 (Sếp 24/11, "giống Waze — phẳng, không 2.5D"): bỏ hẳn nghiêng 3D theo tốc độ,
-            // luôn phẳng (0.0) kể cả ở nhánh vector dự phòng (không có ảnh bản đồ).
-            val tiltTarget = 0.0
+            // Sếp 25/11: bật lại nghiêng 3D theo tốc độ cho nhánh vector dự phòng (bản phẳng nhìn quá ngắn).
+            val tiltTarget = when (skSpdTier) { 3 -> 1.0; 2 -> 1.0; 1 -> 0.55; else -> 0.0 }
             val nowMs = System.currentTimeMillis()
             val dtMs = (if (skTiltLastMs == 0L) 400L else (nowMs - skTiltLastMs)).coerceIn(50L, 2000L)
             skTiltLastMs = nowMs
