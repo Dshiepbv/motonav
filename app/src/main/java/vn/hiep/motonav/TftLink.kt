@@ -1915,35 +1915,33 @@ object TftLink {
                     val unitY = bottom - padY - fmU.descent
                     c.drawText(unitTxt, cxNum, unitY, unitPaint)
                 }
-                // --- cột phải (2/3): tên đường / "Điểm đến ...", to hơn, tự xuống dòng tối đa 3 dòng ---
+                // --- cột phải (2/3): tên đường / "Điểm đến ...", MỘT dòng, cỡ chữ cố định —
+                // build-537 (Sếp 25/11, "tên đường ko hiện hết thì chạy dọc"): bỏ kiểu co nhỏ/xuống
+                // dòng tối đa 3 dòng (build-525..530, chữ bé dần nếu tên dài) — giờ LUÔN một cỡ chữ cố
+                // định dễ đọc; tên dài không vừa khung thì chạy ngang (marquee) thay vì co nhỏ lại.
                 val rLeft = colSplit + padX; val rRight = right - padX
                 val maxRw = (rRight - rLeft).coerceAtLeast(1f)
-                fun wrapWords(s: String, p: Paint): List<String> {
-                    val words = s.split(' ').filter { it.isNotEmpty() }
-                    val out = ArrayList<String>(); var cur = ""
-                    for (wd in words) {
-                        val cand = if (cur.isEmpty()) wd else "$cur $wd"
-                        if (cur.isEmpty() || p.measureText(cand) <= maxRw) cur = cand
-                        else { out.add(cur); cur = wd }
-                    }
-                    if (cur.isNotEmpty()) out.add(cur)
-                    return out
+                val titlePaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.27f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.LEFT }
+                val fmT = titlePaint.fontMetrics
+                val tw = titlePaint.measureText(titleTxt)
+                val tY = (top + bottom) / 2f - (fmT.ascent + fmT.descent) / 2f
+                if (tw <= maxRw) {
+                    titlePaint.textAlign = Paint.Align.CENTER
+                    c.drawText(titleTxt, (rLeft + rRight) / 2f, tY, titlePaint)
+                } else {
+                    // Chạy liên tục, lặp vòng: vẽ 2 bản tên đường cách nhau 1 khoảng trống, cuộn theo
+                    // thời gian thực (không theo khung hình, để tốc độ cuộn ổn định dù tftFrame lúc
+                    // nhanh lúc chậm) rồi mod theo (tw + gap) để liền mạch không giật lúc lặp lại.
+                    val gap = maxRw * 0.5f
+                    val cycle = tw + gap
+                    val speedPxPerS = boxH * 0.55 // ~ chữ cao bao nhiêu thì chạy bấy nhiêu px/giây
+                    val off = ((System.currentTimeMillis() % 100000L) / 1000.0 * speedPxPerS).toFloat() % cycle
+                    c.save()
+                    c.clipRect(rLeft, top + padY * 0.3f, rRight, bottom - padY * 0.3f)
+                    var x0 = rLeft - off
+                    while (x0 < rRight) { c.drawText(titleTxt, x0, tY, titlePaint); x0 += cycle }
+                    c.restore()
                 }
-                val titlePaint = Paint().apply { color = Color.BLACK; textSize = boxH * 0.27f; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-                var lines = wrapWords(titleTxt, titlePaint).take(3)
-                val widest = lines.maxOfOrNull { titlePaint.measureText(it) } ?: 0f
-                if (widest > maxRw) titlePaint.textSize *= maxRw / widest
-                var fmT = titlePaint.fontMetrics
-                var tLineH = fmT.descent - fmT.ascent
-                val maxTh = boxH - padY * 2
-                if (tLineH * lines.size > maxTh) {
-                    titlePaint.textSize *= maxTh / (tLineH * lines.size)
-                    fmT = titlePaint.fontMetrics; tLineH = fmT.descent - fmT.ascent
-                    lines = wrapWords(titleTxt, titlePaint).take(3)
-                }
-                val cxTitle = (rLeft + rRight) / 2f
-                var tY = (top + bottom) / 2f - (tLineH * lines.size) / 2f - fmT.ascent
-                for (ln in lines) { c.drawText(ln, cxTitle, tY, titlePaint); tY += tLineH }
             }
             // build-321: ghim nổi kiểu Garmin — cây xăng (xanh) và camera (đỏ) trong tầm nhìn phía trước.
             try {
