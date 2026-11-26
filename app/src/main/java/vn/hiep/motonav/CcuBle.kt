@@ -514,10 +514,14 @@ object CcuBle {
     private fun awaitDdtNotifyThenSendAuth(g: BluetoothGatt) {
         val myGen = ++authGen
         awaitingDdtNotify = false
-        authStage = "Đã gửi ConnectAppId, chờ ACK DDT…"
+        authStage = "Đã gửi ConnectAppId, chờ 300 ms trước khi khởi tạo DDT…"
         handler.postDelayed({
-            if (!running && gatt !== g) return@postDelayed
+            if (gatt !== g) return@postDelayed
             awaitingDdtNotify = true
+            authStage = "Đang gửi yêu cầu DDT {01, seq}…"
+            writeQueue.clear()
+            writeQueue.addLast(WriteOp(DDT_UUID, byteArrayOf(0x01, authSeqId.toByte())))
+            runNextWrite(g)
             handler.postDelayed({
                 if (awaitingDdtNotify && authGen == myGen) {
                     awaitingDdtNotify = false
