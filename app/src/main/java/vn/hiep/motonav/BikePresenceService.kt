@@ -3,7 +3,6 @@ package vn.hiep.motonav
 import android.companion.CompanionDeviceService
 import android.content.pm.PackageManager
 import android.Manifest
-import android.os.Build
 import android.util.Log
 
 /**
@@ -17,7 +16,9 @@ class BikePresenceService : CompanionDeviceService() {
         val prefs = Prefs(this)
         if (address.equals(prefs.tftDevice, ignoreCase = true) &&
             prefs.tftLink &&
-            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+            (android.os.Build.VERSION.SDK_INT < 29 ||
+                checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED)
         ) {
             try {
                 DriveService.start(this)
