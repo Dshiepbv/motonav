@@ -40,8 +40,136 @@ import java.util.regex.Pattern
  *  - [IconMap]: mã mũi tên rẽ bên xe hiểu cho từng loại rẽ (trái/phải/vòng xuyến/quay đầu…).
  */
 object TftLink {
-    private val SERVICE_UUID: UUID = UUID.fromString("00007220-0000-1000-8000-00805F9B34FB")
+    private val SERVICE_UUID: UUID = UUID.fromString(StringVault.tftServiceUuid())
     private val MAGIC = byteArrayOf(110, 65, 108, 64) // "nAl@"
+
+    // Mặt vẽ và bộ đệm JPEG dùng lại suốt vòng đời kết nối, không cấp phát Bitmap mỗi frame.
+    private var frameBitmap: Bitmap? = null
+    private var frameCanvas: Canvas? = null
+    private var frameBitmapW = 0
+    private var frameBitmapH = 0
+    private val frameJpegOut = ByteArrayOutputStream(32 * 1024)
+    @Volatile private var cachedFrameBytes: ByteArray? = null
+    @Volatile private var cachedFrameStateKey = Long.MIN_VALUE
+    private val trafficFillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val trafficStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val trafficTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        textAlign = Paint.Align.CENTER
+    }
+    private val trafficHousePath = android.graphics.Path()
+
+    private fun ensureFrameSurface(w: Int, h: Int) {
+        if (frameBitmap == null || frameBitmapW != w || frameBitmapH != h) {
+            frameBitmap?.recycle()
+            frameBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
+            frameCanvas = Canvas(frameBitmap!!)
+            frameBitmapW = w
+            frameBitmapH = h
+            cachedFrameBytes = null
+            cachedFrameStateKey = Long.MIN_VALUE
+        }
+    }
+
+    private fun frameStateKey(): Long {
+        var h = 17L
+        fun add(v: Long) { h = h * 31L + v }
+        add((Live.lat * 100000.0).roundToInt().toLong())
+        add((Live.lon * 100000.0).roundToInt().toLong())
+        add(if (Live.heading >= 0) Live.heading.roundToInt().toLong() else -1L)
+        add(Live.speedKmh.toLong())
+        add((Live.limit ?: -1).toLong())
+        add(if (Live.trafficUrban) 1L else 0L)
+        add(if (Live.trafficOverspeed) 1L else 0L)
+        add(Live.routeVersion.toLong()); add(Live.routeSeg.toLong())
+        add((Live.routeProgress * 1000.0).roundToInt().toLong())
+        add(Live.alertsVersion.toLong()); add(Live.signsVersion.toLong())
+        val a = Live.trafficAlert
+        add((a?.id?.hashCode() ?: 0).toLong())
+        add((((a?.distanceM ?: -1) + 5) / 10).toLong())
+        add((System.currentTimeMillis() / 1000L))
+        if (Live.trafficOverspeed || (a != null && a.distanceM < 100)) {
+            add(android.os.SystemClock.elapsedRealtime() / 500L)
+        }
+        return h
+    }
+
+    private fun buildCachedSketchFrame(): ByteArray {
+        val key = frameStateKey()
+        val old = cachedFrameBytes
+        if (old != null && key == cachedFrameStateKey) return old
+        val fresh = buildSketchFrame()
+        cachedFrameStateKey = key
+        cachedFrameBytes = fresh
+        return fresh
+    }
+
+    /** HUD cảnh báo giao thông độc lập, vẽ đè trên ảnh bản đồ 480×234/240. */
+    private fun drawTrafficHud(c: Canvas, w: Int, h: Int) {
+        val limit = Live.limit
+        if (limit != null && limit > 0) {
+            val cx = w - 37f
+            val cy = 37f
+            val overBlink = Live.trafficOverspeed && (android.os.SystemClock.elapsedRealtime() / 500L) % 2L == 0L
+            trafficFillPaint.style = Paint.Style.FILL
+            trafficFillPaint.color = if (overBlink) Color.RED else Color.WHITE
+            c.drawCircle(cx, cy, 27f, trafficFillPaint)
+            trafficStrokePaint.color = Color.RED
+            trafficStrokePaint.strokeWidth = 5f
+            c.drawCircle(cx, cy, 24.5f, trafficStrokePaint)
+            trafficTextPaint.color = if (overBlink) Color.WHITE else Color.BLACK
+            trafficTextPaint.textSize = if (limit >= 100) 19f else 22f
+            c.drawText(limit.toString(), cx, cy + trafficTextPaint.textSize * 0.34f, trafficTextPaint)
+        }
+        if (Live.trafficUrban) {
+            val left = w - 70f
+            val top = 10f
+            trafficFillPaint.style = Paint.Style.FILL
+            trafficFillPaint.color = Color.rgb(21, 101, 192)
+            c.drawRoundRect(left, top, left + 24f, top + 24f, 4f, 4f, trafficFillPaint)
+            trafficStrokePaint.color = Color.WHITE
+            trafficStrokePaint.strokeWidth = 1.2f
+            c.drawRoundRect(left + 0.6f, top + 0.6f, left + 23.4f, top + 23.4f, 4f, 4f, trafficStrokePaint)
+            trafficHousePath.reset()
+            trafficHousePath.moveTo(left + 4f, top + 12f)
+            trafficHousePath.lineTo(left + 12f, top + 5f)
+            trafficHousePath.lineTo(left + 20f, top + 12f)
+            trafficHousePath.lineTo(left + 18f, top + 12f)
+            trafficHousePath.lineTo(left + 18f, top + 20f)
+            trafficHousePath.lineTo(left + 13f, top + 20f)
+            trafficHousePath.lineTo(left + 13f, top + 15f)
+            trafficHousePath.lineTo(left + 10f, top + 15f)
+            trafficHousePath.lineTo(left + 10f, top + 20f)
+            trafficHousePath.lineTo(left + 6f, top + 20f)
+            trafficHousePath.lineTo(left + 6f, top + 12f)
+            trafficHousePath.close()
+            trafficFillPaint.color = Color.WHITE
+            c.drawPath(trafficHousePath, trafficFillPaint)
+        }
+        val alert = Live.trafficAlert ?: return
+        if (alert.distanceM > 350) return
+        val left = w - 94f
+        val top = 70f
+        val right = w - 10f
+        val bottom = top + 44f
+        trafficFillPaint.color = alert.color
+        c.drawRoundRect(left, top, right, bottom, 8f, 8f, trafficFillPaint)
+        val blink = alert.distanceM < 100 && (android.os.SystemClock.elapsedRealtime() / 500L) % 2L == 0L
+        trafficStrokePaint.color = Color.WHITE
+        trafficStrokePaint.strokeWidth = if (blink) 2.5f else 1.5f
+        trafficStrokePaint.alpha = if (blink) 255 else 210
+        c.drawRoundRect(left + 0.75f, top + 0.75f, right - 0.75f, bottom - 0.75f, 8f, 8f, trafficStrokePaint)
+        trafficStrokePaint.alpha = 255
+        trafficTextPaint.color = Color.WHITE
+        trafficTextPaint.textAlign = Paint.Align.LEFT
+        trafficTextPaint.textSize = if (alert.label.length > 9) 8f else 9.5f
+        c.drawText("!", left + 6f, top + 14f, trafficTextPaint)
+        c.drawText(alert.label, left + 17f, top + 14f, trafficTextPaint)
+        trafficTextPaint.textAlign = Paint.Align.CENTER
+        trafficTextPaint.textSize = 14f
+        val roundedDistance = ((alert.distanceM + 5) / 10) * 10
+        c.drawText("${roundedDistance}m", (left + right) / 2f, top + 34f, trafficTextPaint)
+    }
 
     private val CRC_TABLE = IntArray(256).also { t ->
         for (i in 0..255) {
@@ -1151,8 +1279,9 @@ object TftLink {
     private fun buildSketchFrame(): ByteArray {
         val w = screenW
         val h = screenH
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
-        val c = Canvas(bmp)
+        ensureFrameSurface(w, h)
+        val bmp = frameBitmap ?: error("Frame bitmap unavailable")
+        val c = frameCanvas ?: error("Frame canvas unavailable")
         c.drawColor(Color.BLACK)
         stepSketchPos()
         val route = skRoute
@@ -2177,7 +2306,9 @@ object TftLink {
             }
         }
         if (!pureMode) try { drawNotice(c, w, h) } catch (_: Exception) {}
-        val out = ByteArrayOutputStream()
+        drawTrafficHud(c, w, h)
+        val out = frameJpegOut
+        out.reset()
         val jpegEncodeStarted = android.os.SystemClock.elapsedRealtime()
         // Hạ tiếp (17→14) theo log thực tế chuyến 115807 (0.205): vẫn ~20% khung timeout ACK dù đã
         // hạ xuống 17 trước đó, TB ~9,7KB. Nhưng đối chiếu kỹ: timeout KHÔNG tăng tuyến tính rõ theo
@@ -2193,7 +2324,7 @@ object TftLink {
         // A/B phút lẻ "L": ảnh dựng sát mốc 5 s (−800..+400 ms) nén nhẹ hẳn (8) — không né, mà đổi thứ gửi đúng lúc mốc.
         val nowWq = System.currentTimeMillis()
         val offQ = tickOffset(nowWq)
-        val jq = if (send727) 14 else jpegQ.coerceIn(10, 60) // build-418: theo Cài đặt (20–50); build-401: chế độ 7.27 dùng JPEG 14 như bản gốc; build-400 (Sếp 10/11): về lại JPEG 22 (80 → khung 20–22 KB, xe tạm dừng liên tục)
+        val jq = 68 // build-418: theo Cài đặt (20–50); build-401: chế độ 7.27 dùng JPEG 14 như bản gốc; build-400 (Sếp 10/11): về lại JPEG 22 (80 → khung 20–22 KB, xe tạm dừng liên tục)
         lastJpegQ = jq
         bmp.compress(Bitmap.CompressFormat.JPEG, jq, out)
         // build-390: trần dung lượng — AutoMaxi ghi nhận khung quá lớn làm màn xe đen; maxdash đo tới ~20 KB vẫn ổn.
@@ -2218,7 +2349,6 @@ object TftLink {
                 q -= 3
             }
         }
-        bmp.recycle()
         val raw = out.toByteArray()
         try {
             TripLog.ev("jpegEncode", "durationMs" to (android.os.SystemClock.elapsedRealtime() - jpegEncodeStarted),
@@ -2635,13 +2765,13 @@ object TftLink {
                         // không được làm sập app: tắt nhánh đó rồi vẽ lại bằng vector.
                         val renderStartedElapsed = android.os.SystemClock.elapsedRealtime()
                         val tb0 = System.currentTimeMillis()
-                        val frame = if (diagMode == 1) buildTestFrame("DIAG " + ((System.currentTimeMillis() / 1000) % 1000)) else try { buildSketchFrame() } catch (t: Throwable) {
+                        val frame = if (diagMode == 1) buildTestFrame("DIAG " + ((System.currentTimeMillis() / 1000) % 1000)) else try { buildCachedSketchFrame() } catch (t: Throwable) {
                             if (mapSnapStyle == null) throw t
                             // build-332: trước tắt 10 phút → TFT về bản vẽ dự phòng (đường mảnh/mất đường, log 3/11 19:37–19:48).
                             // Giờ chỉ nghỉ 20 s, ghi kèm vết lỗi để tìm chỗ NullPointerException.
                             MapSnap.disable("build: " + t.javaClass.simpleName + " " + (t.message ?: "") + " @ " +
                                 t.stackTrace.take(4).joinToString(" < ") { it.fileName + ":" + it.lineNumber }, 20_000L)
-                            buildSketchFrame()
+                            buildCachedSketchFrame()
                         }
                         val renderDurationMs = android.os.SystemClock.elapsedRealtime() - renderStartedElapsed
                         buildEwmaMs = buildEwmaMs * 0.9 + (System.currentTimeMillis() - tb0) * 0.1
