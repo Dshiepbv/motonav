@@ -138,7 +138,7 @@ internal class OfflineTrafficDataset private constructor(
             data class SpeedCandidate(val row: DoubleArray, val source: String, val hcm: Boolean) {
                 val speed get() = row[2].toInt()
                 val bearing get() = row[3].toInt().let { if (it < 0) 0 else it % 360 }
-                val laneCode get() = row.getOrNull(4)?.toInt() ?: 0
+                val laneCode get() = row.getOrNull(4)?.toInt()?.takeIf { it >= 0 } ?: 0
             }
             val laneCandidates = buildList {
                 plainSigns.forEach { add(SpeedCandidate(it, "vn", false)) }
