@@ -89,7 +89,7 @@ object TftLink {
         add((a?.id?.hashCode() ?: 0).toLong())
         add((((a?.distanceM ?: -1) + 5) / 10).toLong())
         add((System.currentTimeMillis() / 1000L))
-        if (Live.trafficOverspeed || (a != null && a.distanceM < 100)) {
+        if (Live.trafficOverspeed || (a != null && (a.distanceM < 100 || a.category == 108 || a.category == 109))) {
             add(android.os.SystemClock.elapsedRealtime() / 500L)
         }
         return h
@@ -155,8 +155,10 @@ object TftLink {
         val bottom = top + 44f
         trafficFillPaint.color = alert.color
         c.drawRoundRect(left, top, right, bottom, 8f, 8f, trafficFillPaint)
-        val blink = alert.distanceM < 100 && (android.os.SystemClock.elapsedRealtime() / 500L) % 2L == 0L
-        trafficStrokePaint.color = Color.WHITE
+        val prohibitionBlink = alert.category == 108 || alert.category == 109
+        val blink = (alert.distanceM < 100 || prohibitionBlink) &&
+            (android.os.SystemClock.elapsedRealtime() / 500L) % 2L == 0L
+        trafficStrokePaint.color = if (prohibitionBlink && blink) Color.RED else Color.WHITE
         trafficStrokePaint.strokeWidth = if (blink) 2.5f else 1.5f
         trafficStrokePaint.alpha = if (blink) 255 else 210
         c.drawRoundRect(left + 0.75f, top + 0.75f, right - 0.75f, bottom - 0.75f, 8f, 8f, trafficStrokePaint)
