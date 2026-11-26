@@ -51,7 +51,7 @@ internal data class TrafficUpdate(
 )
 
 /** Chỉ mục không gian 0,02°; với các bán kính cảnh báo <=350 m, mỗi lần tra cứu đọc tối đa 9 ô. */
-private class TrafficSpatialGrid<T>(
+internal class TrafficSpatialGrid<T>(
     private val latOf: (T) -> Double,
     private val lonOf: (T) -> Double,
 ) {
@@ -263,11 +263,10 @@ internal class OfflineTrafficEngine {
             lastZonePointId = zone.id
             val newUrban = zone.code == 10
             if (!zoneKnown || newUrban != isInUrbanZone) {
-                val changed = zoneKnown
                 isInUrbanZone = newUrban
                 zoneKnown = true
                 effectiveMotoLimit = currentRawSpeedLimit?.let { if (newUrban || currentSpeedIsHcm) minOf(it, 60) else it }
-                if (changed) speech = if (newUrban) "Vào khu đông dân cư, tối đa 60" else "Hết khu đông dân cư"
+                speech = if (newUrban) "Vào khu đông dân cư, tối đa 60" else "Hết khu đông dân cư"
             }
         }
 
@@ -318,6 +317,7 @@ internal class OfflineTrafficEngine {
         }
         for (sign in dataset.signGrid.near(predictedLat, predictedLon)) {
             val d = aheadDistance(sign.lat, sign.lon) ?: continue
+            if (d > 250) continue
             val (label, priority, color, speechText) = when (sign.code) {
                 8 -> Quad("CẤM XE MÁY", 1, 0xFFB71C1C.toInt(), "Chú ý phía trước có biển cấm xe máy")
                 9 -> Quad("ĐƯỜNG CẤM", 1, 0xFFB71C1C.toInt(), "Chú ý phía trước là đường cấm")
@@ -334,12 +334,14 @@ internal class OfflineTrafficEngine {
         }
         for (turn in dataset.turnGrid.near(predictedLat, predictedLon)) {
             val d = aheadDistance(turn.lat, turn.lon) ?: continue
+            if (d > 250) continue
             if (Geo.angleDiff(turn.bearing.toDouble(), hdg) <= 35.0) {
                 candidates += TrafficAlert(turn.id, "CẤM RẼ", d, 3, 200 + turn.code, turn.lat, turn.lon, 0xFFC62828.toInt())
             }
         }
         for (z in dataset.zoneGrid.near(predictedLat, predictedLon)) {
             val d = aheadDistance(z.lat, z.lon) ?: continue
+            if (d > 250) continue
             if (Geo.angleDiff(z.bearing.toDouble(), hdg) <= 35.0) {
                 candidates += TrafficAlert(z.id, if (z.code == 10) "VÀO ĐÔ THỊ" else "HẾT ĐÔ THỊ",
                     d, 6, 300 + z.code, z.lat, z.lon, 0xFF0277BD.toInt())
