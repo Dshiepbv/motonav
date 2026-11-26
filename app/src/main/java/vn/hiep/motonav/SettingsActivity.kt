@@ -1240,5 +1240,7 @@ class SettingsActivity : Activity() {
         private const val REQ_BLE_PERM = 54
         private const val REQ_CFG_EXPORT = 55
         private const val REQ_CFG_IMPORT = 56
+        private const val REQ_COMPANION = 57
+        private const val REQ_BG_LOCATION = 58
     }
 }
