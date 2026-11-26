@@ -44,7 +44,7 @@ object Live {
     @Volatile var trafficDataStatus = "Đang nạp dữ liệu giao thông…"
     @Volatile var trafficUrban = false
     @Volatile var trafficOverspeed = false
-    @Volatile var trafficAlert: TrafficAlert? = null
+    @Volatile internal var trafficAlert: TrafficAlert? = null
     @Volatile var trafficAlertAt = 0L
     @Volatile var trafficCurrentSpeedKmh = -1
 
