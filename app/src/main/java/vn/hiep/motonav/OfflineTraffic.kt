@@ -137,7 +137,7 @@ internal class OfflineTrafficDataset private constructor(
 
             data class SpeedCandidate(val row: DoubleArray, val source: String, val hcm: Boolean) {
                 val speed get() = row[2].toInt()
-                val bearing get() = row[3].toInt().let { if (it < 0) 0 else it % 360 }
+                val bearing get() = row[3].toInt().let { if (it < 0) -1 else it % 360 }
                 val laneCode get() = row.getOrNull(4)?.toInt()?.takeIf { it >= 0 } ?: 0
             }
             val laneCandidates = buildList {
@@ -153,6 +153,7 @@ internal class OfflineTrafficDataset private constructor(
                 val group = laneGroups.firstOrNull { g ->
                     g.any { other ->
                         Geo.distance(other.row[0], other.row[1], candidate.row[0], candidate.row[1]) < 25.0 &&
+                            other.bearing >= 0 && candidate.bearing >= 0 &&
                             Geo.angleDiff(other.bearing.toDouble(), candidate.bearing.toDouble()) <= 20.0
                     }
                 }
@@ -176,10 +177,11 @@ internal class OfflineTrafficDataset private constructor(
             }
             for (r in limitRows) {
                 val speed = r[2].toInt()
-                val bearing = r[3].toInt().let { if (it < 0) 0 else it % 360 }
+                val bearing = r[3].toInt().let { if (it < 0) -1 else it % 360 }
                 if (speed <= 0) continue
                 val duplicate = speedIndex.near(r[0], r[1]).firstOrNull {
-                    Geo.angleDiff(it.bearing.toDouble(), bearing.toDouble()) <= 20.0 &&
+                    it.bearing >= 0 && bearing >= 0 &&
+                        Geo.angleDiff(it.bearing.toDouble(), bearing.toDouble()) <= 20.0 &&
                         Geo.distance(it.lat, it.lon, r[0], r[1]) < 15.0
                 }
                 if (duplicate == null) {
@@ -220,6 +222,7 @@ internal class OfflineTrafficEngine {
     private var lastSpeedAnchorBearing = -1.0
     private var currentRawSpeedLimit: Int? = null
     private var currentSpeedIsHcm = false
+    private var lastRoadKey: String? = null
     private var effectiveMotoLimit: Int? = null
     private var isInUrbanZone = false
     private var zoneKnown = false
@@ -266,7 +269,7 @@ internal class OfflineTrafficEngine {
 
     fun evaluate(
         lat: Double, lon: Double, speedMps: Double, gpsSpeedKmh: Int,
-        bearing: Double, nowElapsed: Long, bikeSpeedKmh: Int = -1,
+        bearing: Double, nowElapsed: Long, bikeSpeedKmh: Int = -1, roadKey: String? = null,
     ): TrafficUpdate {
         val dataset = data
         if (lastZoneSpeechLat.isFinite() &&
@@ -278,6 +281,21 @@ internal class OfflineTrafficEngine {
         if (dataset == null) return snapshot(currentSpeed, null, false, speech, false)
         val hdg = if (bearing >= 0.0) bearing else stableBearing
         if (hdg < 0.0) return snapshot(currentSpeed, null, false, speech, false)
+
+        // Khi OSM xác nhận đã sang tuyến khác, không mang giới hạn của tuyến cũ sang.
+        // Chỉ dùng tên/ref ổn định; không dùng ID đoạn OSM vì mỗi đoạn cùng đường có ID riêng.
+        if (!roadKey.isNullOrBlank()) {
+            val previousRoad = lastRoadKey
+            if (previousRoad != null && previousRoad != roadKey) {
+                currentRawSpeedLimit = null
+                currentSpeedIsHcm = false
+                effectiveMotoLimit = null
+                lastSpeedAnchorBearing = -1.0
+                overspeedSince = 0L
+                overspeedSpoken = false
+            }
+            lastRoadKey = roadKey
+        }
 
         if (lastSpeedAnchorBearing >= 0 && Geo.angleDiff(hdg, lastSpeedAnchorBearing) > 60.0 &&
             Geo.distance(lat, lon, lastSpeedAnchorLat, lastSpeedAnchorLon) > 500.0) {
@@ -320,7 +338,8 @@ internal class OfflineTrafficEngine {
         val speedRadius = if (currentSpeed >= 60) 350.0 else 200.0
         val speedPoint = dataset.speedGrid.near(lat, lon).asSequence()
             .map { it to Geo.distance(lat, lon, it.lat, it.lon) }
-            .filter { (p, d) -> d <= speedRadius && Geo.angleDiff(p.bearing.toDouble(), hdg) <= 35.0 &&
+            .filter { (p, d) -> d <= speedRadius &&
+                (p.bearing < 0 || Geo.angleDiff(p.bearing.toDouble(), hdg) <= 35.0) &&
                 (Geo.angleDiff(hdg, Geo.bearing(lat, lon, p.lat, p.lon)) <= 45.0 || d <= 40.0) }
             .minByOrNull { it.second }?.first
         if (speedPoint != null && (currentRawSpeedLimit != speedPoint.speed || currentSpeedIsHcm != speedPoint.isHcmArterial)) {
