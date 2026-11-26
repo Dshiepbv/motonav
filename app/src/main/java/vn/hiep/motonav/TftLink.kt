@@ -19,6 +19,7 @@ import java.text.Normalizer
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.regex.Pattern
+import kotlin.math.roundToInt
 
 /**
  * Giai đoạn 1 của dự án "đẩy dẫn đường lên màn TFT của xe": gửi một kênh CHỮ rất nhẹ
@@ -338,6 +339,9 @@ object TftLink {
     @Volatile private var frameSeq: Int = 0
     @Volatile private var ackedFrame: Int = -1
     private val ackLock = Object()
+    private const val MAX_UNACKED_FRAMES = 2
+    private const val FRAME_ACK_TIMEOUT_MS = 6000L
+    private val pendingFrameAcks = LinkedHashMap<Int, Long>()
 
     // Phương án B (log 115807: các đợt mất ACK bắt đầu cách nhau đúng bội số 5s, chủ yếu 10s —
     // nhịp đến từ phía xe, nghi do app trả lời lại gói bắt tay mỗi lần xe "chào" 0x42 định kỳ):
@@ -396,8 +400,8 @@ object TftLink {
     private const val V2_ACK_WAIT_MS = 1200L
     /** Chỉ kết thúc một giao dịch sau tối đa 8,5 s; trong lúc chờ không phát frame khác. */
     private const val V2_MAX_ACK_WAIT_MS = 6000L // build-372: 8500 → 4500 (log 7/11: rớt kết nối vài giây sau mỗi lần chờ 8,5 s)
-    private const val V2_MIN_INTERVAL_MS = 60L
-    private const val V2_P302_REST_MS = 400L
+    private const val V2_MIN_INTERVAL_MS = 90L
+    private const val V2_P302_REST_MS = 90L
     // build-380 (Sếp): nhịp "400/800" — không chờ ACK mới gửi tiếp. T=0 gửi; 400 ms: gửi ảnh mới (hoặc lastJpeg);
     // 800 ms chưa ACK: gửi lại đúng 1 lần ảnh mới nhất; tới ~3,75 s vẫn chưa ACK: giữ đứng, chỉ keepalive mỗi 400 ms.
     // ACK về (bất kỳ khung nào): coi xong, nếu đang trễ thì gửi ngay 1 khung mới nhất, reset bộ đếm.
@@ -417,7 +421,7 @@ object TftLink {
     private val f4Sent = java.util.concurrent.ConcurrentHashMap<Int, Long>()
     /** build-367: TFT tự xoay khi ~0,5–1 s không có ảnh mới (log 366: nghỉ >1,2 s → 8/8 trễ; nhả ngay sau
      * cửa sổ né → 48% trễ). Nên giữ TFT luôn có ảnh: sau ACK mà mailbox chưa có ảnh mới thì gửi lại ảnh cũ. */
-    private const val V2_KEEPALIVE_MS = 450L
+    private const val V2_KEEPALIVE_MS = 90L
     /** build-462 (Sếp 16/11): chuỗi gửi không bao giờ chờ điện thoại (reroute, tuyến mới…): ACK xong mà chưa có ảnh mới trong 300 ms
      * thì gửi ngay ảnh gần nhất (nền bản đồ), không để trống tới 1 s. */
     private const val NMAX_FILL_MS = 300L
@@ -3744,6 +3748,36 @@ object TftLink {
 
     /** Ghi một khung ảnh; ACK chỉ được chờ ngắn trong TX worker, không khóa luồng đọc. */
     private fun sendFrameWire(jpeg: ByteArray, tag: String?, frameAgeMs: Long = 0L): Boolean {
+        var timedOutOne = false
+        synchronized(ackLock) {
+            while (running.get() && connected && pendingFrameAcks.size >= MAX_UNACKED_FRAMES) {
+                val oldest = pendingFrameAcks.entries.firstOrNull() ?: break
+                val age = android.os.SystemClock.elapsedRealtime() - oldest.value
+                if (age >= FRAME_ACK_TIMEOUT_MS) {
+                    pendingFrameAcks.remove(oldest.key)
+                    timedOutOne = true
+                    consecutiveAckTimeouts++
+                    v2HardTimeouts++
+                    v2PrevTimedOut = true
+                    lastFrameError = "Khung #${oldest.key} chưa ACK sau ${FRAME_ACK_TIMEOUT_MS} ms"
+                    try { TripLog.ev("tftAckTimeout", "seq" to oldest.key, "pendingMs" to age,
+                        "stage" to "window", "unacked" to pendingFrameAcks.size) } catch (_: Exception) {}
+                    if (consecutiveAckTimeouts >= 3) {
+                        try { TripLog.ev("tftReconnect", "reason" to "3 consecutive window ACK timeouts", "seq" to oldest.key) } catch (_: Exception) {}
+                        consecutiveAckTimeouts = 0
+                        connected = false
+                        authed = false
+                        try { activeSocket?.close() } catch (_: Exception) {}
+                        return false
+                    }
+                    break
+                }
+                try { (ackLock as Object).wait((FRAME_ACK_TIMEOUT_MS - age).coerceIn(1L, 90L)) }
+                catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
+            }
+        }
+        if (!running.get() || !connected) return false
+
         val seq = (frameSeq + 1) and 0xFFFF
         frameSeq = seq
         var body = jpeg
@@ -3755,96 +3789,34 @@ object TftLink {
         System.arraycopy(body, 0, payload, 3, body.size)
         val sentAt = System.currentTimeMillis()
         val sentElapsed = android.os.SystemClock.elapsedRealtime()
-        waitingSeq = seq
-        waitingSentAt = sentAt
         val packet = pack(payload, 0, 1)
+
+        synchronized(ackLock) {
+            pendingFrameAcks[seq] = sentElapsed
+            waitingSeq = seq
+            waitingSentAt = sentAt
+        }
         val wr0 = System.nanoTime()
         val ok = sendPaced(packet)
         lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt()
         if (!ok) {
+            synchronized(ackLock) { pendingFrameAcks.remove(seq); (ackLock as Object).notifyAll() }
             lastFrameError = "Gửi khung lỗi (mất kết nối)"
             return false
         }
+
         captureFrame(seq, jpeg)
-
-        var softTimeoutLogged = false
-        var hardTimeout = false
-        var interrupted = false
-        synchronized(ackLock) {
-            while (running.get() && connected && !ackCovers(ackedFrame, seq)) {
-                val elapsed = android.os.SystemClock.elapsedRealtime() - sentElapsed
-                if (!softTimeoutLogged && elapsed >= V2_ACK_WAIT_MS) {
-                    softTimeoutLogged = true
-                    v2SoftTimeouts++
-                    try {
-                        TripLog.ev("tftAckPending", "seq" to seq, "pendingMs" to elapsed,
-                            "relMs" to (sentElapsed + V2_ACK_WAIT_MS - sessionStartElapsedMs))
-                        TripLog.ev("tftAckTimeout", "seq" to seq, "pendingMs" to elapsed,
-                            "stage" to "soft", "policy" to "single-flight")
-                    } catch (_: Exception) {}
-                    recordPhaseStall(sentElapsed + V2_ACK_WAIT_MS, seq)
-                }
-                if (elapsed >= V2_MAX_ACK_WAIT_MS) {
-                    hardTimeout = true
-                    break
-                }
-                val nextBoundary = if (softTimeoutLogged) V2_MAX_ACK_WAIT_MS else V2_ACK_WAIT_MS
-                val waitMs = (nextBoundary - elapsed).coerceAtLeast(1L)
-                try {
-                    (ackLock as Object).wait(waitMs)
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    interrupted = true
-                    break
-                }
-            }
-        }
-        if (interrupted) return false
-
-        val waited = android.os.SystemClock.elapsedRealtime() - sentElapsed
-        val acked = !hardTimeout && ackCovers(ackedFrame, seq)
-        lastFrameAckMs = waited
-        v2PrevTimedOut = !acked
-        if (hardTimeout) {
-            v2HardTimeouts++
-            consecutiveAckTimeouts++
-            lastFrameError = "Khung #$seq chưa ACK sau $V2_MAX_ACK_WAIT_MS ms — chỉ giữ frame mới nhất"
-            if (consecutiveAckTimeouts >= 3) {
-                try { TripLog.ev("tftReconnect", "reason" to "3 consecutive ACK timeouts", "seq" to seq) } catch (_: Exception) {}
-                consecutiveAckTimeouts = 0
-                connected = false
-                authed = false
-                try { activeSocket?.close() } catch (_: Exception) {}
-            }
-            try { TripLog.ev("tftAckTimeout", "seq" to seq, "pendingMs" to waited,
-                "relMs" to (sentElapsed - sessionStartElapsedMs), "stage" to "hard", "policy" to "single-flight") } catch (_: Exception) {}
-        } else if (acked) {
-            consecutiveAckTimeouts = 0
-            v2Acked++
-            lastFrameError = null
-            frameTxCount++
-            lastAckSuccessElapsedMs = sentElapsed + waited
-            if (waited > V2_ACK_WAIT_MS) v2LateAcks++
-            val previousAck = v2LastAckElapsedMs
-            if (previousAck > 0L) v2MaxAckGapMs = maxOf(v2MaxAckGapMs, lastAckSuccessElapsedMs - previousAck)
-            v2LastAckElapsedMs = lastAckSuccessElapsedMs
-        }
+        v2Sent++
         v2FrameAgeTotalMs += frameAgeMs.coerceAtLeast(0L)
         v2FrameAgeMaxMs = maxOf(v2FrameAgeMaxMs, frameAgeMs.coerceAtLeast(0L))
         statBytes += jpeg.size
-        recordFrameStat(waited, hardTimeout)
-        if (tag == null) avRecord(sentAt, hardTimeout || waited > 1500L)
-        val tickOff = tickOffset(sentAt)
-        if ((softTimeoutLogged || hardTimeout) && !tickHeldNow) tickRecordStall(sentAt)
-        val relSend = if (sessionStartElapsedMs > 0L) sentElapsed - sessionStartElapsedMs else -1L
-        val relAck = if (acked && sessionStartElapsedMs > 0L) sentElapsed + waited - sessionStartElapsedMs else -1L
+        if (tag == null) avRecord(sentAt, timedOutOne)
         try {
             TripLog.ev("tftFrame", "seq" to seq, "bytes" to jpeg.size, "wrMs" to lastWriteMs,
-                "pace" to lastPace, "ackMs" to (if (acked) waited else null),
-                "waitMs" to waited, "softTimeout" to softTimeoutLogged, "hardTimeout" to hardTimeout,
-                "timedOut" to (softTimeoutLogged || hardTimeout), "lost" to (if (hardTimeout) true else null),
-                "frameAgeMs" to frameAgeMs, "sendRelMs" to relSend, "ackRelMs" to relAck, "tag" to tag, "v" to 2,
-                "tickOff" to tickOff, "tickMode" to "P", "bg" to (if (bgPlainNow(sentAt)) "plain" else "map"), "held" to tickHeldNow, "q" to jpegQOf(jpeg))
+                "pace" to lastPace, "ackMs" to null, "waitMs" to 0, "softTimeout" to false,
+                "hardTimeout" to timedOutOne, "timedOut" to timedOutOne, "lost" to null,
+                "frameAgeMs" to frameAgeMs, "tag" to tag, "v" to 2, "unacked" to pendingFrameAcks.size,
+                "window" to MAX_UNACKED_FRAMES)
         } catch (_: Exception) {}
         return true
     }
