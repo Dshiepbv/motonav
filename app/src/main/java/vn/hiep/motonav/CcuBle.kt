@@ -47,7 +47,6 @@ object CcuBle {
         UUID.fromString("347456EE-A588-4DD5-BD98-62BE3672E27A") to false,
         UUID.fromString("E974B9A1-FA31-43C6-91AE-09931F3F6EF1") to false,
         UUID.fromString("56DC2D58-CBE1-4BA9-A104-E9B8EB4DA95C") to true,
-        UUID.fromString("AB8D233A-CC58-4932-B397-A3751911E021") to true,
     )
     private val DDT_UUID = NOTIFY_CHARS[1].first
 
@@ -81,6 +80,8 @@ object CcuBle {
     @Volatile private var seqCounter = 0
     @Volatile private var authCcuCode: String? = null
     @Volatile private var authPasskey: String? = null
+    @Volatile private var authSeqId: Int = 0
+    @Volatile private var awaitingAuthResult = false
 
     // Liên kết BLE này hay nghẽn/rớt ngay cả với app gốc (xác nhận thực tế: phải tắt/bật Bluetooth
     // hoặc bấm thử lại nhiều lần mới vào được) — nên tự lặp lại CẢ vòng quét+kết nối vài lần thay vì
@@ -102,6 +103,25 @@ object CcuBle {
     }
 
     private fun shortU(u: UUID): String = u.toString().substring(0, 8)
+
+    /** Đóng phiên GATT và huỷ các bước xác thực đang chờ khi xe rời khỏi phạm vi. */
+    fun disconnect() {
+        running = false
+        connGen++
+        authGen++
+        awaitingDdtNotify = false
+        awaitingAuthResult = false
+        try { gatt?.disconnect() } catch (_: Exception) {}
+        try { gatt?.close() } catch (_: Exception) {}
+        gatt = null
+        descQueue.clear()
+        writeQueue.clear()
+        unregisterBtReceiver()
+        unregisterBondReceiver()
+        busy.set(false)
+        stage = "Đã ngắt kết nối"
+        authStage = "Đã ngắt kết nối"
+    }
 
     fun connectOnce(ctx: Context, deviceAddr: String, ccuCode: String?, passkey: String?) {
         if (ccuCode.isNullOrBlank() || passkey.isNullOrBlank()) {
@@ -311,6 +331,13 @@ object CcuBle {
                     }
                 }
 
+                override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+                    TripLog.ev("ccuBle", "mtu" to mtu, "status" to status)
+                    try { g.discoverServices() } catch (e: Exception) {
+                        retryRoundOrFail(ctx, savedDeviceAddr ?: "", authCcuCode ?: "", "Không dò được dịch vụ sau MTU: ${e.message}")
+                    }
+                }
+
                 override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
                     connGen++ // huỷ timeout đang chờ của lượt này (đã có phản hồi, dù thành hay bại)
                     if (status != BluetoothGatt.GATT_SUCCESS) {
@@ -383,9 +410,27 @@ object CcuBle {
                     val hex = v.joinToString(" ") { String.format("%02X", it) }
                     lastNotify = "${shortU(characteristic.uuid)}: $hex"
                     TripLog.ev("ccuBle", "notify" to shortU(characteristic.uuid), "hex" to hex)
-                    if (awaitingDdtNotify) {
+                    if (characteristic.uuid == DDT_UUID && awaitingDdtNotify &&
+                        v.size == 2 && (v[0].toInt() and 0xFF) == 0x01 &&
+                        (v[1].toInt() and 0xFF) == authSeqId
+                    ) {
                         awaitingDdtNotify = false
                         sendAuthChunks(g)
+                    }
+                    if (characteristic.uuid == NOTIFY_CHARS[0].first && v.size >= 3) {
+                        val a0 = v[0].toInt() and 0xFF
+                        val a1 = v[1].toInt() and 0xFF
+                        val a2 = v[2].toInt() and 0xFF
+                        if (a0 == 0x01 && a1 == 0x02 && a2 == 0x01) {
+                            awaitingAuthResult = false
+                            authError = null
+                            authStage = "Đã xác thực CCU thành công"
+                            TripLog.ev("ccuBle", "authenticated" to true)
+                        } else if (a0 == 0x01 && a1 == 0x35) {
+                            val reply = byteArrayOf(0x01, 0x36, v[2])
+                            writeQueue.addFirst(WriteOp(DDT_UUID, reply))
+                            runNextWrite(g)
+                        }
                     }
                 }
             }, BluetoothDevice.TRANSPORT_LE)
@@ -406,8 +451,8 @@ object CcuBle {
         val bondState = try { device.bondState } catch (_: SecurityException) { BluetoothDevice.BOND_NONE }
         TripLog.ev("ccuBle", "bondState" to bondState)
         if (bondState == BluetoothDevice.BOND_BONDED) {
-            stage = "Đã nối GATT (đã ghép đôi), đang dò dịch vụ…"
-            try { g.discoverServices() } catch (_: Exception) {}
+            stage = "Đã nối GATT (đã ghép đôi), đang thương lượng MTU…"
+            requestMtuThenDiscover(g)
             return
         }
         stage = "Đang ghép đôi Bluetooth (BLE) với xe…"
@@ -422,12 +467,12 @@ object CcuBle {
                 if (newBond == BluetoothDevice.BOND_BONDED) {
                     unregisterBondReceiver()
                     stage = "Đã ghép đôi — đang dò dịch vụ…"
-                    try { g.discoverServices() } catch (_: Exception) {}
+                    requestMtuThenDiscover(g)
                 } else if (newBond == BluetoothDevice.BOND_NONE) {
                     unregisterBondReceiver()
                     TripLog.ev("ccuBle", "bondFailed" to true)
                     stage = "Ghép đôi BLE không được — vẫn thử dò dịch vụ…"
-                    try { g.discoverServices() } catch (_: Exception) {}
+                    requestMtuThenDiscover(g)
                 }
             }
         }
@@ -442,9 +487,17 @@ object CcuBle {
                 unregisterBondReceiver()
                 TripLog.ev("ccuBle", "bondTimeout" to true)
                 stage = "Ghép đôi BLE hết giờ — vẫn thử dò dịch vụ…"
-                try { g.discoverServices() } catch (_: Exception) {}
+                requestMtuThenDiscover(g)
             }
         }, 20_000)
+    }
+
+    private fun requestMtuThenDiscover(g: BluetoothGatt) {
+        try {
+            if (!g.requestMtu(64)) g.discoverServices()
+        } catch (_: Exception) {
+            try { g.discoverServices() } catch (_: Exception) {}
+        }
     }
 
     private fun unregisterBondReceiver() {
@@ -460,22 +513,22 @@ object CcuBle {
 
     private fun awaitDdtNotifyThenSendAuth(g: BluetoothGatt) {
         val myGen = ++authGen
-        awaitingDdtNotify = true
-        authStage = "Đã gửi hello, đang chờ xe báo sẵn sàng…"
-        // Cũng thử đọc kênh DDT một lần (có thể tự nó không kích hoạt gì, chỉ để log chẩn đoán) —
-        // không chờ kết quả đọc, chỉ chờ notify hoặc hết giờ.
-        try {
-            val service = g.getService(SERVICE_UUID)
-            val c = service?.getCharacteristic(DDT_UUID)
-            if (c != null) g.readCharacteristic(c)
-        } catch (_: Exception) {}
+        awaitingDdtNotify = false
+        authStage = "Đã gửi ConnectAppId, chờ 300 ms trước khi khởi tạo DDT…"
         handler.postDelayed({
-            if (awaitingDdtNotify && authGen == myGen) {
-                TripLog.ev("ccuBle", "ddtNotifyTimeout" to true)
-                awaitingDdtNotify = false
-                sendAuthChunks(g)
-            }
-        }, 4_000)
+            if (gatt !== g) return@postDelayed
+            awaitingDdtNotify = true
+            authStage = "Đang gửi yêu cầu DDT {01, seq}…"
+            writeQueue.clear()
+            writeQueue.addLast(WriteOp(DDT_UUID, byteArrayOf(0x01, authSeqId.toByte())))
+            runNextWrite(g)
+            handler.postDelayed({
+                if (awaitingDdtNotify && authGen == myGen) {
+                    awaitingDdtNotify = false
+                    failAuth("Hết thời gian chờ ACK DDT {01, seq}")
+                }
+            }, 4_000)
+        }, 300)
     }
 
     private fun BluetoothGattDescriptor.setIndicateOrNotify(indicate: Boolean) {
@@ -518,6 +571,8 @@ object CcuBle {
         }
         writeQueue.clear()
         val seqHello = nextSeq()
+        authSeqId = seqHello
+        awaitingAuthResult = false
         writeQueue.addLast(WriteOp(HELLO_UUID, byteArrayOf(0x00, 0x02, seqHello.toByte(), 0, 0, 0x12, 0x34)))
         authStage = "Đang gửi hello…"
         runNextWrite(g)
@@ -531,17 +586,16 @@ object CcuBle {
             return
         }
         writeQueue.clear()
-        val authPayload = byteArrayOf(1, 1) + code.toByteArray(Charsets.US_ASCII) + pass.toByteArray(Charsets.US_ASCII)
-        val seqAuth = nextSeq()
-        var offset = 0
-        val chunkSize = 20 // giống g() gốc: max(20, min(180, mtu-4)) với mtu mặc định 23
-        while (offset < authPayload.size) {
-            val end = minOf(authPayload.size, offset + chunkSize)
-            val header = byteArrayOf(seqAuth.toByte(), (offset ushr 16).toByte(), (offset ushr 8).toByte(), offset.toByte())
-            writeQueue.addLast(WriteOp(DATA_UUID, header + authPayload.copyOfRange(offset, end)))
-            offset = end
+        val authPayload = byteArrayOf(0x01, 0x01) + code.toByteArray(Charsets.UTF_8) + pass.toByteArray(Charsets.US_ASCII)
+        if (authPayload.size != 22) {
+            failAuth("Độ dài AuthenticationV2 không hợp lệ: ${authPayload.size}")
+            return
         }
-        authStage = "Đang gửi gói dữ liệu xác thực…"
+        val ddtFrame = byteArrayOf(authSeqId.toByte(), 0x00, 0x00, 0x00) + authPayload
+        awaitingAuthResult = true
+        writeQueue.clear()
+        writeQueue.addLast(WriteOp(DATA_UUID, ddtFrame))
+        authStage = "Đang gửi AuthenticationV2 (26 byte)…"
         runNextWrite(g)
     }
 

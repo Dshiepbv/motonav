@@ -3,6 +3,10 @@ package vn.hiep.motonav
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.companion.AssociationRequest
+import android.companion.BluetoothDeviceFilter
+import android.companion.CompanionDeviceManager
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -764,8 +768,8 @@ class SettingsActivity : Activity() {
             prefs.tftLink,
             note = "Gửi bản đồ dẫn đường, mũi tên rẽ, khoảng cách, giờ đến lên màn xe qua Bluetooth.",
         ) { on ->
-            if (on && !hasBtPermission()) {
-                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQ_BT_PERM)
+            if (on && (!hasBtPermission() || !hasBleScanPermission())) {
+                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN), REQ_BT_PERM)
                 toast("Cho phép quyền Bluetooth rồi bật lại")
             } else {
                 prefs.tftLink = on
@@ -773,10 +777,24 @@ class SettingsActivity : Activity() {
             refresh()
         }
         action(
-            "Chọn thiết bị màn xe",
-            if (prefs.tftDevice.isNotBlank()) "Đang chọn: ${prefs.tftDeviceName.ifBlank { prefs.tftDevice }}" else "Ghép đôi (pair) với màn xe trong Cài đặt Bluetooth của máy trước, rồi chọn ở đây",
-            note = "Danh sách lấy từ các thiết bị Bluetooth đã ghép đôi (pair) với điện thoại.",
+            "Đăng ký xe qua Android",
+            if (prefs.tftDevice.isNotBlank()) "Xe đã đăng ký: ${prefs.tftDeviceName.ifBlank { prefs.tftDevice }}" else "Tìm và đăng ký NMAX bằng trình ghép nối của Android",
+            note = "Companion Device Manager cho phép Android theo dõi trạng thái hiện diện của xe đã chọn mà không cần ứng dụng tự quét Bluetooth liên tục.",
+        ) { associateBike() }
+        action(
+            "Chọn thiết bị đã ghép đôi",
+            if (prefs.tftDevice.isNotBlank()) "Đang chọn: ${prefs.tftDeviceName.ifBlank { prefs.tftDevice }}" else "Chọn thủ công từ danh sách Bluetooth đã ghép đôi",
+            note = "Dùng làm phương án dự phòng nếu thiết bị không xuất hiện trong trình đăng ký Android.",
         ) { pickTftDevice() }
+        if (android.os.Build.VERSION.SDK_INT >= 29 &&
+            checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            action(
+                "Cấp quyền vị trí nền",
+                "Cần thiết để tự khởi động dẫn đường khi xe xuất hiện lúc ứng dụng đang ở nền",
+                note = "Android 11 trở lên: mở Thông tin ứng dụng → Quyền → Vị trí → Cho phép mọi lúc. MotoNav chỉ dùng vị trí trong phiên theo dõi/dẫn đường.",
+            ) { requestBackgroundLocation() }
+        }
         choice(
             "Kiểu bản đồ trên màn xe",
             null,
@@ -1068,13 +1086,63 @@ class SettingsActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_BT_PERM && hasBtPermission()) {
+        if (requestCode == REQ_BT_PERM && hasBtPermission() && hasBleScanPermission()) {
             prefs.tftLink = true
             refresh()
         }
     }
 
-    /** Chọn trong các thiết bị Bluetooth đã ghép đôi (pair) với máy — màn TFT của xe phải pair trước. */
+    private fun requestBackgroundLocation() {
+        if (android.os.Build.VERSION.SDK_INT < 29) return
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            AlertDialog.Builder(this)
+                .setTitle("Cho phép vị trí mọi lúc")
+                .setMessage("Vào Quyền → Vị trí → chọn “Cho phép mọi lúc” để Android cho phép phiên dẫn đường tự khởi động khi xe xuất hiện.")
+                .setPositiveButton("Mở cài đặt") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+                }
+                .setNegativeButton("Để sau", null)
+                .show()
+        } else {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQ_BG_LOCATION)
+        }
+    }
+
+    /** Mở trình đăng ký thiết bị đồng hành của Android; không tự quét BLE liên tục. */
+    private fun associateBike() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) {
+            toast("Đăng ký thiết bị đồng hành cần Android 8 trở lên")
+            return
+        }
+        if (!hasBtPermission() || !hasBleScanPermission()) {
+            requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN), REQ_BT_PERM)
+            return
+        }
+        try {
+            val manager = getSystemService(CompanionDeviceManager::class.java)
+            val request = AssociationRequest.Builder()
+                .addDeviceFilter(BluetoothDeviceFilter.Builder().build())
+                .setSingleDevice(true)
+                .build()
+            manager.associate(request, object : CompanionDeviceManager.Callback() {
+                override fun onDeviceFound(chooserLauncher: android.content.IntentSender) {
+                    try {
+                        startIntentSenderForResult(chooserLauncher, REQ_COMPANION, null, 0, 0, 0)
+                    } catch (e: Exception) {
+                        toast("Không mở được trình chọn thiết bị: ${e.message}")
+                    }
+                }
+
+                override fun onFailure(error: CharSequence?) {
+                    toast("Không đăng ký được thiết bị: ${error ?: "không rõ nguyên nhân"}")
+                }
+            }, null)
+        } catch (e: Exception) {
+            toast("Không khởi tạo được đăng ký thiết bị: ${e.message}")
+        }
+    }
+
+    /** Chọn thủ công từ các thiết bị Bluetooth đã ghép đôi — phương án dự phòng. */
     private fun pickTftDevice() {
         if (!hasBtPermission()) {
             requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQ_BT_PERM)
@@ -1111,6 +1179,24 @@ class SettingsActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_COMPANION && resultCode == RESULT_OK && data != null) {
+            @Suppress("DEPRECATION")
+            val device = data.getParcelableExtra<BluetoothDevice>(CompanionDeviceManager.EXTRA_DEVICE)
+            if (device != null) {
+                try {
+                    prefs.tftDevice = device.address
+                    prefs.tftDeviceName = try { device.name ?: device.address } catch (_: SecurityException) { device.address }
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                        getSystemService(CompanionDeviceManager::class.java).startObservingDevicePresence(device.address)
+                    }
+                    toast("Đã đăng ký ${prefs.tftDeviceName}")
+                    refresh()
+                } catch (e: Exception) {
+                    toast("Đã chọn xe nhưng chưa bật được theo dõi hiện diện: ${e.message}")
+                }
+            }
+            return
+        }
         val uri = data?.data
         if (resultCode != RESULT_OK || uri == null) return
         try {

@@ -140,7 +140,7 @@ object CcuAuth {
                 if (term != 4) continue
                 val cmd = ((payload[0].toInt() and 255) shl 8) or (payload[1].toInt() and 255)
                 if (cmd == 314 && payload.size == 22) {
-                    val code = String(payload, 2, 14, Charsets.US_ASCII)
+                    val code = String(payload, 2, 14, Charsets.UTF_8)
                     val pass = String(payload, 16, 6, Charsets.US_ASCII)
                     return code to pass
                 }

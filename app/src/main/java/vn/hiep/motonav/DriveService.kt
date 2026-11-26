@@ -161,7 +161,7 @@ class DriveService : Service(), LocationListener {
         )
         val notif = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         } else {
             startForeground(NOTIF_ID, notif)
         }
@@ -261,6 +261,8 @@ class DriveService : Service(), LocationListener {
         nav.stop()
         voice.shutdown()
         TftLink.stop()
+        CcuBle.disconnect()
+        CcuAuth.closeKeepAlive()
         Live.removeListener(overlayListener)
         overlay.hide()
         Live.serviceRunning = false
@@ -318,7 +320,17 @@ class DriveService : Service(), LocationListener {
             val on = prefs.tftLink
             if (on != tftLinkWasOn) {
                 tftLinkWasOn = on
-                if (on) TftLink.start(this@DriveService, prefs.tftDevice) else TftLink.stop()
+                if (on) {
+                    TftLink.start(this@DriveService, prefs.tftDevice)
+                    // Xác thực CCU chạy độc lập với Y-Connect; giữ SPP sống trong lúc BLE GATT xác thực.
+                    if (prefs.tftDevice.isNotBlank()) {
+                        CcuAuth.queryOnce(this@DriveService, prefs.tftDevice, autoChainBle = true)
+                    }
+                } else {
+                    TftLink.stop()
+                    CcuBle.disconnect()
+                    CcuAuth.closeKeepAlive()
+                }
             }
             if (on) {
                 // build-250: ảnh bản đồ Goong cho TFT (cần Map Tiles Key; bật/tắt trong Cài đặt)

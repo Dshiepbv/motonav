@@ -28,6 +28,9 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version 8.9
+
       # Số phiên bản tạm thời theo lượt build (0.<run_number>), khỏi phải tự tay bump mỗi lần.
       - name: Set version from build number
         run: |
@@ -36,10 +39,10 @@ jobs:
 
       # Lỗi biên dịch được đẩy ra dạng annotation (::error::) để đọc được qua GitHub API khi không
       # tải được log đầy đủ của job.
-      - name: Build
+      - name: Build Debug and Release
         run: |
           set -o pipefail
-          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log || {
+          ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log || {
             grep -E "^e: |error:|ERROR:|What went wrong|AAPT|Execution failed" build.log | head -30 | while IFS= read -r l; do echo "::error::$l"; done
             exit 1
           }
