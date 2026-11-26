@@ -14,7 +14,7 @@ import kotlin.math.sin
 
 internal data class TrafficSpeedPoint(
     val id: String, val lat: Double, val lon: Double, val speed: Int,
-    val bearing: Int, val isHcmArterial: Boolean,
+    val bearing: Int, val isHcmArterial: Boolean, val laneCode: Int = 0,
 )
 
 internal data class TrafficCameraPoint(
@@ -28,10 +28,6 @@ internal data class TrafficZonePoint(
 internal data class TrafficSignPoint(
     val id: String, val lat: Double, val lon: Double, val code: Int, val bearing: Int,
     val extraField: Int? = null,
-)
-
-internal data class TrafficTurnPoint(
-    val id: String, val lat: Double, val lon: Double, val code: Int, val bearing: Int,
 )
 
 internal data class TrafficAlert(
@@ -80,7 +76,6 @@ internal class OfflineTrafficDataset private constructor(
     val cameras: List<TrafficCameraPoint>,
     val zones: List<TrafficZonePoint>,
     val signs: List<TrafficSignPoint>,
-    val turns: List<TrafficTurnPoint>,
     val loadedFiles: Set<String>,
     val errors: List<String>,
 ) {
@@ -88,7 +83,6 @@ internal class OfflineTrafficDataset private constructor(
     val cameraGrid = TrafficSpatialGrid<TrafficCameraPoint>({ it.lat }, { it.lon }).also { g -> cameras.forEach(g::add) }
     val zoneGrid = TrafficSpatialGrid<TrafficZonePoint>({ it.lat }, { it.lon }).also { g -> zones.forEach(g::add) }
     val signGrid = TrafficSpatialGrid<TrafficSignPoint>({ it.lat }, { it.lon }).also { g -> signs.forEach(g::add) }
-    val turnGrid = TrafficSpatialGrid<TrafficTurnPoint>({ it.lat }, { it.lon }).also { g -> turns.forEach(g::add) }
 
     companion object {
         suspend fun load(context: Context): OfflineTrafficDataset = withContext(Dispatchers.IO) {
@@ -137,35 +131,64 @@ internal class OfflineTrafficDataset private constructor(
             val limitRows = rows(cameraRoot?.optJSONArray("limits"))
             val zoneRows = rows(cameraRoot?.optJSONArray("zones"))
             val signRows = rows(cameraRoot?.optJSONArray("signs"), 4)
-            val turnRows = rows(cameraRoot?.optJSONArray("turns"))
 
             val speeds = ArrayList<TrafficSpeedPoint>()
             val speedIndex = TrafficSpatialGrid<TrafficSpeedPoint>({ it.lat }, { it.lon })
-            fun addSpeed(r: DoubleArray, source: String, hcm: Boolean) {
-                val speed = r[2].toInt()
-                val bearing = r[3].toInt().let { if (it < 0) 0 else it % 360 }
-                if (speed <= 0) return
-                val duplicate = speedIndex.near(r[0], r[1]).firstOrNull {
-                    it.speed == speed && Geo.angleDiff(it.bearing.toDouble(), bearing.toDouble()) <= 20.0 &&
-                        Geo.distance(it.lat, it.lon, r[0], r[1]) < 15.0
-                }
-                if (duplicate != null) {
-                    if (hcm && !duplicate.isHcmArterial) {
-                        speeds.remove(duplicate)
-                        speedIndex.remove(duplicate)
-                        val upgraded = duplicate.copy(isHcmArterial = true)
-                        speeds += upgraded
-                        speedIndex.add(upgraded)
+
+            data class SpeedCandidate(val row: DoubleArray, val source: String, val hcm: Boolean) {
+                val speed get() = row[2].toInt()
+                val bearing get() = row[3].toInt().let { if (it < 0) 0 else it % 360 }
+                val laneCode get() = row.getOrNull(4)?.toInt() ?: 0
+            }
+            val laneCandidates = buildList {
+                plainSigns.forEach { add(SpeedCandidate(it, "vn", false)) }
+                hcmSigns.forEach { add(SpeedCandidate(it, "hcm", true)) }
+            }.filter { it.speed > 0 }
+
+            // Gom các biển cùng trục (<25 m, cùng hướng). Trên trục đại lộ,
+            // bỏ biển làn xe tải/xe khách tốc độ <=40; ưu tiên làn xe máy 50–60,
+            // sau đó mới đến biển làn chung laneCode=0.
+            val laneGroups = ArrayList<MutableList<SpeedCandidate>>()
+            for (candidate in laneCandidates) {
+                val group = laneGroups.firstOrNull { g ->
+                    g.any { other ->
+                        Geo.distance(other.row[0], other.row[1], candidate.row[0], candidate.row[1]) < 25.0 &&
+                            Geo.angleDiff(other.bearing.toDouble(), candidate.bearing.toDouble()) <= 20.0
                     }
-                    return
                 }
-                val p = TrafficSpeedPoint("$source:${speeds.size}", r[0], r[1], speed, bearing, hcm)
+                if (group == null) laneGroups += mutableListOf(candidate) else group += candidate
+            }
+            for (group in laneGroups) {
+                val arterial = group.any { it.hcm } || group.size > 1 &&
+                    group.map { it.laneCode }.distinct().size > 1
+                val eligible = group.filterNot { arterial && it.speed <= 40 && it.laneCode != 0 }
+                if (eligible.isEmpty()) continue
+                val selected = eligible.firstOrNull { it.laneCode != 0 && it.speed in 50..60 }
+                    ?: eligible.firstOrNull { it.laneCode == 0 }
+                    ?: eligible.first()
+                val r = selected.row
+                val p = TrafficSpeedPoint(
+                    "${selected.source}:${speeds.size}", r[0], r[1], selected.speed,
+                    selected.bearing, arterial, selected.laneCode,
+                )
+                // Biển limits là nguồn bổ sung, chỉ thêm nếu không trùng một biển đã chọn.
                 speeds += p
                 speedIndex.add(p)
             }
-            plainSigns.forEach { addSpeed(it, "vn", false) }
-            hcmSigns.forEach { addSpeed(it, "hcm", true) }
-            limitRows.forEach { addSpeed(it, "limits", false) }
+            for (r in limitRows) {
+                val speed = r[2].toInt()
+                val bearing = r[3].toInt().let { if (it < 0) 0 else it % 360 }
+                if (speed <= 0) continue
+                val duplicate = speedIndex.near(r[0], r[1]).firstOrNull {
+                    Geo.angleDiff(it.bearing.toDouble(), bearing.toDouble()) <= 20.0 &&
+                        Geo.distance(it.lat, it.lon, r[0], r[1]) < 15.0
+                }
+                if (duplicate == null) {
+                    val p = TrafficSpeedPoint("limits:${speeds.size}", r[0], r[1], speed, bearing, false, 0)
+                    speeds += p
+                    speedIndex.add(p)
+                }
+            }
 
             val cameras = cameraRows.mapIndexedNotNull { i, r ->
                 val type = r[3].toInt()
@@ -175,17 +198,14 @@ internal class OfflineTrafficDataset private constructor(
                 val code = r[2].toInt()
                 if (code != 10 && code != 11) null else TrafficZonePoint("zone:$i", r[0], r[1], code, r[3].toInt())
             }
-            // signs.json/cameras_vn.json có thể chứa thêm trường thứ năm. Trường này được giữ lại
-            // như metadata nhưng không được tự diễn giải vì cấu trúc nguồn chưa mô tả ý nghĩa.
+            // Mảng signs trong cameras_vn.json: [lat,lng,signCode,bearing,extraAttr].
+            // extraAttr chỉ là metadata của nguồn này, không phải laneCode.
             val signs = signRows.mapIndexedNotNull { i, r ->
                 val code = r[2].toInt()
-                if (code !in setOf(8, 9, 12, 13)) null
+                if (code !in setOf(5, 6, 7, 8, 9, 12, 13)) null
                 else TrafficSignPoint("sign:$i", r[0], r[1], code, r[3].toInt(), r[4].toInt().takeIf { it >= 0 })
             }
-            val turns = turnRows.mapIndexed { i, r ->
-                TrafficTurnPoint("turn:$i", r[0], r[1], r[2].toInt(), r[3].toInt())
-            }
-            OfflineTrafficDataset(speeds, cameras, zones, signs, turns, loaded, errors)
+            OfflineTrafficDataset(speeds, cameras, zones, signs, loaded, errors)
         }
     }
 }
@@ -349,7 +369,8 @@ internal class OfflineTrafficEngine {
                 8 -> Quad("CẤM XE MÁY", 1, 0xFFB71C1C.toInt(), "Chú ý phía trước có biển cấm xe máy")
                 9 -> Quad("ĐƯỜNG CẤM", 1, 0xFFB71C1C.toInt(), "Chú ý phía trước là đường cấm")
                 12 -> Quad("CẤM VƯỢT", 6, 0xFF0277BD.toInt(), null)
-                else -> Quad("HẾT CẤM VƯỢT", 6, 0xFF0277BD.toInt(), null)
+                13 -> Quad("HẾT CẤM VƯỢT", 6, 0xFF0277BD.toInt(), null)
+                else -> Quad("CẤM RẼ / QUAY ĐẦU", 3, 0xFFC62828.toInt(), null)
             }
             if (Geo.angleDiff(sign.bearing.toDouble(), hdg) <= 35.0) {
                 candidates += TrafficAlert(sign.id, label, d, priority, 100 + sign.code, sign.lat, sign.lon, color)
@@ -357,13 +378,6 @@ internal class OfflineTrafficEngine {
                     offerSpeech(priority, speechText)
                     rememberAnnounced(sign.id, sign.lat, sign.lon)
                 }
-            }
-        }
-        for (turn in dataset.turnGrid.near(predictedLat, predictedLon)) {
-            val d = aheadDistance(turn.lat, turn.lon) ?: continue
-            if (d > 250) continue
-            if (Geo.angleDiff(turn.bearing.toDouble(), hdg) <= 35.0) {
-                candidates += TrafficAlert(turn.id, "CẤM RẼ", d, 3, 200 + turn.code, turn.lat, turn.lon, 0xFFC62828.toInt())
             }
         }
         for (z in dataset.zoneGrid.near(predictedLat, predictedLon)) {
