@@ -1,8 +1,14 @@
-Copyright (c) 2026 Dshiepbv. All rights reserved.
+BẢN QUYỀN (C) 2026 BÙI VĂN HIỆP (DS HIỆP). BẢO LƯU MỌI QUYỀN.
 
-Phần mềm này là tài sản riêng của tác giả. Không được sao chép, sửa đổi,
-phân phối lại hoặc dịch ngược dưới bất kỳ hình thức nào khi chưa có sự
-cho phép bằng văn bản của tác giả.
+1. QUYỀN SỞ HỮU TRÍ TUỆ
+Phần mềm Nmax Navi (MotoNav), bao gồm toàn bộ mã nguồn, giao thức giao tiếp phần cứng, thuật toán hiển thị, cấu trúc dữ liệu và tệp cài đặt (APK), là tài sản trí tuệ độc quyền của Bùi Văn Hiệp.
 
-This software is proprietary. No permission is granted to copy, modify,
-distribute or reverse-engineer it without the author's written consent.
+2. CÁC HÀNH VI BỊ NGHIÊM CẤM
+Nghiêm cấm mọi cá nhân, tổ chức thực hiện bất kỳ hành vi nào sau đây nếu không có sự đồng ý trước bằng văn bản của tác giả:
+- Truy cập, sao chép, phân phối, công khai hoặc chia sẻ trái phép mã nguồn dưới bất kỳ hình thức nào.
+- Dịch ngược (decompile), tháo gỡ mã máy (disassemble), phân tích kỹ thuật ngược (reverse engineer) hoặc cố tình trích xuất mã nguồn, giao thức và dữ liệu từ tệp cài đặt (APK).
+- Sửa đổi, đóng gói lại (repackage), bẻ khóa hoặc tạo ra các sản phẩm phái sinh từ phần mềm này.
+- Sử dụng phần mềm hoặc bất kỳ thành phần nào của phần mềm cho mục đích thương mại hoặc thu phí.
+
+3. MIỄN TRỪ TRÁCH NHIỆM
+Phần mềm được cung cấp theo nguyên trạng ("AS IS") phục vụ mục đích hỗ trợ dẫn đường và cảnh báo tham khảo. Người điều khiển phương tiện có trách nhiệm tuân thủ tuyệt đối Luật Trật tự, an toàn giao thông đường bộ và quan sát biển báo thực tế trên đường. Tác giả không chịu trách nhiệm đối với bất kỳ vi phạm giao thông, thiệt hại hoặc sự cố nào phát sinh trong quá trình sử dụng.

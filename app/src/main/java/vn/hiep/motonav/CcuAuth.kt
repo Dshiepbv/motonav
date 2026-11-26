@@ -23,8 +23,8 @@ import java.util.UUID
  * CHỈ DÙNG ĐỂ CHẨN ĐOÁN bước này riêng lẻ — chưa nối tiếp sang bước BLE (giai đoạn sau).
  */
 object CcuAuth {
-    private val UUID_CCU = UUID.fromString("00008911-0000-1000-8000-00805f9b34fb")
-    private val UUID_SPP = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb")
+    private val UUID_CCU = UUID.fromString(StringVault.ccuSppUuid())
+    private val UUID_SPP = UUID.fromString(StringVault.serialSppUuid())
 
     @Volatile var running = false
         private set

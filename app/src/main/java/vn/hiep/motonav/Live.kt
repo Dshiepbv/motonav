@@ -39,6 +39,15 @@ object Live {
     @Volatile var street: String? = null
     @Volatile var overspeed = false
 
+    // Cảnh báo giao thông offline từ dữ liệu cục bộ.
+    @Volatile var trafficDataReady = false
+    @Volatile var trafficDataStatus = "Đang nạp dữ liệu giao thông…"
+    @Volatile var trafficUrban = false
+    @Volatile var trafficOverspeed = false
+    @Volatile internal var trafficAlert: TrafficAlert? = null
+    @Volatile var trafficAlertAt = 0L
+    @Volatile var trafficCurrentSpeedKmh = -1
+
     // Camera
     @Volatile var camText: String? = null
     @Volatile var camDistance = 0

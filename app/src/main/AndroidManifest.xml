@@ -33,11 +33,12 @@
     </queries>
 
     <application
+        android:name=".MotoNavApplication"
         android:label="NMAX Navi"
         android:icon="@drawable/ic_launcher"
         android:roundIcon="@drawable/ic_launcher"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
-        android:allowBackup="true">
+        android:allowBackup="false">
 
         <activity
             android:name=".MainActivity"
