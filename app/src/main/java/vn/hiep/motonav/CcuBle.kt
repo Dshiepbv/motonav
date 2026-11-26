@@ -586,7 +586,7 @@ object CcuBle {
             return
         }
         writeQueue.clear()
-        val authPayload = byteArrayOf(0x01, 0x01) + code.toByteArray(Charsets.US_ASCII) + pass.toByteArray(Charsets.US_ASCII)
+        val authPayload = byteArrayOf(0x01, 0x01) + code.toByteArray(Charsets.UTF_8) + pass.toByteArray(Charsets.US_ASCII)
         if (authPayload.size != 22) {
             failAuth("Độ dài AuthenticationV2 không hợp lệ: ${authPayload.size}")
             return
