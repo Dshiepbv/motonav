@@ -1114,8 +1114,8 @@ class SettingsActivity : Activity() {
             toast("Đăng ký thiết bị đồng hành cần Android 8 trở lên")
             return
         }
-        if (!hasBtPermission()) {
-            requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQ_BT_PERM)
+        if (!hasBtPermission() || !hasBleScanPermission()) {
+            requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN), REQ_BT_PERM)
             return
         }
         try {
