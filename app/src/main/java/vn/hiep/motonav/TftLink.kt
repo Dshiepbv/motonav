@@ -41,7 +41,7 @@ import kotlin.math.roundToInt
  *  - [IconMap]: mã mũi tên rẽ bên xe hiểu cho từng loại rẽ (trái/phải/vòng xuyến/quay đầu…).
  */
 object TftLink {
-    private val SERVICE_UUID: UUID = UUID.fromString(StringVault.tftServiceUuid())
+    private val SERVICE_UUID: UUID = UUID.fromString("00007220-0000-1000-8000-00805F9B34FB")
     private val MAGIC = byteArrayOf(110, 65, 108, 64) // "nAl@"
 
     // Mặt vẽ và bộ đệm JPEG dùng lại suốt vòng đời kết nối, không cấp phát Bitmap mỗi frame.
@@ -4051,8 +4051,6 @@ object TftLink {
     private const val P727_ACK_WAIT_MS = 300L
     private const val P727_MIN_INTERVAL_MS = 320L
     private const val P727_KEEPALIVE_MS = 2500L
-    /** Nhịp ảnh giảm tải khi TFT gửi lệnh tạm dừng 0x38. */
-    private const val PAUSED_FRAME_INTERVAL_MS = 1200L
     private const val P727_FREEZE_LOST = 3
     private const val P727_RESYNC_LOST = 4
     private const val P727_HOLD_MAX_MS = 8000L
@@ -4121,15 +4119,6 @@ object TftLink {
                 continue
             }
             val started = System.currentTimeMillis()
-            // Khi TFT báo tạm dừng (0x38), vẫn duy trì ảnh/ACK nhưng giảm tải cho màn hình.
-            // 0x37 sẽ bỏ dashPaused và tự khôi phục nhịp gửi bình thường.
-            if (dashPaused && lastAt != 0L) {
-                val pauseWait = PAUSED_FRAME_INTERVAL_MS - (started - lastAt)
-                if (pauseWait > 0L) {
-                    awaitV2Wake(pauseWait.coerceAtMost(250L))
-                    continue
-                }
-            }
             if (hold) {
                 // build-404: màn kẹt → KHÔNG gửi gì thêm, KHÔNG đóng socket (403 đóng socket = mỗi lần xoay là ngắt).
                 // Chờ màn trả ACK muộn hoặc tối đa 8 s rồi gửi 1 khung mới.
