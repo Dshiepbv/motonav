@@ -113,7 +113,11 @@ object Updater {
             val a = assets.getJSONObject(i)
             val name = a.getString("name")
             val m = Regex("""MotoNav-([\d.]+)\.apk""").find(name) ?: continue
-            val build = Regex("""(\d+)""").find(o.optString("tag_name"))?.value?.toIntOrNull() ?: 0
+            val tag = o.optString("tag_name")
+            // Hỗ trợ cả tag build-540 và v0.540; với v0.540 phải lấy 540, không lấy số 0 đầu tiên.
+            val build = Regex("""(\d+)$""").find(tag)?.groupValues?.get(1)?.toIntOrNull()
+                ?: Regex("""(\d+)$""").find(m.groupValues[1])?.groupValues?.get(1)?.toIntOrNull()
+                ?: 0
             return Release(m.groupValues[1], build, a.getLong("id"), a.optLong("size"), o.optString("body"))
         }
         throw RuntimeException("Bản phát hành mới nhất không có file APK")
