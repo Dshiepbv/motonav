@@ -62,6 +62,7 @@ internal class TrafficSpatialGrid<T>(
         return (x.toLong() shl 32) xor (y.toLong() and 0xffffffffL)
     }
     fun add(item: T) { cells.getOrPut(cell(latOf(item), lonOf(item))) { ArrayList() }.add(item) }
+    fun remove(item: T) { cells[cell(latOf(item), lonOf(item))]?.remove(item) }
     fun near(lat: Double, lon: Double): List<T> {
         val cx = floor(lat / 0.02).toInt()
         val cy = floor(lon / 0.02).toInt()
@@ -115,8 +116,8 @@ internal class OfflineTrafficDataset private constructor(
                 return out
             }
 
-            val plainSigns = rows(read(StringVault.trafficSignsFile())?.let(::JSONArray))
-            val hcmSigns = rows(read(StringVault.hcmSignsFile())?.let(::JSONArray))
+            val plainSigns = rows(read(StringVault.trafficSignsFile())?.let { runCatching { JSONArray(it) }.getOrNull() })
+            val hcmSigns = rows(read(StringVault.hcmSignsFile())?.let { runCatching { JSONArray(it) }.getOrNull() })
             val cameraRoot = read(StringVault.camerasFile())?.let { runCatching { JSONObject(it) }.getOrNull() }
             val cameraRows = rows(cameraRoot?.optJSONArray("cams"))
             val limitRows = rows(cameraRoot?.optJSONArray("limits"))
@@ -137,6 +138,7 @@ internal class OfflineTrafficDataset private constructor(
                 if (duplicate != null) {
                     if (hcm && !duplicate.isHcmArterial) {
                         speeds.remove(duplicate)
+                        speedIndex.remove(duplicate)
                         val upgraded = duplicate.copy(isHcmArterial = true)
                         speeds += upgraded
                         speedIndex.add(upgraded)
@@ -234,6 +236,8 @@ internal class OfflineTrafficEngine {
         val dataset = data
         val currentSpeed = if (bikeSpeedKmh >= 0) bikeSpeedKmh else gpsSpeedKmh
         var speech: String? = null
+        var speechPriority = Int.MAX_VALUE
+        fun offerSpeech(priority: Int, text: String) { if (priority < speechPriority) { speechPriority = priority; speech = text } }
         if (dataset == null) return snapshot(currentSpeed, null, false, speech, false)
         val hdg = if (bearing >= 0.0) bearing else stableBearing
         if (hdg < 0.0) return snapshot(currentSpeed, null, false, speech, false)
@@ -266,7 +270,7 @@ internal class OfflineTrafficEngine {
                 isInUrbanZone = newUrban
                 zoneKnown = true
                 effectiveMotoLimit = currentRawSpeedLimit?.let { if (newUrban || currentSpeedIsHcm) minOf(it, 60) else it }
-                speech = if (newUrban) "Vào khu đông dân cư, tối đa 60" else "Hết khu đông dân cư"
+                offerSpeech(6, if (newUrban) "Vào khu đông dân cư, tối đa 60" else "Hết khu đông dân cư")
             }
         }
 
@@ -307,11 +311,11 @@ internal class OfflineTrafficEngine {
             }
             candidates += TrafficAlert(cam.id, label, d, priority, cam.type, cam.lat, cam.lon, color)
             if (d <= 300 && cam.type in setOf(0, 3, 4) && !wasAnnounced(cam.id, cam.lat, cam.lon)) {
-                speech = when (cam.type) {
+                offerSpeech(priority, when (cam.type) {
                     0 -> "Phía trước 300 mét có camera bắn tốc độ"
                     4 -> "Phía trước 300 mét có camera phạt nguội"
                     else -> "Phía trước 300 mét có camera AI"
-                }
+                })
                 rememberAnnounced(cam.id, cam.lat, cam.lon)
             }
         }
@@ -327,7 +331,7 @@ internal class OfflineTrafficEngine {
             if (Geo.angleDiff(sign.bearing.toDouble(), hdg) <= 35.0) {
                 candidates += TrafficAlert(sign.id, label, d, priority, 100 + sign.code, sign.lat, sign.lon, color)
                 if (speechText != null && d <= 250 && !wasAnnounced(sign.id, sign.lat, sign.lon)) {
-                    speech = speechText
+                    offerSpeech(priority, speechText)
                     rememberAnnounced(sign.id, sign.lat, sign.lon)
                 }
             }
@@ -360,7 +364,7 @@ internal class OfflineTrafficEngine {
         if (over) {
             if (overspeedSince == 0L) overspeedSince = nowElapsed
             if (!overspeedSpoken && nowElapsed - overspeedSince >= 2000L) {
-                speech = "Chạy quá tốc độ giới hạn"
+                offerSpeech(0, "Chạy quá tốc độ giới hạn")
                 overspeedSpoken = true
             }
         } else {
