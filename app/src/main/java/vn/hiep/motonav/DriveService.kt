@@ -261,6 +261,8 @@ class DriveService : Service(), LocationListener {
         nav.stop()
         voice.shutdown()
         TftLink.stop()
+        CcuBle.disconnect()
+        CcuAuth.closeKeepAlive()
         Live.removeListener(overlayListener)
         overlay.hide()
         Live.serviceRunning = false
