@@ -222,6 +222,8 @@ object TftLink {
     @Volatile private var dashPausedAt = 0L
     private const val PAUSE_MAX_MS = 20_000L
     @Volatile private var waitingSentAt: Long = 0L
+    @Volatile private var lastImageWriteElapsed: Long = 0L
+    @Volatile private var consecutiveAckTimeouts: Int = 0
     @Volatile private var last42At: Long = 0L
 
     /** ACK [ack] có "phủ" khung [seq] không: đúng số, hoặc số mới hơn (xe báo đã nhận tới khung
@@ -265,8 +267,8 @@ object TftLink {
     /** Ngưỡng cảnh báo ACK trễ; không kết thúc giao dịch tại ngưỡng này. */
     private const val V2_ACK_WAIT_MS = 1200L
     /** Chỉ kết thúc một giao dịch sau tối đa 8,5 s; trong lúc chờ không phát frame khác. */
-    private const val V2_MAX_ACK_WAIT_MS = 4500L // build-372: 8500 → 4500 (log 7/11: rớt kết nối vài giây sau mỗi lần chờ 8,5 s)
-    private const val V2_MIN_INTERVAL_MS = 300L
+    private const val V2_MAX_ACK_WAIT_MS = 6000L // build-372: 8500 → 4500 (log 7/11: rớt kết nối vài giây sau mỗi lần chờ 8,5 s)
+    private const val V2_MIN_INTERVAL_MS = 60L
     private const val V2_P302_REST_MS = 400L
     // build-380 (Sếp): nhịp "400/800" — không chờ ACK mới gửi tiếp. T=0 gửi; 400 ms: gửi ảnh mới (hoặc lastJpeg);
     // 800 ms chưa ACK: gửi lại đúng 1 lần ảnh mới nhất; tới ~3,75 s vẫn chưa ACK: giữ đứng, chỉ keepalive mỗi 400 ms.
@@ -3571,6 +3573,14 @@ object TftLink {
         writeStartedAt = System.currentTimeMillis()
         val t0 = System.nanoTime()
         return try {
+            // Luồng ảnh chỉ có một frame đang chờ ACK; vẫn áp dụng khoảng cách tối thiểu 60 ms
+            // giữa hai lần bắt đầu ghi ảnh để tránh dồn burst xuống bộ đệm TFT.
+            if (bytes.size >= 16 && (bytes[6].toInt() and 0xFF) == 0 && (bytes[11].toInt() and 0xFF) == 1) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                val gap = V2_MIN_INTERVAL_MS - (now - lastImageWriteElapsed)
+                if (lastImageWriteElapsed > 0L && gap > 0L) Thread.sleep(gap)
+                lastImageWriteElapsed = android.os.SystemClock.elapsedRealtime()
+            }
             val pace = if (nmaxStyle && !send727) 0L else PACE_MS_PER_KB.toLong()
             lastPace = pace
             if (pace <= 0L) { o.write(bytes); o.flush(); return true }
@@ -3663,10 +3673,19 @@ object TftLink {
         v2PrevTimedOut = !acked
         if (hardTimeout) {
             v2HardTimeouts++
+            consecutiveAckTimeouts++
             lastFrameError = "Khung #$seq chưa ACK sau $V2_MAX_ACK_WAIT_MS ms — chỉ giữ frame mới nhất"
+            if (consecutiveAckTimeouts >= 3) {
+                try { TripLog.ev("tftReconnect", "reason" to "3 consecutive ACK timeouts", "seq" to seq) } catch (_: Exception) {}
+                consecutiveAckTimeouts = 0
+                connected = false
+                authed = false
+                try { activeSocket?.close() } catch (_: Exception) {}
+            }
             try { TripLog.ev("tftAckTimeout", "seq" to seq, "pendingMs" to waited,
                 "relMs" to (sentElapsed - sessionStartElapsedMs), "stage" to "hard", "policy" to "single-flight") } catch (_: Exception) {}
         } else if (acked) {
+            consecutiveAckTimeouts = 0
             v2Acked++
             lastFrameError = null
             frameTxCount++
