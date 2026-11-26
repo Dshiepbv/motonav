@@ -270,6 +270,7 @@ internal class OfflineTrafficEngine {
     fun evaluate(
         lat: Double, lon: Double, speedMps: Double, gpsSpeedKmh: Int,
         bearing: Double, nowElapsed: Long, bikeSpeedKmh: Int = -1, roadKey: String? = null,
+        authoritativeLimitKmh: Int? = null,
     ): TrafficUpdate {
         val dataset = data
         if (lastZoneSpeechLat.isFinite() &&
@@ -414,7 +415,7 @@ internal class OfflineTrafficEngine {
         }
         val visibleAlert = best ?: lastEvent?.takeIf { nowElapsed <= lastEventUntil }
 
-        val limit = effectiveMotoLimit
+        val limit = authoritativeLimitKmh ?: effectiveMotoLimit
         val over = limit != null && currentSpeed >= limit + 4
         if (over) {
             if (overspeedSince == 0L) overspeedSince = nowElapsed

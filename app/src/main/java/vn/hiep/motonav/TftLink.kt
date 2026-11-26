@@ -2014,9 +2014,10 @@ object TftLink {
             c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, tp)
         }
         // Cảnh báo camera gần nhất: ghim đỏ trên bản đồ vẫn giữ nguyên; thêm nhãn khoảng cách dễ quan sát.
+        val camDistance = Live.camDistance
         val camLabel = Live.camText
-        if (!camLabel.isNullOrBlank() && Live.camDistance > 0) {
-            val label = "$camLabel · ${Live.camDistance} m"
+        if (!camLabel.isNullOrBlank() && camDistance >= 0) {
+            val label = "$camLabel · ${camDistance} m"
             val cp = Paint().apply { color = Color.WHITE; textSize = h * 0.050f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
             val padX = h * 0.025f
             val boxH = h * 0.075f

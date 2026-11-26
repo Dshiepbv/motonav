@@ -667,18 +667,22 @@ class DriveService : Service(), LocationListener {
                     way.tags["ref"]?.trim()?.uppercase()?.takeIf { it.isNotBlank() },
                 ).joinToString("|").takeIf { it.isNotBlank() }
             },
+            authoritativeLimitKmh = shownLimit?.takeIf { !it.estimated }?.kmh,
         )
         Live.trafficUrban = trafficUpdate.isInUrbanZone
-        Live.trafficOverspeed = trafficUpdate.overspeed
         Live.trafficAlert = trafficUpdate.alert
         Live.trafficCurrentSpeedKmh = trafficUpdate.currentSpeedKmh
-        if (trafficUpdate.effectiveMotoLimit != null) {
-            Live.limit = trafficUpdate.effectiveMotoLimit
-            Live.limitEstimated = false
-            Live.overspeed = trafficUpdate.overspeed
+        val displayLimit = SpeedRules.preferRecordedLimit(shownLimit, trafficUpdate.effectiveMotoLimit)
+        Live.limit = displayLimit?.kmh
+        Live.limitEstimated = displayLimit?.estimated ?: false
+        val roadLimitIsAuthoritative = shownLimit?.estimated == false
+        Live.trafficOverspeed = if (roadLimitIsAuthoritative && displayLimit != null) {
+            speedKmh > displayLimit.kmh + prefs.tolerance
         } else {
-            checkOverspeed(speedKmh)
+            trafficUpdate.overspeed
         }
+        if (trafficUpdate.effectiveMotoLimit == null) checkOverspeed(speedKmh)
+        else Live.overspeed = Live.trafficOverspeed
         if (prefs.voice && !trafficUpdate.speech.isNullOrBlank()) voice.say(trafficUpdate.speech, urgent = true)
         Live.changed()
     }

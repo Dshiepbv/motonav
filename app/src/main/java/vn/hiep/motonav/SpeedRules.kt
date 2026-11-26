@@ -17,6 +17,17 @@ class LimitResult(val kmh: Int, val estimated: Boolean)
 object SpeedRules {
     private val numberRe = Regex("""(\d+(?:\.\d+)?)\s*(mph|knots)?""")
 
+    /**
+     * Keep an explicit road/sign limit ahead of the offline traffic fallback. The latter can
+     * provide a limit when map data is missing or only estimated, but must not replace a
+     * validated limit for the road currently being followed.
+     */
+    fun preferRecordedLimit(roadLimit: LimitResult?, trafficLimit: Int?): LimitResult? = when {
+        roadLimit != null && !roadLimit.estimated -> roadLimit
+        trafficLimit != null && trafficLimit > 0 -> LimitResult(trafficLimit, false)
+        else -> roadLimit
+    }
+
     fun resolve(way: Way, forward: Boolean, prefs: Prefs, urbanArea: Boolean?): LimitResult? {
         val vehicleCap = if (prefs.moped) 40 else 70
         val keys = listOf(
