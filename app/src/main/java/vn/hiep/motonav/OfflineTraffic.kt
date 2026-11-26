@@ -333,13 +333,13 @@ internal class OfflineTrafficEngine {
                 else -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
             }
             candidates += TrafficAlert(cam.id, label, d, priority, cam.type, cam.lat, cam.lon, color)
-            if (d <= 300 && cam.type in setOf(0, 3, 4) && !wasAnnounced(cam.id, cam.lat, cam.lon, lat, lon)) {
+            if (d <= 300 && cam.type in setOf(0, 3, 4) && !wasAnnounced(cam.lat, cam.lon, lat, lon)) {
                 offerSpeech(priority, when (cam.type) {
                     0 -> "Phía trước 300 mét có camera bắn tốc độ"
                     4 -> "Phía trước 300 mét có camera phạt nguội"
                     else -> "Phía trước 300 mét có camera AI"
                 })
-                rememberAnnounced(cam.id, cam.lat, cam.lon, lat, lon)
+                rememberAnnounced(cam.id, cam.lat, cam.lon)
             }
         }
         for (sign in dataset.signGrid.near(predictedLat, predictedLon)) {
@@ -353,9 +353,9 @@ internal class OfflineTrafficEngine {
             }
             if (Geo.angleDiff(sign.bearing.toDouble(), hdg) <= 35.0) {
                 candidates += TrafficAlert(sign.id, label, d, priority, 100 + sign.code, sign.lat, sign.lon, color)
-                if (speechText != null && d <= 250 && !wasAnnounced(sign.id, sign.lat, sign.lon, lat, lon)) {
+                if (speechText != null && d <= 250 && !wasAnnounced(sign.lat, sign.lon, lat, lon)) {
                     offerSpeech(priority, speechText)
-                    rememberAnnounced(sign.id, sign.lat, sign.lon, lat, lon)
+                    rememberAnnounced(sign.id, sign.lat, sign.lon)
                 }
             }
         }
@@ -400,7 +400,7 @@ internal class OfflineTrafficEngine {
 
     private data class Quad(val label: String, val priority: Int, val color: Int, val speech: String?)
     private fun wasAnnounced(
-        id: String, pointLat: Double, pointLon: Double, currentLat: Double, currentLon: Double,
+        pointLat: Double, pointLon: Double, currentLat: Double, currentLon: Double,
     ): Boolean {
         val sameCluster = announced.values.any { Geo.distance(it.first, it.second, pointLat, pointLon) < 60.0 }
         if (!sameCluster) return false
@@ -410,7 +410,7 @@ internal class OfflineTrafficEngine {
         return distanceToPoint <= 60.0 || (stillAhead && distanceToPoint <= 500.0)
     }
     private fun rememberAnnounced(
-        id: String, pointLat: Double, pointLon: Double, currentLat: Double, currentLon: Double,
+        id: String, pointLat: Double, pointLon: Double,
     ) {
         announced[id] = pointLat to pointLon
         while (announced.size > 256) announced.remove(announced.keys.first())
