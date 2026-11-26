@@ -669,6 +669,12 @@ class DriveService : Service(), LocationListener {
         checkCameras(snap, lat, lon, speedMps, movingHeading)
         val trafficUpdate = trafficEngine.evaluate(
             lat, lon, speedMps, speedKmh, stableBearing, SystemClock.elapsedRealtime(), TftLink.bikeSpeedKmh,
+            currentWay?.let { way ->
+                listOfNotNull(
+                    way.name?.trim()?.lowercase()?.takeIf { it.isNotBlank() },
+                    way.tags["ref"]?.trim()?.uppercase()?.takeIf { it.isNotBlank() },
+                ).joinToString("|").takeIf { it.isNotBlank() }
+            },
         )
         Live.trafficUrban = trafficUpdate.isInUrbanZone
         Live.trafficOverspeed = trafficUpdate.overspeed
@@ -1351,10 +1357,22 @@ class DriveService : Service(), LocationListener {
     }
 
     private fun checkCameras(snap: OsmSnapshot?, lat: Double, lon: Double, speedMps: Double, hdg: Double?) {
+        val rawCams = ArrayList<Camera>()
+        if (snap != null) rawCams.addAll(snap.cameras)
+        rawCams.addAll(CameraStore.all(this))
+        rawCams.addAll(OfficialCameras.cameras(this))
+        // Cùng một camera có thể xuất hiện đồng thời trong OSM, dữ liệu nhập và danh sách chính thức.
+        // Gộp các điểm cùng loại trong bán kính 20 m; vẫn giữ các loại camera khác nhau tại cùng vị trí.
         val cams = ArrayList<Camera>()
-        if (snap != null) cams.addAll(snap.cameras)
-        cams.addAll(CameraStore.all(this))
-        cams.addAll(OfficialCameras.cameras(this))
+        for (candidate in rawCams) {
+            val duplicate = cams.any { existing ->
+                existing.kind == candidate.kind &&
+                    Geo.distance(existing.lat, existing.lon, candidate.lat, candidate.lon) < 20.0 &&
+                    (existing.heading < 0 || candidate.heading < 0 ||
+                        Geo.angleDiff(existing.heading, candidate.heading) <= 30.0)
+            }
+            if (!duplicate) cams.add(candidate)
+        }
         Live.tftCams = cams.filter { it.kind <= CamKind.FINE && Math.abs(it.lat - lat) < 0.03 && Math.abs(it.lon - lon) < 0.03 }
         val way = currentWay
 
