@@ -19,6 +19,11 @@ import android.os.HandlerThread
 import android.os.IBinder
 import android.os.SystemClock
 import java.util.concurrent.Executors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlin.math.atan2
 import kotlin.math.max
 import kotlin.math.min
@@ -83,6 +88,8 @@ class DriveService : Service(), LocationListener {
     private val overlayListener: () -> Unit = { overlay.update() }
     private val executor = Executors.newSingleThreadExecutor()
     private val navExecutor = Executors.newSingleThreadExecutor()
+    private val trafficEngine = OfflineTrafficEngine()
+    private lateinit var trafficScope: CoroutineScope
 
     @Volatile private var snapshot: OsmSnapshot? = null
     @Volatile private var fetching = false
@@ -141,6 +148,20 @@ class DriveService : Service(), LocationListener {
         lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         thread = HandlerThread("drive").also { it.start() }
         handler = Handler(thread.looper)
+        trafficScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        trafficScope.launch {
+            val dataset = OfflineTrafficDataset.load(applicationContext)
+            trafficEngine.install(dataset)
+            handler.post {
+                Live.trafficDataReady = dataset.loadedFiles.size == 3
+                Live.trafficDataStatus = if (dataset.loadedFiles.size == 3) {
+                    "Đã nạp dữ liệu giao thông offline"
+                } else {
+                    "Thiếu dữ liệu: " + dataset.errors.joinToString("; ")
+                }
+                Live.changed()
+            }
+        }
         // Mỗi 3 giờ xem có gói OSM mới không (mỗi ngày tải tối đa 1 lần, chỉ khi có Wi-Fi).
         packTimer = object : Runnable {
             override fun run() {
@@ -253,6 +274,7 @@ class DriveService : Service(), LocationListener {
             lm.removeUpdates(this)
         } catch (_: Exception) {
         }
+        if (::trafficScope.isInitialized) trafficScope.cancel()
         handler.removeCallbacksAndMessages(null)
         thread.quitSafely()
         executor.shutdownNow()
@@ -552,11 +574,16 @@ class DriveService : Service(), LocationListener {
         if (prev == null || Geo.distance(prev.latitude, prev.longitude, lat, lon) > moveThresh || speedMps > 1.0) {
             prevLoc = loc
         }
-        val movingHeading: Double? = if (speedMps > 2.0 && heading >= 0) heading else null
+        val bearingAccuracy = if (Build.VERSION.SDK_INT >= 26 && loc.hasBearingAccuracy()) loc.bearingAccuracyDegrees else null
+        val rawBearing = if (loc.hasBearing()) loc.bearing.toDouble() else heading
+        val stableBearing = trafficEngine.stabilizeBearing(lat, lon, speedMps, rawBearing, bearingAccuracy)
+        if (speedMps >= 1.4 && stableBearing >= 0.0) heading = stableBearing
+        val movingHeading: Double? = if (speedMps >= 1.4 && stableBearing >= 0.0) stableBearing else null
 
         Live.lat = lat
         Live.lon = lon
-        Live.heading = if (speedMps > 1.0) heading else -1.0
+        // Giữ góc quay đã ổn định khi dừng; không lấy bearing nhiễu để xoay bản đồ tại đèn đỏ.
+        Live.heading = if (stableBearing >= 0.0) stableBearing else -1.0
         Live.speedKmh = speedKmh
         Live.gpsOk = true
 
@@ -590,7 +617,7 @@ class DriveService : Service(), LocationListener {
                 currentWayForward = m.forward
                 Live.street = m.way.name ?: roadTypeName(m.way.highway)
                 // Không dẫn đường: xoay bản đồ theo hướng đoạn đường đang đi
-                if (!Live.ownNav && m.bearing >= 0) Live.roadBearing = m.bearing
+                if (!Live.ownNav && m.bearing >= 0 && speedMps >= 1.4) Live.roadBearing = m.bearing
                 checkUrban(m.way, snap.urbanArea)
                 if (m.way.highway == "motorway" && m.way.id != warnedMotorway && speedMps > 3) {
                     warnedMotorway = m.way.id
@@ -635,7 +662,6 @@ class DriveService : Service(), LocationListener {
             }
         }
 
-        checkOverspeed(speedKmh)
         nav.onLocation(lat, lon, movingHeading, speedMps, accM)
         updateJunctions(lat, lon)
         updateLimitAhead()
@@ -645,6 +671,21 @@ class DriveService : Service(), LocationListener {
         try { RainAlert.tick(prefs.rainAlert, (speedMps * 3.6).toInt()) { t, sp -> handler.post { alert(t, sp, beep = false, showMs = 8000) } } } catch (_: Exception) {}
         if (!Live.ownNav) checkTurn()
         checkCameras(snap, lat, lon, speedMps, movingHeading)
+        val trafficUpdate = trafficEngine.evaluate(
+            lat, lon, speedMps, speedKmh, stableBearing, SystemClock.elapsedRealtime(), TftLink.bikeSpeedKmh,
+        )
+        Live.trafficUrban = trafficUpdate.isInUrbanZone
+        Live.trafficOverspeed = trafficUpdate.overspeed
+        Live.trafficAlert = trafficUpdate.alert
+        Live.trafficCurrentSpeedKmh = trafficUpdate.currentSpeedKmh
+        if (trafficUpdate.effectiveMotoLimit != null) {
+            Live.limit = trafficUpdate.effectiveMotoLimit
+            Live.limitEstimated = false
+            Live.overspeed = trafficUpdate.overspeed
+        } else {
+            checkOverspeed(speedKmh)
+        }
+        if (prefs.voice && !trafficUpdate.speech.isNullOrBlank()) voice.say(trafficUpdate.speech, urgent = true)
         Live.changed()
     }
 
@@ -652,13 +693,13 @@ class DriveService : Service(), LocationListener {
      * Mọi cảnh báo đi qua đây: luôn hiện chữ trên màn hình (ô nổi + màn hình chính),
      * luôn có tiếng bíp, và đọc thành tiếng nếu bật Giọng nói.
      */
-    private fun alert(text: String, speech: String = text, beep: Boolean = true, urgent: Boolean = false, showMs: Long = 6000) {
+    private fun alert(text: String, speech: String = text, beep: Boolean = true, urgent: Boolean = false, showMs: Long = 6000, speak: Boolean = true) {
         TripLog.ev("alert", "text" to text, "urgent" to urgent)
         Live.alertText = text
         Live.alertUntil = SystemClock.elapsedRealtime() + showMs
         Live.alertUrgent = urgent
         if (beep) voice.beep()
-        if (prefs.voice) voice.say(speech, urgent)
+        if (prefs.voice && speak) voice.say(speech, urgent)
         Live.changed()
     }
 
@@ -1006,8 +1047,8 @@ class DriveService : Service(), LocationListener {
         Live.urban = u
         if (prev != null) {
             val lim = if (prefs.moped) "40" else if (u) "50–60" else "60–70"
-            if (u) alert("Vào khu đông dân cư · xe máy tối đa $lim km/h", "Vào khu đông dân cư", beep = false, showMs = 5000)
-            else alert("Ra khỏi khu đông dân cư · xe máy tối đa $lim km/h", "Ra khỏi khu đông dân cư", beep = false, showMs = 5000)
+            if (u) alert("Vào khu đông dân cư · xe máy tối đa $lim km/h", "Vào khu đông dân cư", beep = false, showMs = 5000, speak = false)
+            else alert("Ra khỏi khu đông dân cư · xe máy tối đa $lim km/h", "Ra khỏi khu đông dân cư", beep = false, showMs = 5000, speak = false)
         }
     }
 
@@ -1020,7 +1061,7 @@ class DriveService : Service(), LocationListener {
         Live.camStreet = s
         if (s != null && s != lastCamStreetAlert) {
             lastCamStreetAlert = s
-            alert("Tuyến $s có camera phạt nguội – chú ý", "Chú ý, tuyến đường có camera phạt nguội", showMs = 7000)
+            alert("Tuyến $s có camera phạt nguội – chú ý", "Chú ý, tuyến đường có camera phạt nguội", showMs = 7000, speak = false)
         }
         if (s == null && way.name != null) lastCamStreetAlert = null
     }
@@ -1371,11 +1412,12 @@ class DriveService : Service(), LocationListener {
                 "Phía trước $r m: ${CamKind.label(nearest.kind)}$limTxt",
                 "Phía trước $r mét có ${CamKind.label(nearest.kind)}$limTxt",
                 showMs = 8000,
+                speak = nearest.kind == CamKind.SPEED || nearest.kind == CamKind.FINE,
             )
         } else {
             for (t in CAM_COUNTDOWN) {
                 if (dInt <= t && st.firstDist > t + 40 && st.spoken.add(t)) {
-                    alert("Còn $t m: ${CamKind.label(nearest.kind)}", "Còn $t mét", beep = false, showMs = 8000)
+                    alert("Còn $t m: ${CamKind.label(nearest.kind)}", "Còn $t mét", beep = false, showMs = 8000, speak = false)
                     break
                 }
             }
