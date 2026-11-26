@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   android-build:
@@ -38,12 +38,3 @@ jobs:
           name: MotoNav-Release-0.540
           path: MotoNav-0.540.apk
           retention-days: 30
-      - name: Publish GitHub Release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v0.540
-          name: MotoNav 0.540
-          target_commitish: main
-          files: MotoNav-0.540.apk
-          generate_release_notes: true
