@@ -768,8 +768,8 @@ class SettingsActivity : Activity() {
             prefs.tftLink,
             note = "Gửi bản đồ dẫn đường, mũi tên rẽ, khoảng cách, giờ đến lên màn xe qua Bluetooth.",
         ) { on ->
-            if (on && !hasBtPermission()) {
-                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQ_BT_PERM)
+            if (on && (!hasBtPermission() || !hasBleScanPermission())) {
+                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN), REQ_BT_PERM)
                 toast("Cho phép quyền Bluetooth rồi bật lại")
             } else {
                 prefs.tftLink = on
@@ -786,6 +786,15 @@ class SettingsActivity : Activity() {
             if (prefs.tftDevice.isNotBlank()) "Đang chọn: ${prefs.tftDeviceName.ifBlank { prefs.tftDevice }}" else "Chọn thủ công từ danh sách Bluetooth đã ghép đôi",
             note = "Dùng làm phương án dự phòng nếu thiết bị không xuất hiện trong trình đăng ký Android.",
         ) { pickTftDevice() }
+        if (android.os.Build.VERSION.SDK_INT >= 29 &&
+            checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            action(
+                "Cấp quyền vị trí nền",
+                "Cần thiết để tự khởi động dẫn đường khi xe xuất hiện lúc ứng dụng đang ở nền",
+                note = "Android 11 trở lên: mở Thông tin ứng dụng → Quyền → Vị trí → Cho phép mọi lúc. MotoNav chỉ dùng vị trí trong phiên theo dõi/dẫn đường.",
+            ) { requestBackgroundLocation() }
+        }
         choice(
             "Kiểu bản đồ trên màn xe",
             null,
@@ -1077,9 +1086,25 @@ class SettingsActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_BT_PERM && hasBtPermission()) {
+        if (requestCode == REQ_BT_PERM && hasBtPermission() && hasBleScanPermission()) {
             prefs.tftLink = true
             refresh()
+        }
+    }
+
+    private fun requestBackgroundLocation() {
+        if (android.os.Build.VERSION.SDK_INT < 29) return
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            AlertDialog.Builder(this)
+                .setTitle("Cho phép vị trí mọi lúc")
+                .setMessage("Vào Quyền → Vị trí → chọn “Cho phép mọi lúc” để Android cho phép phiên dẫn đường tự khởi động khi xe xuất hiện.")
+                .setPositiveButton("Mở cài đặt") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+                }
+                .setNegativeButton("Để sau", null)
+                .show()
+        } else {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQ_BG_LOCATION)
         }
     }
 
