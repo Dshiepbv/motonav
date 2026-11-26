@@ -283,8 +283,8 @@ class DriveService : Service(), LocationListener {
         nav.stop()
         voice.shutdown()
         TftLink.stop()
-        CcuBle.disconnect()
-        CcuAuth.closeKeepAlive()
+        // BLE/CCU authentication is intentionally disabled; keep proximity wake-up
+        // handled by the existing ACL/companion receivers outside this service.
         Live.removeListener(overlayListener)
         overlay.hide()
         Live.serviceRunning = false
@@ -343,15 +343,11 @@ class DriveService : Service(), LocationListener {
             if (on != tftLinkWasOn) {
                 tftLinkWasOn = on
                 if (on) {
+                    // Chỉ khởi chạy Bluetooth Classic RFCOMM cho màn TFT.
+                    // Không mở SPP xác thực CCU hoặc BLE GATT để tránh tranh chấp Bluetooth.
                     TftLink.start(this@DriveService, prefs.tftDevice)
-                    // Xác thực CCU chạy độc lập với Y-Connect; giữ SPP sống trong lúc BLE GATT xác thực.
-                    if (prefs.tftDevice.isNotBlank()) {
-                        CcuAuth.queryOnce(this@DriveService, prefs.tftDevice, autoChainBle = true)
-                    }
                 } else {
                     TftLink.stop()
-                    CcuBle.disconnect()
-                    CcuAuth.closeKeepAlive()
                 }
             }
             if (on) {
