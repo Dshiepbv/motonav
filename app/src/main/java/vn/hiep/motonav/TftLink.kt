@@ -3563,50 +3563,68 @@ object TftLink {
                             var ackVal = seq
                             var accepted = false
                             var ackClass = "idle"
-                            if (want >= 0) {
-                                if (seq == want || ackCovers(seq, want)) {
+                            var ackAge = -1L
+                            val nowElapsed = android.os.SystemClock.elapsedRealtime()
+                            synchronized(ackLock) {
+                                val covered = pendingFrameAcks.filterKeys { ackCovers(seq, it) }
+                                if (covered.isNotEmpty()) {
                                     accepted = true
-                                    ackClass = if (seq == want) "exact" else "forward"
-                                } else if (seq <= 3 && want > 20) {
-                                    ackVal = want
-                                    accepted = true
-                                    ackClass = "epoch-reset"
-                                    v2EpochReset++
-                                } else {
-                                    val diff = (seq - want) and 0xFFFF
-                                    val wrappedForward = want >= 0xFFF0 && seq <= 0x000F
-                                    if (diff in 1..8 || wrappedForward) {
+                                    ackClass = if (covered.containsKey(seq)) "exact" else "cumulative"
+                                    val oldestSent = covered.values.minOrNull() ?: nowElapsed
+                                    ackAge = (nowElapsed - oldestSent).coerceAtLeast(0L)
+                                    covered.keys.forEach(pendingFrameAcks::remove)
+                                } else if (want >= 0) {
+                                    if (seq == want || ackCovers(seq, want)) {
+                                        accepted = true
+                                        ackClass = if (seq == want) "exact-latest" else "forward-latest"
+                                    } else if (seq <= 3 && want > 20) {
                                         ackVal = want
                                         accepted = true
-                                        ackClass = "near-forward"
-                                        try { TripLog.ev("tftAckNear", "got" to seq, "want" to want) } catch (_: Exception) {}
+                                        ackClass = "epoch-reset"
+                                        v2EpochReset++
                                     } else {
-                                        ackClass = "stale-or-unrelated"
-                                        v2StaleAcks++
-                                        try {
-                                            TripLog.ev("tftAckOdd", "got" to seq, "want" to want,
-                                                "ms" to (System.currentTimeMillis() - waitingSentAt), "class" to ackClass)
-                                        } catch (_: Exception) {}
+                                        val diff = (seq - want) and 0xFFFF
+                                        val wrappedForward = want >= 0xFFF0 && seq <= 0x000F
+                                        if (diff in 1..8 || wrappedForward) {
+                                            ackVal = want
+                                            accepted = true
+                                            ackClass = "near-forward"
+                                            try { TripLog.ev("tftAckNear", "got" to seq, "want" to want) } catch (_: Exception) {}
+                                        } else {
+                                            ackClass = "stale-or-unrelated"
+                                            v2StaleAcks++
+                                        }
                                     }
+                                } else {
+                                    v2StaleAcks++
                                 }
-                            } else {
-                                v2StaleAcks++
-                            }
-                            val ackAge = if (want >= 0) System.currentTimeMillis() - waitingSentAt else -1L
-                            val rel = if (sessionStartElapsedMs > 0L)
-                                android.os.SystemClock.elapsedRealtime() - sessionStartElapsedMs else -1L
-                            try { TripLog.ev("tftAck", "got" to seq, "want" to want, "accepted" to accepted,
-                                "class" to ackClass, "ageMs" to ackAge, "relMs" to rel) } catch (_: Exception) {}
-                            if (FAST400 && !send727) {
-                                val st0 = f4Sent.remove(seq)
-                                if (st0 != null) try { TripLog.ev("tftAck4", "seq" to seq, "ackMs" to (android.os.SystemClock.elapsedRealtime() - st0)) } catch (_: Exception) {}
-                            }
-                            synchronized(ackLock) {
-                                if (f4Series.contains(seq)) anyAckCount++
-                                if (accepted && (ackedFrame < 0 || ackCovers(ackVal, ackedFrame))) {
-                                    ackedFrame = ackVal
+                                if (accepted && (ackedFrame < 0 || ackCovers(ackVal, ackedFrame))) ackedFrame = ackVal
+                                if (accepted) {
+                                    consecutiveAckTimeouts = 0
+                                    v2PrevTimedOut = false
+                                    v2Acked++
+                                    frameTxCount++
+                                    lastFrameError = null
+                                    lastFrameAckMs = ackAge
+                                    lastAckSuccessElapsedMs = nowElapsed
+                                    val previousAck = v2LastAckElapsedMs
+                                    if (previousAck > 0L) v2MaxAckGapMs = maxOf(v2MaxAckGapMs, nowElapsed - previousAck)
+                                    v2LastAckElapsedMs = nowElapsed
+                                    if (ackAge > V2_ACK_WAIT_MS) v2LateAcks++
+                                    recordFrameStat(ackAge, false)
                                 }
                                 (ackLock as Object).notifyAll()
+                            }
+                            if (ackAge < 0L && want >= 0) ackAge = System.currentTimeMillis() - waitingSentAt
+                            val rel = if (sessionStartElapsedMs > 0L) nowElapsed - sessionStartElapsedMs else -1L
+                            try {
+                                TripLog.ev("tftAck", "got" to seq, "want" to want, "accepted" to accepted,
+                                    "class" to ackClass, "ageMs" to ackAge, "relMs" to rel,
+                                    "unacked" to pendingFrameAcks.size)
+                            } catch (_: Exception) {}
+                            if (FAST400 && !send727) {
+                                val st0 = f4Sent.remove(seq)
+                                if (st0 != null) try { TripLog.ev("tftAck4", "seq" to seq, "ackMs" to (nowElapsed - st0)) } catch (_: Exception) {}
                             }
                         }
                         // Xe bấm nút trên màn (chỉ xảy ra khi màn sketch đang hiện, tức kênh ảnh đã
