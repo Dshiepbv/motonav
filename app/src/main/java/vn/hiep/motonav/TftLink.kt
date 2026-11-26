@@ -3633,7 +3633,6 @@ object TftLink {
                             if (v != 3 && v != 4) {
                                 dashPaused = true
                                 dashPausedAt = System.currentTimeMillis()
-                                synchronized(ackLock) { pendingFrameAcks.clear(); (ackLock as Object).notifyAll() }
                                 send(pack(ByteArray(0), 20, 0))
                                 try { TripLog.ev("tftPause", "v" to v) } catch (_: Exception) {}
                             }
@@ -3648,7 +3647,6 @@ object TftLink {
                             if (v == 1) {
                                 val was = dashPaused
                                 dashPaused = false
-                                synchronized(ackLock) { pendingFrameAcks.clear(); (ackLock as Object).notifyAll() }
                                 if (textDeferred) { textDeferred = false; try { TripLog.ev("tftTextAfterResume") } catch (_: Exception) {} } // build-474: không gửi lại tên điểm đến/bật dẫn đường lần 2
                                 resumeCount++
                                 sendInitBurst(onResume = true)
