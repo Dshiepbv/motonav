@@ -21,7 +21,9 @@ class AclReceiver : BroadcastReceiver() {
         when (intent.action) {
             BluetoothDevice.ACTION_ACL_CONNECTED -> {
                 if (!prefs.tftLink ||
-                    context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                    context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED ||
+                    (android.os.Build.VERSION.SDK_INT >= 29 &&
+                        context.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED)
                 ) return
                 try {
                     DriveService.start(context)
