@@ -3300,7 +3300,7 @@ object TftLink {
         lastTxAt = 0
         testFramesRunning = false; calibRunning = false
         writeStartedAt = 0L
-        synchronized(ackLock) { ackedFrame = -1; (ackLock as Object).notifyAll() }
+        synchronized(ackLock) { ackedFrame = -1; pendingFrameAcks.clear(); (ackLock as Object).notifyAll() }
         consecutiveAckTimeouts = 0
         lastImageWriteElapsed = 0L
     }
@@ -3452,7 +3452,7 @@ object TftLink {
         frameTxCount = 0
         lastFrameError = null
         lastFrameAckMs = -1
-        synchronized(ackLock) { ackedFrame = -1 }
+        synchronized(ackLock) { ackedFrame = -1; pendingFrameAcks.clear() }
         // Nâng mức ưu tiên CPU cho 2 luồng này (ngang mức luồng vẽ màn hình của hệ thống) — lý do:
         // người dùng báo thực tế là xe dis ngay lúc vừa mở màn bản đồ, máy còn cầm tay, màn hình
         // CHƯA tắt (tức không phải do hệ điều hành chặn nền lúc màn hình tối). Mở màn bản đồ là lúc
@@ -3572,7 +3572,7 @@ object TftLink {
                                     ackClass = if (covered.containsKey(seq)) "exact" else "cumulative"
                                     val oldestSent = covered.values.minOrNull() ?: nowElapsed
                                     ackAge = (nowElapsed - oldestSent).coerceAtLeast(0L)
-                                    covered.keys.forEach(pendingFrameAcks::remove)
+                                    covered.keys.forEach { pendingFrameAcks.remove(it) }
                                 } else if (want >= 0) {
                                     if (seq == want || ackCovers(seq, want)) {
                                         accepted = true
@@ -3729,7 +3729,7 @@ object TftLink {
         writeStartedAt = System.currentTimeMillis()
         val t0 = System.nanoTime()
         return try {
-            // Luồng ảnh chỉ có một frame đang chờ ACK; vẫn áp dụng khoảng cách tối thiểu 60 ms
+            // Luồng ảnh cho phép tối đa hai frame chưa ACK; khoảng cách tối thiểu 90 ms
             // giữa hai lần bắt đầu ghi ảnh để tránh dồn burst xuống bộ đệm TFT.
             if (bytes.size >= 16 && (bytes[6].toInt() and 0xFF) == 0 && (bytes[11].toInt() and 0xFF) == 1) {
                 val now = android.os.SystemClock.elapsedRealtime()
