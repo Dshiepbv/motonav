@@ -42,7 +42,7 @@ jobs:
       - name: Build Debug and Release
         run: |
           set -o pipefail
-          ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log || {
+          ./gradlew testDebugUnitTest assembleDebug assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log || {
             grep -E "^e: |error:|ERROR:|What went wrong|AAPT|Execution failed" build.log | head -30 | while IFS= read -r l; do echo "::error::$l"; done
             exit 1
           }

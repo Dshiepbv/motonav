@@ -28,8 +28,8 @@ jobs:
         run: |
           sed -i 's/versionCode = .*/versionCode = 540/' app/build.gradle.kts
           sed -i 's/versionName = ".*"/versionName = "0.540"/' app/build.gradle.kts
-      - name: Build Debug and Release
-        run: ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
+      - name: Unit tests and Android build
+        run: ./gradlew testDebugUnitTest assembleDebug assembleRelease --no-daemon --stacktrace
       - name: Rename Release APK
         run: cp app/build/outputs/apk/release/app-release.apk MotoNav-0.540.apk
       - name: Upload Release APK
