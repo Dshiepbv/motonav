@@ -2001,6 +2001,35 @@ object TftLink {
         val panels = false
         if (skActive && skRoute != null) drawGarminPanels(c, w, h, dk)
         val lim = skLimitKmh
+        // build-540+: hiển thị trực tiếp biển giới hạn tốc độ trên TFT.
+        // Chỉ sửa lớp dựng ảnh; không đụng giao thức BLE/RFCOMM, ACK, keepalive hay nhịp gửi khung.
+        if (lim != null && lim > 0) {
+            val cx = w * 0.90f
+            val cy = h * 0.16f
+            val r = h * 0.092f
+            c.drawCircle(cx, cy, r * 1.10f, Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true })
+            c.drawCircle(cx, cy, r, Paint().apply { color = Color.rgb(205, 35, 35); style = Paint.Style.STROKE; strokeWidth = h * 0.012f; isAntiAlias = true })
+            val tp = Paint().apply { color = Color.rgb(205, 35, 35); textSize = h * 0.105f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val fm = tp.fontMetrics
+            c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, tp)
+        }
+        // Cảnh báo camera gần nhất: ghim đỏ trên bản đồ vẫn giữ nguyên; thêm nhãn khoảng cách dễ quan sát.
+        val camLabel = Live.camText
+        if (!camLabel.isNullOrBlank() && Live.camDistance > 0) {
+            val label = "$camLabel · ${Live.camDistance} m"
+            val cp = Paint().apply { color = Color.WHITE; textSize = h * 0.050f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+            val padX = h * 0.025f
+            val boxH = h * 0.075f
+            val boxW = (cp.measureText(label) + padX * 2f).coerceAtMost(w * 0.42f)
+            val left = (w * 0.90f - boxW / 2f).coerceAtLeast(w * 0.56f)
+            val right = (left + boxW).coerceAtMost(w * 0.99f)
+            val top = h * 0.285f
+            c.drawRoundRect(android.graphics.RectF(left, top, right, top + boxH), h * 0.018f, h * 0.018f,
+                Paint().apply { color = Color.argb(230, 175, 25, 25); style = Paint.Style.FILL; isAntiAlias = true })
+            cp.textSize = minOf(cp.textSize, h * 0.050f * ((right - left - padX * 2f) / cp.measureText(label).coerceAtLeast(1f)))
+            val fm = cp.fontMetrics
+            c.drawText(label, (left + right) / 2f, top + boxH / 2f - (fm.ascent + fm.descent) / 2f, cp)
+        }
         val limBottomY = h * 0.03f // chỉ còn giữ cho nhánh dead-code (if(false)) phía dưới dùng tới tên biến.
         // build-457 (Sếp 16/11): dưới biển tốc độ = biểu tượng thời tiết (nắng/mây/mưa/bão); có mưa phía trước thì
         // dưới biểu tượng đếm ngược km tới vùng mưa.
