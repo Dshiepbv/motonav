@@ -621,7 +621,7 @@ class DriveService : Service(), LocationListener {
                 checkUrban(m.way, snap.urbanArea)
                 if (m.way.highway == "motorway" && m.way.id != warnedMotorway && speedMps > 3) {
                     warnedMotorway = m.way.id
-                    alert("CẢNH BÁO: đây là đường cao tốc, xe máy không được đi!", "Cảnh báo, xe máy không được đi đường cao tốc", urgent = true, showMs = 10000)
+                    alert("CẢNH BÁO: đây là đường cao tốc, xe máy không được đi!", "Cảnh báo, xe máy không được đi đường cao tốc", urgent = true, showMs = 10000, speak = false)
                 }
                 // Hai làn song song cách nhau dải phân cách (ví dụ làn ô tô/xe máy) có thể bị nhầm lẫn
                 // qua lại do GPS nhiễu — chỉ báo khi khớp CHẮC CHẮN (sát đường, nhiều lần liên tiếp)
@@ -629,7 +629,7 @@ class DriveService : Service(), LocationListener {
                 if (noMotoHere && m.score < 10.0) noMotoCount++ else noMotoCount = 0
                 if (false && noMotoCount >= 4 && m.way.id != warnedNoMoto && speedMps > 3) { // build-441 (Sếp): bỏ — log 13/11 báo sai 12/12 lần (D1, N5 Thủ Đức)
                     warnedNoMoto = m.way.id
-                    alert("CẢNH BÁO: đang đi vào làn/đường cấm xe máy!", "Cảnh báo, đang đi vào đường cấm xe máy", urgent = true, showMs = 10000)
+                    alert("CẢNH BÁO: đang đi vào làn/đường cấm xe máy!", "Cảnh báo, đang đi vào đường cấm xe máy", urgent = true, showMs = 10000, speak = false)
                 }
                 val res0 = SpeedRules.resolve(m.way, m.forward, prefs, snap.urbanArea)
                 val res = if (signKmh != null) LimitResult(min(signKmh, if (prefs.moped) 40 else 70), false) else res0
@@ -809,7 +809,7 @@ class DriveService : Service(), LocationListener {
         if (candDist <= 200 && announcedAhead != key) {
             announcedAhead = key
             val r50 = max(20, (candDist / 10).roundToInt() * 10)
-            alert("Sắp đổi giới hạn: $cand km/h · còn $r50 m", "Còn $r50 mét, giới hạn $cand", beep = false, showMs = 5000)
+            alert("Sắp đổi giới hạn: $cand km/h · còn $r50 m", "Còn $r50 mét, giới hạn $cand", beep = false, showMs = 5000, speak = false)
         }
     }
 
@@ -1022,7 +1022,7 @@ class DriveService : Service(), LocationListener {
                 out.add(Triple(sg.type, sg.value, d.roundToInt()))
                 if (SignType.important(sg.type) && d <= 120 && announcedSigns.add(sg.id)) {
                     val txt = SignType.label(sg.type, sg.value)
-                    alert("$txt · ${d.roundToInt()} m", "Phía trước, $txt", showMs = 5000)
+                    alert("$txt · ${d.roundToInt()} m", "Phía trước, $txt", showMs = 5000, speak = false)
                 }
             }
         }
@@ -1268,7 +1268,7 @@ class DriveService : Service(), LocationListener {
             announcedLimit = res.kmh
             if (prefs.announceLimit) {
                 val note = if (res.estimated) " (ước tính)" else ""
-                alert("Giới hạn ${res.kmh} km/h$note", "Giới hạn ${res.kmh}", showMs = 4000)
+                alert("Giới hạn ${res.kmh} km/h$note", "Giới hạn ${res.kmh}", showMs = 4000, speak = false)
             }
         }
         if (res == null) announcedLimit = null
@@ -1412,7 +1412,7 @@ class DriveService : Service(), LocationListener {
                 "Phía trước $r m: ${CamKind.label(nearest.kind)}$limTxt",
                 "Phía trước $r mét có ${CamKind.label(nearest.kind)}$limTxt",
                 showMs = 8000,
-                speak = nearest.kind == CamKind.SPEED || nearest.kind == CamKind.FINE,
+                speak = !Live.trafficDataReady && (nearest.kind == CamKind.SPEED || nearest.kind == CamKind.FINE),
             )
         } else {
             for (t in CAM_COUNTDOWN) {
