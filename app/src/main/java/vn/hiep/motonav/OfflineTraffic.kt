@@ -101,6 +101,20 @@ internal class OfflineTrafficDataset private constructor(
                 errors += "$name: ${e.javaClass.simpleName}"
                 null
             }
+            fun readArray(name: String): JSONArray? {
+                val body = read(name) ?: return null
+                return try { JSONArray(body) } catch (_: Exception) {
+                    errors += "$name: JSON không hợp lệ"
+                    null
+                }
+            }
+            fun readObject(name: String): JSONObject? {
+                val body = read(name) ?: return null
+                return try { JSONObject(body) } catch (_: Exception) {
+                    errors += "$name: JSON không hợp lệ"
+                    null
+                }
+            }
             fun row(a: JSONArray, minSize: Int = 4): DoubleArray? {
                 if (a.length() < minSize) return null
                 val lat = a.optDouble(0, Double.NaN)
@@ -116,9 +130,9 @@ internal class OfflineTrafficDataset private constructor(
                 return out
             }
 
-            val plainSigns = rows(read(StringVault.trafficSignsFile())?.let { runCatching { JSONArray(it) }.getOrNull() })
-            val hcmSigns = rows(read(StringVault.hcmSignsFile())?.let { runCatching { JSONArray(it) }.getOrNull() })
-            val cameraRoot = read(StringVault.camerasFile())?.let { runCatching { JSONObject(it) }.getOrNull() }
+            val plainSigns = rows(readArray(StringVault.trafficSignsFile()))
+            val hcmSigns = rows(readArray(StringVault.hcmSignsFile()))
+            val cameraRoot = readObject(StringVault.camerasFile())
             val cameraRows = rows(cameraRoot?.optJSONArray("cams"))
             val limitRows = rows(cameraRoot?.optJSONArray("limits"))
             val zoneRows = rows(cameraRoot?.optJSONArray("zones"))
