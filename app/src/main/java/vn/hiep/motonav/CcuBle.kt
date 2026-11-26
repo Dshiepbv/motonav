@@ -104,6 +104,25 @@ object CcuBle {
 
     private fun shortU(u: UUID): String = u.toString().substring(0, 8)
 
+    /** Đóng phiên GATT và huỷ các bước xác thực đang chờ khi xe rời khỏi phạm vi. */
+    fun disconnect() {
+        running = false
+        connGen++
+        authGen++
+        awaitingDdtNotify = false
+        awaitingAuthResult = false
+        try { gatt?.disconnect() } catch (_: Exception) {}
+        try { gatt?.close() } catch (_: Exception) {}
+        gatt = null
+        descQueue.clear()
+        writeQueue.clear()
+        unregisterBtReceiver()
+        unregisterBondReceiver()
+        busy.set(false)
+        stage = "Đã ngắt kết nối"
+        authStage = "Đã ngắt kết nối"
+    }
+
     fun connectOnce(ctx: Context, deviceAddr: String, ccuCode: String?, passkey: String?) {
         if (ccuCode.isNullOrBlank() || passkey.isNullOrBlank()) {
             error = "Chưa có mã CCU/passkey — bấm bước 1 trước"
