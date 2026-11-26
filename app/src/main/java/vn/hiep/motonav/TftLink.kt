@@ -3167,6 +3167,8 @@ object TftLink {
         testFramesRunning = false; calibRunning = false
         writeStartedAt = 0L
         synchronized(ackLock) { ackedFrame = -1; (ackLock as Object).notifyAll() }
+        consecutiveAckTimeouts = 0
+        lastImageWriteElapsed = 0L
     }
 
     private fun serverLoop(a: BluetoothAdapter) {
@@ -3281,6 +3283,8 @@ object TftLink {
         activeSocket = socket
         out = output
         connected = true
+        consecutiveAckTimeouts = 0
+        lastImageWriteElapsed = 0L
         authed = false
         lastError = null
         failCount = 0
