@@ -1,0 +1,28 @@
+name: NMAX Navi verification
+
+on:
+  push:
+    branches: [feature/offline-traffic-thermal-protection]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version 8.9
+      - name: Build Debug and Release
+        run: ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
