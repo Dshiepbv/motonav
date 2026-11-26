@@ -123,7 +123,7 @@ object TftLink {
             c.drawText(limit.toString(), cx, cy + trafficTextPaint.textSize * 0.34f, trafficTextPaint)
         }
         if (Live.trafficUrban) {
-            val left = w - 70f
+            val left = w - 94f
             val top = 10f
             trafficFillPaint.style = Paint.Style.FILL
             trafficFillPaint.color = Color.rgb(21, 101, 192)
@@ -2343,16 +2343,7 @@ object TftLink {
                 q -= 10
             }
         }
-        if (sizeMode == 1 && out.size() > SMALL_TARGET_BYTES) {
-            // Ảnh nhỏ: hạ quality từng bước tới khi ≤ SMALL_TARGET_BYTES (hoặc quality 4).
-            var q = 11
-            while (q >= 4) {
-                out.reset()
-                bmp.compress(Bitmap.CompressFormat.JPEG, q, out)
-                if (out.size() <= SMALL_TARGET_BYTES) break
-                q -= 3
-            }
-        }
+
         val raw = out.toByteArray()
         try {
             TripLog.ev("jpegEncode", "durationMs" to (android.os.SystemClock.elapsedRealtime() - jpegEncodeStarted),
@@ -3824,7 +3815,6 @@ object TftLink {
         }
 
         captureFrame(seq, jpeg)
-        v2Sent++
         v2FrameAgeTotalMs += frameAgeMs.coerceAtLeast(0L)
         v2FrameAgeMaxMs = maxOf(v2FrameAgeMaxMs, frameAgeMs.coerceAtLeast(0L))
         statBytes += jpeg.size
