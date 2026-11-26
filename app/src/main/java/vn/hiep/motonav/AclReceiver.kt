@@ -33,13 +33,10 @@ class AclReceiver : BroadcastReceiver() {
                 }
             }
             BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
-                try {
-                    TftLink.stop()
-                    DriveService.stop(context)
-                    Log.i("MotoNavBike", "ACL disconnected; bike session stopped")
-                } catch (e: Exception) {
-                    Log.w("MotoNavBike", "Unable to stop bike session", e)
-                }
+                // Không dừng DriveService/TftLink theo ACL_DISCONNECTED.
+                // RFCOMM transport tự quản lý kết nối và retry theo đúng logic build-537;
+                // sự kiện ACL có thể phát sinh độc lập với vòng đời dịch vụ dẫn đường.
+                Log.i("MotoNavBike", "ACL disconnected; keep DriveService lifecycle unchanged")
             }
         }
     }
