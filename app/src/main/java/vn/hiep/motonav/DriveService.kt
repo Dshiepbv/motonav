@@ -153,8 +153,8 @@ class DriveService : Service(), LocationListener {
             val dataset = OfflineTrafficDataset.load(applicationContext)
             trafficEngine.install(dataset)
             handler.post {
-                Live.trafficDataReady = dataset.loadedFiles.size == 3
-                Live.trafficDataStatus = if (dataset.loadedFiles.size == 3) {
+                Live.trafficDataReady = dataset.loadedFiles.size == 3 && dataset.errors.isEmpty()
+                Live.trafficDataStatus = if (dataset.loadedFiles.size == 3 && dataset.errors.isEmpty()) {
                     "Đã nạp dữ liệu giao thông offline"
                 } else {
                     "Thiếu dữ liệu: " + dataset.errors.joinToString("; ")
