@@ -285,12 +285,15 @@ internal class OfflineTrafficEngine {
             lastZonePointId = zone.id
             val newUrban = zone.code == 10
             if (!zoneKnown || newUrban != isInUrbanZone) {
+                val firstZoneObservation = !zoneKnown
                 isInUrbanZone = newUrban
                 zoneKnown = true
                 effectiveMotoLimit = currentRawSpeedLimit?.let { if (newUrban || currentSpeedIsHcm) minOf(it, 60) else it }
-                offerSpeech(6, if (newUrban) "Vào khu đông dân cư, tối đa 60" else "Hết khu đông dân cư")
-                lastZoneSpeechLat = lat
-                lastZoneSpeechLon = lon
+                if (!firstZoneObservation || newUrban) {
+                    offerSpeech(6, if (newUrban) "Vào khu đông dân cư, tối đa 60" else "Hết khu đông dân cư")
+                    lastZoneSpeechLat = lat
+                    lastZoneSpeechLon = lon
+                }
             }
         }
 
