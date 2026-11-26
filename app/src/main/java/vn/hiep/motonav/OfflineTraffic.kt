@@ -159,8 +159,7 @@ internal class OfflineTrafficDataset private constructor(
                 if (group == null) laneGroups += mutableListOf(candidate) else group += candidate
             }
             for (group in laneGroups) {
-                val arterial = group.any { it.hcm } || group.size > 1 &&
-                    group.map { it.laneCode }.distinct().size > 1
+                val arterial = group.any { it.hcm } || group.size > 1
                 val eligible = group.filterNot { arterial && it.speed <= 40 && it.laneCode != 0 }
                 if (eligible.isEmpty()) continue
                 val selected = eligible.firstOrNull { it.laneCode != 0 && it.speed in 50..60 }
