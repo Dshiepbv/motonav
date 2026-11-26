@@ -3408,7 +3408,7 @@ object TftLink {
                             val codeLen = minOf(12, dec.size)
                             val code = String(dec, 0, codeLen, ascii).substringBefore(' ')
                             screenW = 480
-                            screenH = if (code.startsWith("006-B4160")) 240 else 234
+                            screenH = if (code.startsWith("006-B4160") || code.startsWith("006-B4920")) 240 else 234
                             val key = if (dec.size > 12) dec.copyOfRange(12, dec.size) else ByteArray(0)
                             send(pack(key, 0x54, 1))
                             step2Done = true
@@ -3619,7 +3619,7 @@ object TftLink {
         var body = jpeg
         if (body.size <= 2048) body = body.copyOf(2050)
         val payload = ByteArray(body.size + 3)
-        payload[0] = 3
+        payload[0] = (if (skActive) 3 else 0).toByte()
         payload[1] = (seq and 0xFF).toByte()
         payload[2] = ((seq ushr 8) and 0xFF).toByte()
         System.arraycopy(body, 0, payload, 3, body.size)
@@ -3764,7 +3764,7 @@ object TftLink {
         // 4/1 thật (V2_FUSE_TEXT=false) VÀ đang dẫn đường, đổi sang 0 để xem xe có tự vẽ hộp rẽ/ETA
         // của chính nó không. RỦI RO: chưa xác nhận byte 0 có đúng nghĩa này trên máy Sếp — nếu màn
         // không hiện gì ở vùng chỉ đường, báo lại để trả về 3 ngay.
-        payload[0] = (if (!V2_FUSE_TEXT && skActive) 0 else 3).toByte()
+        payload[0] = (if (skActive) 3 else 0).toByte()
         payload[1] = (seq and 0xFF).toByte()
         payload[2] = ((seq ushr 8) and 0xFF).toByte()
         System.arraycopy(body, 0, payload, 3, body.size)
