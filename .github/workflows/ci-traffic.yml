@@ -2,7 +2,7 @@ name: NMAX Navi verification
 
 on:
   push:
-    branches: [feature/offline-traffic-thermal-protection]
+    branches: [main, feature/offline-traffic-thermal-protection]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -24,17 +24,17 @@ jobs:
           gradle-version: "8.9"
       - name: Generate Gradle wrapper
         run: gradle wrapper --gradle-version 8.9
-      - name: Set version from workflow run
+      - name: Set release version
         run: |
-          sed -i "s/versionCode = .*/versionCode = ${{ github.run_number }}/" app/build.gradle.kts
-          sed -i "s/versionName = \".*\"/versionName = \"0.${{ github.run_number }}\"/" app/build.gradle.kts
+          sed -i 's/versionCode = .*/versionCode = 540/' app/build.gradle.kts
+          sed -i 's/versionName = ".*"/versionName = "0.540"/' app/build.gradle.kts
       - name: Build Debug and Release
         run: ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
       - name: Rename Release APK
-        run: cp app/build/outputs/apk/release/app-release.apk MotoNav-0.${{ github.run_number }}.apk
+        run: cp app/build/outputs/apk/release/app-release.apk MotoNav-0.540.apk
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: MotoNav-Release-0.${{ github.run_number }}
-          path: MotoNav-0.${{ github.run_number }}.apk
-          retention-days: 7
+          name: MotoNav-Release-0.540
+          path: MotoNav-0.540.apk
+          retention-days: 30
