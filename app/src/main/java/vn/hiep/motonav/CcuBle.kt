@@ -31,22 +31,22 @@ import java.util.concurrent.atomic.AtomicBoolean
  * mã đã giải dịch (lớp D.E1 không đọc được) — phần đó là suy đoán hợp lý nhất, cần xe thật xác nhận.
  */
 object CcuBle {
-    private val SERVICE_UUID = UUID.fromString("AFA2CDF4-ECCF-46A7-A5EA-9DA428C0157A")
-    private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+    private val SERVICE_UUID = UUID.fromString(StringVault.ccuGattServiceUuid())
+    private val CCCD_UUID = UUID.fromString(StringVault.cccdUuid())
 
     // Kênh "hello"/lệnh (f8736L trong bản gốc) — chỉ ghi, không đăng ký notify
-    private val HELLO_UUID = UUID.fromString("B606C7F9-E5A1-4E75-B313-2A920054A8EB")
+    private val HELLO_UUID = UUID.fromString(StringVault.ccuHelloUuid())
     // Kênh dữ liệu DDT từng đoạn (f8740P) — chỉ ghi, không đăng ký notify
-    private val DATA_UUID = UUID.fromString("E998AEAB-EA8F-4063-83AA-2017C1A44484")
+    private val DATA_UUID = UUID.fromString(StringVault.ccuDataUuid())
 
     // 7 characteristic app gốc đăng ký nhận dữ liệu — (UUID, dùng indicate thay vì notify?)
     private val NOTIFY_CHARS = listOf(
-        UUID.fromString("9C810D26-B605-4306-8C1C-755A1BA3066C") to false,
-        UUID.fromString("75AB2788-87F6-4F61-BA9C-6F85A12600D1") to false, // DDT (f8738N) — cũng là kênh "khởi đầu" ghi ở bước 3
-        UUID.fromString("77808451-E42F-4F6B-83ED-3AB44AA3D16A") to false,
-        UUID.fromString("347456EE-A588-4DD5-BD98-62BE3672E27A") to false,
-        UUID.fromString("E974B9A1-FA31-43C6-91AE-09931F3F6EF1") to false,
-        UUID.fromString("56DC2D58-CBE1-4BA9-A104-E9B8EB4DA95C") to true,
+        UUID.fromString(StringVault.ccuAuthNotifyUuid()) to false,
+        UUID.fromString(StringVault.ccuDdtControlUuid()) to false, // DDT (f8738N) — cũng là kênh "khởi đầu" ghi ở bước 3
+        UUID.fromString(StringVault.ccuChar3Uuid()) to false,
+        UUID.fromString(StringVault.ccuChar4Uuid()) to false,
+        UUID.fromString(StringVault.ccuChar5Uuid()) to false,
+        UUID.fromString(StringVault.ccuChar6Uuid()) to true,
     )
     private val DDT_UUID = NOTIFY_CHARS[1].first
 
