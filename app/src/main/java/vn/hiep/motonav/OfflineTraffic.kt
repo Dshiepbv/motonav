@@ -205,8 +205,7 @@ internal class OfflineTrafficEngine {
     private var isInUrbanZone = false
     private var zoneKnown = false
     private var lastZonePointId: String? = null
-    private data class Announcement(val userLat: Double, val userLon: Double, val pointLat: Double, val pointLon: Double)
-    private val announced = LinkedHashMap<String, Announcement>()
+    private val announced = LinkedHashMap<String, Pair<Double, Double>>()
     private var lastZoneSpeechLat = Double.NaN
     private var lastZoneSpeechLon = Double.NaN
     private var overspeedSince = 0L
@@ -400,15 +399,17 @@ internal class OfflineTrafficEngine {
     private fun wasAnnounced(
         id: String, pointLat: Double, pointLon: Double, currentLat: Double, currentLon: Double,
     ): Boolean {
-        val p = announced[id] ?: return false
-        val samePoint = Geo.distance(p.pointLat, p.pointLon, pointLat, pointLon) < 10.0
-        val stillInRepeatRadius = Geo.distance(p.userLat, p.userLon, currentLat, currentLon) < 60.0
-        return samePoint && stillInRepeatRadius
+        val sameCluster = announced.values.any { Geo.distance(it.first, it.second, pointLat, pointLon) < 60.0 }
+        if (!sameCluster) return false
+        val distanceToPoint = Geo.distance(currentLat, currentLon, pointLat, pointLon)
+        val stillAhead = stableBearing >= 0.0 &&
+            Geo.angleDiff(stableBearing, Geo.bearing(currentLat, currentLon, pointLat, pointLon)) <= 90.0
+        return distanceToPoint <= 60.0 || (stillAhead && distanceToPoint <= 500.0)
     }
     private fun rememberAnnounced(
         id: String, pointLat: Double, pointLon: Double, currentLat: Double, currentLon: Double,
     ) {
-        announced[id] = Announcement(currentLat, currentLon, pointLat, pointLon)
+        announced[id] = pointLat to pointLon
         while (announced.size > 256) announced.remove(announced.keys.first())
     }
     private fun snapshot(speed: Int, alert: TrafficAlert?, over: Boolean, speech: String?, loaded: Boolean): TrafficUpdate =
