@@ -23,8 +23,8 @@ import java.util.UUID
  * CHỈ DÙNG ĐỂ CHẨN ĐOÁN bước này riêng lẻ — chưa nối tiếp sang bước BLE (giai đoạn sau).
  */
 object CcuAuth {
-    private val UUID_CCU = UUID.fromString(StringVault.ccuSppUuid())
-    private val UUID_SPP = UUID.fromString(StringVault.serialSppUuid())
+    private val UUID_CCU = UUID.fromString("00008911-0000-1000-8000-00805f9b34fb")
+    private val UUID_SPP = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb")
 
     @Volatile var running = false
         private set
@@ -140,7 +140,7 @@ object CcuAuth {
                 if (term != 4) continue
                 val cmd = ((payload[0].toInt() and 255) shl 8) or (payload[1].toInt() and 255)
                 if (cmd == 314 && payload.size == 22) {
-                    val code = String(payload, 2, 14, Charsets.UTF_8)
+                    val code = String(payload, 2, 14, Charsets.US_ASCII)
                     val pass = String(payload, 16, 6, Charsets.US_ASCII)
                     return code to pass
                 }
