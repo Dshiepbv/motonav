@@ -3631,6 +3631,7 @@ object TftLink {
                             if (v != 3 && v != 4) {
                                 dashPaused = true
                                 dashPausedAt = System.currentTimeMillis()
+                                synchronized(ackLock) { pendingFrameAcks.clear(); (ackLock as Object).notifyAll() }
                                 send(pack(ByteArray(0), 20, 0))
                                 try { TripLog.ev("tftPause", "v" to v) } catch (_: Exception) {}
                             }
@@ -3645,6 +3646,7 @@ object TftLink {
                             if (v == 1) {
                                 val was = dashPaused
                                 dashPaused = false
+                                synchronized(ackLock) { pendingFrameAcks.clear(); (ackLock as Object).notifyAll() }
                                 if (textDeferred) { textDeferred = false; try { TripLog.ev("tftTextAfterResume") } catch (_: Exception) {} } // build-474: không gửi lại tên điểm đến/bật dẫn đường lần 2
                                 resumeCount++
                                 sendInitBurst(onResume = true)
@@ -4303,7 +4305,7 @@ object TftLink {
             val spent = android.os.SystemClock.elapsedRealtime() - sendStart
             // build-372: chốt nhịp 302 (log 7/11: P 30,7% vs 300 ms 40,1%).
             // build-376 (Sếp): bỏ thời gian chết — nghỉ sau ACK chỉ bằng thời gian ACK vừa rồi (50–400 ms), không cố định 400 ms.
-            val rest = V2_P302_REST_MS // build-378: quay lại nghỉ cố định 400 ms (376 nghỉ = thời gian ACK → 40,4% loading)
+            val rest = V2_P302_REST_MS // Nhịp cố định 90 ms; giữ mailbox mới nhất và giới hạn tối đa hai frame đang chờ ACK.
             if (rest > 0L) sleepQuiet(rest)
         }
     }
