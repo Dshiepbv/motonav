@@ -2003,7 +2003,7 @@ object TftLink {
         val lim = skLimitKmh
         // build-540+: hiển thị trực tiếp biển giới hạn tốc độ trên TFT.
         // Chỉ sửa lớp dựng ảnh; không đụng giao thức BLE/RFCOMM, ACK, keepalive hay nhịp gửi khung.
-        if (false && lim != null && lim > 0) {
+        if (false) {
             val cx = w * 0.90f
             val cy = h * 0.16f
             val r = h * 0.092f
