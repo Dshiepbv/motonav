@@ -386,7 +386,9 @@ internal class OfflineTrafficEngine {
                 d <= 150.0 -> 12.0
                 else -> 5.0
             }
-            val explicitMoto = p.laneCode > 0
+            // Quy ước laneCode đã thống nhất: làn riêng tốc độ 50–60 thường là làn xe máy;
+            // laneCode khác 0 với tốc độ <=40 là làn xe tải/container/xe khách, tuyệt đối không nhận.
+            val explicitMoto = p.laneCode != 0 && p.speed in 50..60
             val rightSide = sideAngle > 0.5 && sideAngle <= maxRightAngle
             val centered = kotlin.math.abs(sideAngle) <= 2.0
             // Không chọn biển bên trái (thường dành cho làn ô tô), trừ khi metadata của bảng
@@ -411,7 +413,7 @@ internal class OfflineTrafficEngine {
             compareBy<Triple<TrafficSpeedPoint, Double, Double>> {
                 when {
                     it.third > 0.5 -> 0       // biển bên phải theo chiều kim đồng hồ
-                    it.first.laneCode > 0 -> 1 // metadata làn/biểu tượng xe máy nếu nguồn có
+                    it.first.laneCode != 0 && it.first.speed in 50..60 -> 1 // làn xe máy theo quy ước laneCode
                     else -> 2                 // biển gần chính diện, chỉ dùng khi không có biển phải
                 }
             }.thenByDescending { it.third }.thenBy { it.second * cos(Math.toRadians(it.third)) }
