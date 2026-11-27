@@ -678,7 +678,7 @@ class DriveService : Service(), LocationListener {
         if (trafficUpdate.cameraPins.isNotEmpty()) {
             val mergedCameras = ArrayList<Camera>(Live.tftCams)
             for (point in trafficUpdate.cameraPins) {
-                val camera = Camera(point.id, point.lat, point.lon, point.type, -1.0, false)
+                val camera = Camera(point.id, point.lat, point.lon, point.kind, -1.0, false)
                 val duplicate = mergedCameras.any { existing ->
                     existing.kind == camera.kind &&
                         Geo.distance(existing.lat, existing.lon, camera.lat, camera.lon) < 20.0
@@ -686,7 +686,7 @@ class DriveService : Service(), LocationListener {
                 if (!duplicate) mergedCameras.add(camera)
             }
             Live.tftCams = mergedCameras.filter {
-                it.kind in CamKind.SPEED..CamKind.HAZARD &&
+                CamKind.isTftCamera(it.kind) &&
                     kotlin.math.abs(it.lat - lat) < 0.03 && kotlin.math.abs(it.lon - lon) < 0.03
             }
         }
@@ -1395,7 +1395,7 @@ class DriveService : Service(), LocationListener {
             }
             if (!duplicate) cams.add(candidate)
         }
-        Live.tftCams = cams.filter { it.kind in CamKind.SPEED..CamKind.HAZARD && Math.abs(it.lat - lat) < 0.03 && Math.abs(it.lon - lon) < 0.03 }
+        Live.tftCams = cams.filter { CamKind.isTftCamera(it.kind) && Math.abs(it.lat - lat) < 0.03 && Math.abs(it.lon - lon) < 0.03 }
         val way = currentWay
 
         var nearest: Camera? = null
