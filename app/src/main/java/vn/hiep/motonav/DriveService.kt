@@ -1209,7 +1209,7 @@ class DriveService : Service(), LocationListener {
                 }
                 // OSM: direction = chiều xe chạy; Mapillary: aligned_direction = hướng MẶT biển (ngược chiều xe, log 2/11)
                 val dirOk = s.dir < 0 || (if (s.src == "osm") Geo.angleDiff(s.dir, hdg) <= 60 else Geo.angleDiff(s.dir, hdg + 180.0) <= 45)
-                val sideOk = (approachAngle > 0.5 && approachAngle <= sideMax) || kotlin.math.abs(approachAngle) <= 2.0
+                val sideOk = (approachAngle > 0.5 && approachAngle <= sideMax) || (approachAngle >= -0.5 && approachAngle <= 2.0)
                 TripLog.ev("signPass", "src" to s.src, "kmh" to s.kmh, "end" to s.end, "side" to side, "dir" to s.dir,
                     "hdg" to hdg, "ok" to (dirOk && sideOk), "name" to way?.name)
                 if (!dirOk || !sideOk) continue
