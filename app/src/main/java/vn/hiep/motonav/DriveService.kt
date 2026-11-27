@@ -1158,13 +1158,26 @@ class DriveService : Service(), LocationListener {
             return d * kotlin.math.sin(Math.toRadians(Geo.signedAngle(hdg, Geo.bearing(lat, lon, o.lat, o.lon))))
         }
         fun facing(o: SpeedSign) = o.dir < 0 || (if (o.src == "osm") Geo.angleDiff(o.dir, hdg) <= 70 else Geo.angleDiff(o.dir, hdg + 180.0) <= 70)
-        // build-442 (Sếp 13/11): biển xếp SOLE (lệch nhau dọc đường > 8 m) không phải cùng một mặt cắt → không gộp;
-        // đi qua biển trong (đứng một mình ở mặt cắt đó) thì lấy luôn biển trong.
+        fun sideAngle(o: SpeedSign): Double = Geo.signedAngle(hdg, Geo.bearing(lat, lon, o.lat, o.lon))
+        fun maxSideAngle(o: SpeedSign): Double {
+            val d = Geo.distance(lat, lon, o.lat, o.lon)
+            return when {
+                d <= 30.0 -> 30.0
+                d <= 80.0 -> 20.0
+                d <= 150.0 -> 12.0
+                else -> 5.0
+            }
+        }
+        // Gom đúng cụm cùng mặt cắt. Biển bên trái không được dùng cho xe máy;
+        // biển bên phải được ưu tiên theo góc chiếu giảm dần khi khoảng cách tăng.
         val group = cands.filter { o -> !o.end && (o === s || (Geo.distance(o.lat, o.lon, s.lat, s.lon) <= 30 && facing(o) &&
             kotlin.math.abs(alongM(s.lat, s.lon, o.lat, o.lon, hdg)) <= STAGGER_M)) }
-            .filter { o -> val sd = sideOf(o); sd >= -14.0 && sd <= 15.0 }
-        // build-329 (luật Sếp 3/11): từ đường xe đang đi cộng 10 m sang phải, biển nào gần điểm đó nhất thì lấy
-        fun score(o: SpeedSign) = -kotlin.math.abs(sideOf(o) - BOARD_REF_RIGHT)
+            .filter { o ->
+                val a = sideAngle(o)
+                (a > 0.5 && a <= maxSideAngle(o)) || kotlin.math.abs(a) <= 2.0 || o === s
+            }
+        // Góc lệch dương lớn hơn = biển nằm rõ hơn bên phải; chính diện chỉ là phương án dự phòng.
+        fun score(o: SpeedSign) = sideAngle(o)
         if (group.size <= 1) return s to score(s)
         var best = s
         var bestScore = -1e9
@@ -1198,7 +1211,14 @@ class DriveService : Service(), LocationListener {
                 // Vừa đi ngang biển
                 // OSM: direction = chiều xe chạy; Mapillary: aligned_direction = hướng MẶT biển (ngược chiều xe, log 2/11)
                 val dirOk = s.dir < 0 || (if (s.src == "osm") Geo.angleDiff(s.dir, hdg) <= 60 else Geo.angleDiff(s.dir, hdg + 180.0) <= 45)
-                val sideOk = side >= -6.0 && side <= 15.0
+                val sideAngle = Geo.signedAngle(hdg, Geo.bearing(lat, lon, s.lat, s.lon))
+                val sideMax = when {
+                    d <= 30.0 -> 30.0
+                    d <= 80.0 -> 20.0
+                    d <= 150.0 -> 12.0
+                    else -> 5.0
+                }
+                val sideOk = (sideAngle > 0.5 && sideAngle <= sideMax) || kotlin.math.abs(sideAngle) <= 2.0
                 TripLog.ev("signPass", "src" to s.src, "kmh" to s.kmh, "end" to s.end, "side" to side, "dir" to s.dir,
                     "hdg" to hdg, "ok" to (dirOk && sideOk), "name" to way?.name)
                 if (!dirOk || !sideOk) continue
