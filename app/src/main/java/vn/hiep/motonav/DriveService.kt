@@ -672,6 +672,32 @@ class DriveService : Service(), LocationListener {
         Live.trafficUrban = trafficUpdate.isInUrbanZone
         Live.trafficAlert = trafficUpdate.alert
         Live.trafficCurrentSpeedKmh = trafficUpdate.currentSpeedKmh
+
+        // Hợp nhất camera từ cameras_vn.json vào đúng luồng dữ liệu mà TFT đang vẽ.
+        // JSON dùng type 0..4 tương ứng trực tiếp CamKind.SPEED..CamKind.HAZARD.
+        if (trafficUpdate.cameraPins.isNotEmpty()) {
+            val mergedCameras = ArrayList<Camera>(Live.tftCams)
+            for (point in trafficUpdate.cameraPins) {
+                val camera = Camera(point.id, point.lat, point.lon, point.type, -1.0, false)
+                val duplicate = mergedCameras.any { existing ->
+                    existing.kind == camera.kind &&
+                        Geo.distance(existing.lat, existing.lon, camera.lat, camera.lon) < 20.0
+                }
+                if (!duplicate) mergedCameras.add(camera)
+            }
+            Live.tftCams = mergedCameras.filter {
+                it.kind in CamKind.SPEED..CamKind.HAZARD &&
+                    kotlin.math.abs(it.lat - lat) < 0.03 && kotlin.math.abs(it.lon - lon) < 0.03
+            }
+        }
+        trafficUpdate.nearestCamera?.let { camera ->
+            if (Live.camText.isNullOrBlank() || camera.distanceM < Live.camDistance) {
+                Live.camText = CamKind.title(camera.category)
+                Live.camKind = camera.category
+                Live.camDistance = camera.distanceM
+            }
+        }
+
         val displayLimit = SpeedRules.preferRecordedLimit(shownLimit, trafficUpdate.effectiveMotoLimit)
         Live.limit = displayLimit?.kmh
         Live.limitEstimated = displayLimit?.estimated ?: false
@@ -1369,7 +1395,7 @@ class DriveService : Service(), LocationListener {
             }
             if (!duplicate) cams.add(candidate)
         }
-        Live.tftCams = cams.filter { it.kind <= CamKind.FINE && Math.abs(it.lat - lat) < 0.03 && Math.abs(it.lon - lon) < 0.03 }
+        Live.tftCams = cams.filter { it.kind in CamKind.SPEED..CamKind.HAZARD && Math.abs(it.lat - lat) < 0.03 && Math.abs(it.lon - lon) < 0.03 }
         val way = currentWay
 
         var nearest: Camera? = null
@@ -1405,6 +1431,7 @@ class DriveService : Service(), LocationListener {
         if (nearest == null) {
             Live.camText = null
             Live.camKind = -1
+            Live.camDistance = 0
             return
         }
         val dInt = nearestDist.roundToInt()
