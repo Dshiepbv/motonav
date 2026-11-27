@@ -21,7 +21,8 @@ internal data class TrafficCameraPoint(
     val id: String, val lat: Double, val lon: Double, val speedFlag: Int, val type: Int,
 ) {
     // Mã loại trong cameras_vn.json: 0 tốc độ, 1 giám sát, 2 đèn đỏ, 3 AI, 4 phạt nguội.
-    // Ánh xạ sang CamKind nội bộ (không dùng trực tiếp mã JSON vì thứ tự hằng số khác nhau).
+    // Ánh xạ theo hằng số CamKind nội bộ: SPEED=0, RED_LIGHT=1, TRAFFIC=2,
+    // FINE=3, HAZARD=4, AI=9. Không dùng trực tiếp mã JSON làm CamKind.
     val kind: Int get() = when (type) {
         0 -> CamKind.SPEED
         1 -> CamKind.TRAFFIC
