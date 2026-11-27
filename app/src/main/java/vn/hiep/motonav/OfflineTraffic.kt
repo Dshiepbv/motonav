@@ -466,7 +466,7 @@ internal class OfflineTrafficEngine {
                 CamKind.HAZARD -> Triple("NGUY HIỂM", 4, 0xFFF57F17.toInt())
                 else -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
             }
-            candidates += TrafficAlert(cam.id, label, d, priority, cam.kind, cam.lat, cam.lon, color)
+            candidates += TrafficAlert(cam.id, label, d, priority, cam.type, cam.lat, cam.lon, color)
             if (d <= 300 && cam.kind in setOf(CamKind.SPEED, CamKind.FINE, CamKind.AI) &&
                 !wasAnnounced(cam.lat, cam.lon, lat, lon)) {
                 offerSpeech(priority, when (cam.kind) {
