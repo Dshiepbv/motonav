@@ -4004,7 +4004,7 @@ object TftLink {
     // Log 7.27 thật: tftPipe ackWaitMs 300 / minIntervalMs 320; không bao giờ ngừng gửi (~2–3 khung/s, 4–6,5 KB);
     // khung không ACK sau 300 ms → bỏ, khung kế tiếp là GỬI LẠI cùng ảnh với seq mới (tftResend afterMs 350);
     // 3 khung mất liền → tftFreezeHold; thêm 4 khung mất → tftResync: đóng socket, gọi lại ngay (~1,3 s), bắt tay lại.
-    private const val P727_ACK_WAIT_MS = 300L
+    private const val P727_ACK_WAIT_MS = 1200L
     private const val P727_MIN_INTERVAL_MS = 320L
     private const val P727_KEEPALIVE_MS = 2500L
     private const val P727_FREEZE_LOST = 3
@@ -4024,14 +4024,17 @@ object TftLink {
         payload[1] = (seq and 0xFF).toByte()
         payload[2] = ((seq ushr 8) and 0xFF).toByte()
         System.arraycopy(body, 0, payload, 3, body.size)
-        val sentAt = System.currentTimeMillis()
+        // Đăng ký sequence trước khi ghi để không bỏ lỡ ACK có thể về ngay trong lúc truyền.
         waitingSeq = seq
-        waitingSentAt = sentAt
         val packet = pack(payload, 0, 1)
         val wr0 = System.nanoTime()
         val ok = sendPaced(packet)
         lastWriteMs = ((System.nanoTime() - wr0) / 1_000_000L).toInt()
         if (!ok) { lastFrameError = "Gửi khung lỗi (mất kết nối)"; return null }
+        // Chỉ bắt đầu tính hạn ACK sau khi toàn bộ gói đã được ghi xong.
+        // Nếu ACK về trong lúc ghi, ackedFrame đã được cập nhật và vòng chờ bên dưới sẽ đi qua ngay.
+        val sentAt = System.currentTimeMillis()
+        waitingSentAt = sentAt
         captureFrame(seq, jpeg)
         var timedOut = false
         synchronized(ackLock) {
