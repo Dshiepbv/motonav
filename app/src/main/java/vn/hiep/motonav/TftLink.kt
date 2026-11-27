@@ -2312,7 +2312,7 @@ object TftLink {
 
     /** Biểu tượng camera trên TFT, đặt ngay dưới biển giới hạn tốc độ. */
     private fun drawTftCameraIndicator(c: Canvas, cx: Float, cy: Float, r: Float, kind: Int, distanceM: Int, dark: Boolean) {
-        val color = when (kind) {
+        val this.color = when (kind) {
             CamKind.SPEED -> Color.rgb(211, 47, 47)
             CamKind.RED_LIGHT -> Color.rgb(230, 81, 0)
             CamKind.TRAFFIC -> Color.rgb(30, 136, 229)
@@ -2321,42 +2321,42 @@ object TftLink {
             CamKind.AI -> Color.rgb(94, 53, 177)
             else -> Color.rgb(30, 136, 229)
         }
-        c.drawCircle(cx, cy, r * 1.12f, Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true })
+        c.drawCircle(cx, cy, r * 1.12f, Paint().apply { this.color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true })
         c.drawCircle(cx, cy, r, Paint().apply { this.color = color; style = Paint.Style.FILL; isAntiAlias = true })
-        val white = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+        val white = Paint().apply { this.color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
         when (kind) {
             CamKind.RED_LIGHT -> {
                 c.drawRoundRect(android.graphics.RectF(cx-r*0.34f, cy-r*0.66f, cx+r*0.34f, cy+r*0.66f), r*0.16f, r*0.16f, white)
-                val darkLens = Paint().apply { color = color; style = Paint.Style.FILL; isAntiAlias = true }
+                val darkLens = Paint().apply { this.color = color; style = Paint.Style.FILL; isAntiAlias = true }
                 c.drawCircle(cx, cy-r*0.38f, r*0.15f, darkLens)
                 c.drawCircle(cx, cy, r*0.15f, Paint().apply { this.color = Color.rgb(255,190,0); style = Paint.Style.FILL; isAntiAlias = true })
                 c.drawCircle(cx, cy+r*0.38f, r*0.15f, Paint().apply { this.color = Color.rgb(76,175,80); style = Paint.Style.FILL; isAntiAlias = true })
             }
             CamKind.HAZARD -> {
                 val p = android.graphics.Path().apply { moveTo(cx, cy-r*0.62f); lineTo(cx-r*0.58f, cy+r*0.48f); lineTo(cx+r*0.58f, cy+r*0.48f); close() }
-                c.drawPath(p, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r*0.13f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
+                c.drawPath(p, Paint().apply { this.color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r*0.13f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
                 c.drawLine(cx, cy-r*0.20f, cx, cy+r*0.16f, Paint(white).apply { strokeWidth = r*0.13f; style = Paint.Style.STROKE })
                 c.drawCircle(cx, cy+r*0.32f, r*0.06f, white)
             }
             CamKind.AI -> {
                 c.drawRoundRect(android.graphics.RectF(cx-r*0.58f, cy-r*0.30f, cx+r*0.58f, cy+r*0.36f), r*0.12f, r*0.12f, white)
-                c.drawCircle(cx, cy+r*0.02f, r*0.19f, Paint().apply { color = color; style = Paint.Style.STROKE; strokeWidth = r*0.10f; isAntiAlias = true })
-                val ai = Paint().apply { color = Color.WHITE; textSize = r*0.36f; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD; isAntiAlias = true }
+                c.drawCircle(cx, cy+r*0.02f, r*0.19f, Paint().apply { this.color = color; style = Paint.Style.STROKE; strokeWidth = r*0.10f; isAntiAlias = true })
+                val ai = Paint().apply { this.color = Color.WHITE; textSize = r*0.36f; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD; isAntiAlias = true }
                 c.drawText("AI", cx, cy-r*0.42f, ai)
             }
             else -> {
                 // Camera bắn tốc độ / phạt nguội / giám sát: thân máy và ống kính.
                 c.drawRoundRect(android.graphics.RectF(cx-r*0.58f, cy-r*0.30f, cx+r*0.58f, cy+r*0.36f), r*0.12f, r*0.12f, white)
                 c.drawRect(cx-r*0.24f, cy-r*0.48f, cx+r*0.18f, cy-r*0.28f, white)
-                c.drawCircle(cx+r*0.06f, cy+r*0.03f, r*0.20f, Paint().apply { color = color; style = Paint.Style.STROKE; strokeWidth = r*0.11f; isAntiAlias = true })
+                c.drawCircle(cx+r*0.06f, cy+r*0.03f, r*0.20f, Paint().apply { this.color = color; style = Paint.Style.STROKE; strokeWidth = r*0.11f; isAntiAlias = true })
                 if (kind == CamKind.SPEED) {
                     c.drawLine(cx-r*0.42f, cy-r*0.52f, cx-r*0.18f, cy-r*0.68f, Paint(white).apply { strokeWidth = r*0.10f })
                 }
             }
         }
         val label = if (distanceM >= 1000) String.format(java.util.Locale.US, "%.1f km", distanceM / 1000.0).replace('.', ',') else "$distanceM m"
-        val tp = Paint().apply { color = if (dark) Color.WHITE else Color.BLACK; textSize = r*0.72f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-        val halo = Paint(tp).apply { color = if (dark) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r*0.18f; strokeJoin = Paint.Join.ROUND }
+        val tp = Paint().apply { this.color = if (dark) Color.WHITE else Color.BLACK; textSize = r*0.72f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+        val halo = Paint(tp).apply { this.color = if (dark) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r*0.18f; strokeJoin = Paint.Join.ROUND }
         val y = cy + r*1.62f
         c.drawText(label, cx, y, halo)
         c.drawText(label, cx, y, tp)
