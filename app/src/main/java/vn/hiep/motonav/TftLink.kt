@@ -2016,7 +2016,7 @@ object TftLink {
         // Biểu tượng camera độc lập ngay dưới biển tốc độ; loại biểu tượng lấy từ CamKind của cameras_vn.json.
         val camDistance = Live.camDistance
         val camKind = Live.camKind
-        if (!Live.camText.isNullOrBlank() && camKind in CamKind.SPEED..CamKind.HAZARD && camDistance > 0) {
+        if (!Live.camText.isNullOrBlank() && CamKind.isTftCamera(camKind) && camDistance > 0) {
             drawTftCameraIndicator(c, w * 0.90f, h * 0.345f, h * 0.060f, camKind, camDistance, dk)
         }
         val limBottomY = h * 0.03f // chỉ còn giữ cho nhánh dead-code (if(false)) phía dưới dùng tới tên biến.
@@ -2318,6 +2318,7 @@ object TftLink {
             CamKind.TRAFFIC -> Color.rgb(30, 136, 229)
             CamKind.FINE -> Color.rgb(94, 53, 177)
             CamKind.HAZARD -> Color.rgb(245, 166, 35)
+            CamKind.AI -> Color.rgb(94, 53, 177)
             else -> Color.rgb(30, 136, 229)
         }
         c.drawCircle(cx, cy, r * 1.12f, Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true })
@@ -2336,6 +2337,12 @@ object TftLink {
                 c.drawPath(p, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r*0.13f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
                 c.drawLine(cx, cy-r*0.20f, cx, cy+r*0.16f, Paint(white).apply { strokeWidth = r*0.13f; style = Paint.Style.STROKE })
                 c.drawCircle(cx, cy+r*0.32f, r*0.06f, white)
+            }
+            CamKind.AI -> {
+                c.drawRoundRect(android.graphics.RectF(cx-r*0.58f, cy-r*0.30f, cx+r*0.58f, cy+r*0.36f), r*0.12f, r*0.12f, white)
+                c.drawCircle(cx, cy+r*0.02f, r*0.19f, Paint().apply { color = color; style = Paint.Style.STROKE; strokeWidth = r*0.10f; isAntiAlias = true })
+                val ai = Paint().apply { color = Color.WHITE; textSize = r*0.36f; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD; isAntiAlias = true }
+                c.drawText("AI", cx, cy-r*0.42f, ai)
             }
             else -> {
                 // Camera bắn tốc độ / phạt nguội / giám sát: thân máy và ống kính.
