@@ -445,7 +445,6 @@ internal class OfflineTrafficEngine {
                     CamKind.SPEED -> Triple("TỐC ĐỘ", 2, 0xFFD32F2F.toInt())
                     CamKind.RED_LIGHT -> Triple("ĐÈN ĐỎ", 5, 0xFFE65100.toInt())
                     CamKind.TRAFFIC -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
-                    CamKind.FINE -> Triple("PHẠT NGUỘI", 2, 0xFFD32F2F.toInt())
                     CamKind.AI -> Triple("CAM AI", 4, 0xFF4527A0.toInt())
                     CamKind.FINE -> Triple("PHẠT NGUỘI", 2, 0xFFD32F2F.toInt())
                     CamKind.HAZARD -> Triple("NGUY HIỂM", 4, 0xFFF57F17.toInt())
@@ -462,7 +461,6 @@ internal class OfflineTrafficEngine {
                 CamKind.SPEED -> Triple("TỐC ĐỘ", 2, 0xFFD32F2F.toInt())
                 CamKind.RED_LIGHT -> Triple("ĐÈN ĐỎ", 5, 0xFFE65100.toInt())
                 CamKind.TRAFFIC -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
-                CamKind.FINE -> Triple("PHẠT NGUỘI", 2, 0xFFD32F2F.toInt())
                 CamKind.AI -> Triple("CAM AI", 4, 0xFF4527A0.toInt())
                 CamKind.FINE -> Triple("PHẠT NGUỘI", 2, 0xFFD32F2F.toInt())
                 CamKind.HAZARD -> Triple("NGUY HIỂM", 4, 0xFFF57F17.toInt())
@@ -474,7 +472,8 @@ internal class OfflineTrafficEngine {
                 offerSpeech(priority, when (cam.kind) {
                     CamKind.SPEED -> "Phía trước 300 mét có camera bắn tốc độ"
                     CamKind.FINE -> "Phía trước 300 mét có camera phạt nguội"
-                    else -> "Phía trước 300 mét có camera nguy hiểm"
+                    CamKind.AI -> "Phía trước 300 mét có camera AI"
+                    else -> "Phía trước 300 mét có camera phạt nguội"
                 })
                 rememberAnnounced(cam.id, cam.lat, cam.lon)
             }
