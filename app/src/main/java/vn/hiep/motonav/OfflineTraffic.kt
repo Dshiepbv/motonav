@@ -173,7 +173,9 @@ internal class OfflineTrafficDataset private constructor(
             }
             for (group in laneGroups) {
                 val arterial = group.any { it.hcm } || group.size > 1
-                val eligible = group.filterNot { arterial && it.speed <= 40 && it.laneCode != 0 }
+                // laneCode khác 0 và tốc độ <=40 là làn xe tải/container/xe khách: loại bỏ
+                // kể cả khi biển đứng riêng, không phụ thuộc việc cụm có được nhận diện là đại lộ.
+                val eligible = group.filterNot { it.speed <= 40 && it.laneCode != 0 }
                 if (eligible.isEmpty()) continue
                 val selected = eligible.firstOrNull { it.laneCode != 0 && it.speed in 50..60 }
                     ?: eligible.firstOrNull { it.laneCode == 0 }
