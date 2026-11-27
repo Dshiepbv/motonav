@@ -87,7 +87,6 @@ class NavActivity : Activity() {
     private lateinit var results: LinearLayout
     private lateinit var sign: SpeedSignView
     private lateinit var speedText: TextView
-    private lateinit var camBox: TextView
     private lateinit var etaText: TextView
     private lateinit var statusText: TextView
     private lateinit var endBtn: View
@@ -367,34 +366,6 @@ class NavActivity : Activity() {
         }
         speedBox.addView(speedText, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4f) })
         speedBox.addView(tv(11f, muted).apply { text = "km/h" })
-        camBox = tv(14f, Color.WHITE, true).apply {
-            gravity = Gravity.CENTER
-            setPadding(dp(6f), dp(4f), dp(6f), dp(4f))
-            visibility = View.GONE
-        }
-        speedBox.addView(camBox, LinearLayout.LayoutParams(dp(90f), -2).apply { topMargin = dp(6f) })
-        camStreetBadge = tv(12f, Color.WHITE, true).apply {
-            gravity = Gravity.CENTER
-            text = "📷 Tuyến có\ncamera phạt nguội"
-            background = rounded(Color.parseColor("#B23C00"), 8f)
-            setPadding(dp(4f), dp(4f), dp(4f), dp(4f))
-            visibility = View.GONE
-        }
-        speedBox.addView(camStreetBadge, LinearLayout.LayoutParams(dp(90f), -2).apply { topMargin = dp(6f) })
-        // Biển tốc độ sắp đổi + đếm ngược (hiện khi còn ≤ 200 m)
-        nextBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            background = rounded(Color.parseColor("#2C343E"), 10f)
-            setPadding(dp(4f), dp(6f), dp(4f), dp(6f))
-            visibility = View.GONE
-        }
-        nextBox.addView(tv(11f, muted).apply { text = "Sắp tới" })
-        nextSign = SpeedSignView(this)
-        nextBox.addView(nextSign, LinearLayout.LayoutParams(dp(46f), dp(46f)).apply { topMargin = dp(2f) })
-        nextDist = tv(16f, Color.parseColor("#FFD60A"), true).apply { gravity = Gravity.CENTER }
-        nextBox.addView(nextDist)
-        speedBox.addView(nextBox, LinearLayout.LayoutParams(dp(90f), -2).apply { topMargin = dp(6f) })
         // Biển báo phía trước (cấm rẽ, cấm dừng đỗ…) kèm số mét
         signsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         speedBox.addView(signsBox, LinearLayout.LayoutParams(dp(90f), -2).apply { topMargin = dp(4f) })
@@ -617,7 +588,6 @@ class NavActivity : Activity() {
             setOnClickListener { DriveService.send(this@NavActivity, DriveService.ACTION_NAV_CHOICES_DONE) }
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6f) })
     }
-    private lateinit var nextBox: LinearLayout
     private lateinit var hubCard: TextView
     private val HIDE_CHOICES = true
     private lateinit var stopsPanel: LinearLayout
@@ -686,11 +656,8 @@ class NavActivity : Activity() {
     }
     private lateinit var signsBox: LinearLayout
     private var shownSigns: List<Triple<Int, Int, Int>>? = null
-    private lateinit var nextSign: SpeedSignView
-    private lateinit var nextDist: TextView
     private lateinit var reportBtn: WarnButton
     private lateinit var urbanSign: UrbanSignView
-    private lateinit var camStreetBadge: TextView
     private lateinit var btnRow: LinearLayout
 
     // ---------- Nhà / Công ty / Yêu thích ----------
@@ -1707,7 +1674,7 @@ class NavActivity : Activity() {
             ),
         )
         // Biểu tượng cảnh báo cắm trên bản đồ (camera, ổ gà, CSGT, đường sắt, trường học, chợ)
-        for (k in 0..8) s.addImage("alert-$k", alertIcon(k))
+        for (k in 0..9) s.addImage("alert-$k", alertIcon(k))
         s.addSource(GeoJsonSource("mn-alerts", Live.alertsJson ?: emptyFc))
         s.addLayer(
             SymbolLayer("mn-alerts-icon", "mn-alerts").withProperties(
@@ -1844,11 +1811,42 @@ class NavActivity : Activity() {
         c.drawCircle(cx, r + dp(2f), r, p)
         p.color = Color.WHITE
         c.drawCircle(cx, r + dp(2f), r * 0.78f, p)
-        val t = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = r * 1.0f
-            textAlign = android.graphics.Paint.Align.CENTER
+        val centerY = r + dp(2f)
+        if (kind == CamKind.SPEED) {
+            // Đồng hồ tốc độ: cung bán nguyệt + vạch chia + kim, thay còi/cảnh báo chung.
+            val dial = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.parseColor("#D32F2F")
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = dp(2.2f).toFloat()
+                strokeCap = android.graphics.Paint.Cap.ROUND
+            }
+            val box = android.graphics.RectF(cx - r * 0.48f, centerY - r * 0.40f, cx + r * 0.48f, centerY + r * 0.55f)
+            c.drawArc(box, 200f, 140f, false, dial)
+            for (a in listOf(205f, 240f, 275f, 310f, 335f)) {
+                val rad = Math.toRadians(a.toDouble())
+                val inner = r * 0.30f
+                val outer = r * 0.43f
+                c.drawLine(
+                    cx + kotlin.math.cos(rad).toFloat() * inner,
+                    centerY + kotlin.math.sin(rad).toFloat() * inner,
+                    cx + kotlin.math.cos(rad).toFloat() * outer,
+                    centerY + kotlin.math.sin(rad).toFloat() * outer,
+                    dial,
+                )
+            }
+            dial.strokeWidth = dp(2.8f).toFloat()
+            val needleAngle = Math.toRadians(315.0)
+            c.drawLine(cx, centerY + r * 0.20f, cx + kotlin.math.cos(needleAngle).toFloat() * r * 0.36f,
+                centerY + kotlin.math.sin(needleAngle).toFloat() * r * 0.36f, dial)
+            dial.style = android.graphics.Paint.Style.FILL
+            c.drawCircle(cx, centerY + r * 0.20f, dp(2.2f).toFloat(), dial)
+        } else {
+            val t = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                textSize = r * 1.0f
+                textAlign = android.graphics.Paint.Align.CENTER
+            }
+            c.drawText(CamKind.emoji(kind), cx, centerY + t.textSize * 0.36f, t)
         }
-        c.drawText(CamKind.emoji(kind), cx, r + dp(2f) + t.textSize * 0.36f, t)
         return b
     }
 
@@ -2361,24 +2359,6 @@ class NavActivity : Activity() {
         }
         urbanSign.urban = Live.urban
         urbanSign.estimated = Live.urbanEst
-        camStreetBadge.visibility = if (Live.camStreet != null) View.VISIBLE else View.GONE
-        val nl = Live.nextLimit
-        if (nl != null && Live.nextLimitDist in 0..200) {
-            nextBox.visibility = View.VISIBLE
-            nextSign.limit = nl
-            nextSign.estimated = Live.nextLimitEst
-            nextDist.text = "${Live.nextLimitDist} m"
-        } else {
-            nextBox.visibility = View.GONE
-        }
-        if (Live.camText != null) {
-            camBox.visibility = View.VISIBLE
-            camBox.text = CamKind.short(Live.camKind) + "\n" + Live.camDistance + " m"
-            camBox.background = rounded(if (Live.camKind == CamKind.SPEED) danger else Color.parseColor("#E65100"), 10f)
-        } else {
-            camBox.visibility = View.GONE
-        }
-
         // Thanh dưới
         if (nav && Live.route != null) {
             val min = Live.etaMs / 60000
