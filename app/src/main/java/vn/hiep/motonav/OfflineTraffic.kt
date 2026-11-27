@@ -19,7 +19,17 @@ internal data class TrafficSpeedPoint(
 
 internal data class TrafficCameraPoint(
     val id: String, val lat: Double, val lon: Double, val speedFlag: Int, val type: Int,
-)
+) {
+    // Mã loại trong cameras_vn.json: 0 tốc độ, 1 giám sát, 2 đèn đỏ, 3 AI, 4 phạt nguội.
+    val kind: Int get() = when (type) {
+        0 -> CamKind.SPEED
+        1 -> CamKind.TRAFFIC
+        2 -> CamKind.RED_LIGHT
+        3 -> CamKind.AI
+        4 -> CamKind.FINE
+        else -> CamKind.TRAFFIC
+    }
+}
 
 internal data class TrafficZonePoint(
     val id: String, val lat: Double, val lon: Double, val code: Int, val bearing: Int,
@@ -306,11 +316,16 @@ internal class OfflineTrafficEngine {
         }
 
         if (lastSpeedAnchorBearing >= 0 && Geo.angleDiff(hdg, lastSpeedAnchorBearing) > 60.0 &&
-            Geo.distance(lat, lon, lastSpeedAnchorLat, lastSpeedAnchorLon) > 500.0) {
+            Geo.distance(lat, lon, lastSpeedAnchorLat, lastSpeedAnchorLon) > 40.0) {
+            // Rẽ sang hướng đường mới: không kéo giới hạn của nhánh cũ qua giao lộ.
+            // Lần evaluate này sẽ chiếu lại biển và mốc khu dân cư gần nhất theo hướng mới.
             currentRawSpeedLimit = null
             currentSpeedIsHcm = false
             effectiveMotoLimit = null
-            lastSpeedAnchorBearing = hdg
+            isInUrbanZone = false
+            zoneKnown = false
+            lastZonePointId = null
+            lastSpeedAnchorBearing = -1.0
             lastSpeedAnchorLat = lat
             lastSpeedAnchorLon = lon
         }
@@ -379,15 +394,23 @@ internal class OfflineTrafficEngine {
         // Nếu có cụm biển chung, ưu tiên biển bên phải nhất theo góc chiếu; sau đó mới xét khoảng
         // cách. Biển có metadata laneCode được giữ như dấu hiệu làn/biển riêng; không lấy biển trái
         // chỉ vì nó gần GPS hơn.
-        val speedPoint = speedCandidates
-            .sortedWith(compareBy<Triple<TrafficSpeedPoint, Double, Double>> {
+        val nearestSpeedCandidate = speedCandidates.minByOrNull { it.second }
+        val speedCluster = nearestSpeedCandidate?.let { seed ->
+            speedCandidates.filter { candidate ->
+                Geo.distance(seed.first.lat, seed.first.lon, candidate.first.lat, candidate.first.lon) <= 25.0 &&
+                    (seed.first.bearing < 0 || candidate.first.bearing < 0 ||
+                        Geo.angleDiff(seed.first.bearing.toDouble(), candidate.first.bearing.toDouble()) <= 20.0)
+            } ?: emptyList()
+        } ?: emptyList()
+        val speedPoint = speedCluster.sortedWith(
+            compareBy<Triple<TrafficSpeedPoint, Double, Double>> {
                 when {
-                    it.third > 0.5 -> 0
-                    it.first.laneCode > 0 -> 1
-                    else -> 2
+                    it.third > 0.5 -> 0       // biển bên phải theo chiều kim đồng hồ
+                    it.first.laneCode > 0 -> 1 // metadata làn/biểu tượng xe máy nếu nguồn có
+                    else -> 2                 // biển gần chính diện, chỉ dùng khi không có biển phải
                 }
-            }.thenByDescending { it.third }.thenBy { it.second })
-            .firstOrNull()?.first
+            }.thenByDescending { it.third }.thenBy { it.second }
+        ).firstOrNull()?.first
         if (speedPoint != null && (currentRawSpeedLimit != speedPoint.speed || currentSpeedIsHcm != speedPoint.isHcmArterial)) {
             currentRawSpeedLimit = speedPoint.speed
             currentSpeedIsHcm = speedPoint.isHcmArterial
@@ -418,33 +441,37 @@ internal class OfflineTrafficEngine {
             // Camera có thể nằm hai bên đường, khác với biển giới hạn tốc độ; chỉ loại điểm phía
             // sau khi đã cách đủ xa để xác định hướng. Trong 40 m giữ lại để không nhấp nháy.
             if (actualDistance <= 900.0 && (cameraAngle <= 40.0 || actualDistance <= 40.0)) {
-                val (cameraLabel, cameraPriority, cameraColor) = when (cam.type) {
+                val (cameraLabel, cameraPriority, cameraColor) = when (cam.kind) {
                     CamKind.SPEED -> Triple("TỐC ĐỘ", 2, 0xFFD32F2F.toInt())
                     CamKind.RED_LIGHT -> Triple("ĐÈN ĐỎ", 5, 0xFFE65100.toInt())
                     CamKind.TRAFFIC -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
                     CamKind.FINE -> Triple("PHẠT NGUỘI", 2, 0xFFD32F2F.toInt())
-                    CamKind.HAZARD -> Triple("NGUY HIỂM", 4, 0xFF4527A0.toInt())
+                    CamKind.AI -> Triple("CAM AI", 4, 0xFF4527A0.toInt())
+                    CamKind.FINE -> Triple("PHẠT NGUỘI", 2, 0xFFD32F2F.toInt())
+                    CamKind.HAZARD -> Triple("NGUY HIỂM", 4, 0xFFF57F17.toInt())
                     else -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
                 }
                 val cameraEvent = TrafficAlert(cam.id, cameraLabel, actualDistance.roundToInt(),
-                    cameraPriority, cam.type, cam.lat, cam.lon, cameraColor)
+                    cameraPriority, cam.kind, cam.lat, cam.lon, cameraColor)
                 if (nearestCamera == null || cameraEvent.distanceM < nearestCamera!!.distanceM) {
                     nearestCamera = cameraEvent
                 }
             }
             val d = aheadDistance(cam.lat, cam.lon) ?: continue
-            val (label, priority, color) = when (cam.type) {
+            val (label, priority, color) = when (cam.kind) {
                 CamKind.SPEED -> Triple("TỐC ĐỘ", 2, 0xFFD32F2F.toInt())
                 CamKind.RED_LIGHT -> Triple("ĐÈN ĐỎ", 5, 0xFFE65100.toInt())
                 CamKind.TRAFFIC -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
                 CamKind.FINE -> Triple("PHẠT NGUỘI", 2, 0xFFD32F2F.toInt())
-                CamKind.HAZARD -> Triple("NGUY HIỂM", 4, 0xFF4527A0.toInt())
+                CamKind.AI -> Triple("CAM AI", 4, 0xFF4527A0.toInt())
+                CamKind.FINE -> Triple("PHẠT NGUỘI", 2, 0xFFD32F2F.toInt())
+                CamKind.HAZARD -> Triple("NGUY HIỂM", 4, 0xFFF57F17.toInt())
                 else -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
             }
-            candidates += TrafficAlert(cam.id, label, d, priority, cam.type, cam.lat, cam.lon, color)
-            if (d <= 300 && cam.type in setOf(CamKind.SPEED, CamKind.FINE, CamKind.HAZARD) &&
+            candidates += TrafficAlert(cam.id, label, d, priority, cam.kind, cam.lat, cam.lon, color)
+            if (d <= 300 && cam.kind in setOf(CamKind.SPEED, CamKind.FINE, CamKind.AI) &&
                 !wasAnnounced(cam.lat, cam.lon, lat, lon)) {
-                offerSpeech(priority, when (cam.type) {
+                offerSpeech(priority, when (cam.kind) {
                     CamKind.SPEED -> "Phía trước 300 mét có camera bắn tốc độ"
                     CamKind.FINE -> "Phía trước 300 mét có camera phạt nguội"
                     else -> "Phía trước 300 mét có camera nguy hiểm"
