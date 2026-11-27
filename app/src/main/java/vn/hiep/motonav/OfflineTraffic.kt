@@ -343,13 +343,16 @@ internal class OfflineTrafficEngine {
                 Triple(p, d, side)
             }
             .filter { (p, d, side) ->
-                d <= 250.0 &&
-                    (p.bearing < 0 || Geo.angleDiff(p.bearing.toDouble(), hdg) <= 40.0) &&
-                    // Mốc khu dân cư là điểm theo tuyến: ưu tiên điểm phía trước; chấp nhận
-                    // điểm gần như thẳng hàng để không bỏ sót khi vừa rẽ tại giao lộ.
-                    (side in -8.0..35.0 || d <= 25.0)
+                val along = d * cos(Math.toRadians(side))
+                val crossTrack = kotlin.math.abs(d * sin(Math.toRadians(side)))
+                d <= 350.0 && along >= -10.0 && crossTrack <= 100.0 &&
+                    (p.bearing < 0 || Geo.angleDiff(p.bearing.toDouble(), hdg) <= 40.0)
             }
-            .minByOrNull { (_, d, side) -> d + if (side < 0.0) 80.0 else 0.0 }?.first
+            // Chiếu mốc khu dân cư lên hướng đường đang chạy: chọn mốc phía trước gần nhất,
+            // không chọn điểm ở nhánh ngang hoặc phía sau giao lộ.
+            .minByOrNull { (_, d, side) ->
+                d * cos(Math.toRadians(side)) + kotlin.math.abs(d * sin(Math.toRadians(side))) * 0.35
+            }?.first
         if (zone != null && zone.id != lastZonePointId) {
             lastZonePointId = zone.id
             val newUrban = zone.code == 10
@@ -394,7 +397,9 @@ internal class OfflineTrafficEngine {
         // Nếu có cụm biển chung, ưu tiên biển bên phải nhất theo góc chiếu; sau đó mới xét khoảng
         // cách. Biển có metadata laneCode được giữ như dấu hiệu làn/biển riêng; không lấy biển trái
         // chỉ vì nó gần GPS hơn.
-        val nearestSpeedCandidate = speedCandidates.minByOrNull { it.second }
+        val nearestSpeedCandidate = speedCandidates.minByOrNull {
+            it.second * cos(Math.toRadians(it.third))
+        }
         val speedCluster = nearestSpeedCandidate?.let { seed ->
             speedCandidates.filter { candidate ->
                 Geo.distance(seed.first.lat, seed.first.lon, candidate.first.lat, candidate.first.lon) <= 25.0 &&
@@ -409,7 +414,7 @@ internal class OfflineTrafficEngine {
                     it.first.laneCode > 0 -> 1 // metadata làn/biểu tượng xe máy nếu nguồn có
                     else -> 2                 // biển gần chính diện, chỉ dùng khi không có biển phải
                 }
-            }.thenByDescending { it.third }.thenBy { it.second }
+            }.thenByDescending { it.third }.thenBy { it.second * cos(Math.toRadians(it.third)) }
         ).firstOrNull()?.first
         if (speedPoint != null && (currentRawSpeedLimit != speedPoint.speed || currentSpeedIsHcm != speedPoint.isHcmArterial)) {
             currentRawSpeedLimit = speedPoint.speed
