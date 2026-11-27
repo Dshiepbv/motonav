@@ -44,6 +44,8 @@ internal data class TrafficUpdate(
     val speech: String?,
     val currentSpeedKmh: Int,
     val loaded: Boolean,
+    val nearestCamera: TrafficAlert? = null,
+    val cameraPins: List<TrafficCameraPoint> = emptyList(),
 )
 
 /** Chỉ mục không gian 0,02°; với các bán kính cảnh báo <=350 m, mỗi lần tra cứu đọc tối đa 9 ô. */
@@ -288,9 +290,14 @@ internal class OfflineTrafficEngine {
         if (!roadKey.isNullOrBlank()) {
             val previousRoad = lastRoadKey
             if (previousRoad != null && previousRoad != roadKey) {
+                // Sang đường mới: không mang biển của tuyến cũ sang. Đánh dấu cần định vị lại
+                // biển tốc độ và mốc trong/ngoài khu dân cư trên chính tuyến mới ngay ở lần fix này.
                 currentRawSpeedLimit = null
                 currentSpeedIsHcm = false
                 effectiveMotoLimit = null
+                isInUrbanZone = false
+                zoneKnown = false
+                lastZonePointId = null
                 lastSpeedAnchorBearing = -1.0
                 overspeedSince = 0L
                 overspeedSpoken = false
@@ -315,10 +322,19 @@ internal class OfflineTrafficEngine {
 
         // Nhận diện khu đông dân cư theo đúng hướng tiếp cận biển.
         val zone = dataset.zoneGrid.near(lat, lon).asSequence()
-            .map { it to Geo.distance(lat, lon, it.lat, it.lon) }
-            .filter { (p, d) -> d <= 150.0 && Geo.angleDiff(p.bearing.toDouble(), hdg) <= 35.0 &&
-                (Geo.angleDiff(hdg, Geo.bearing(lat, lon, p.lat, p.lon)) <= 45.0 || d <= 25.0) }
-            .minByOrNull { it.second }?.first
+            .map { p ->
+                val d = Geo.distance(lat, lon, p.lat, p.lon)
+                val side = Geo.signedAngle(hdg, Geo.bearing(lat, lon, p.lat, p.lon))
+                Triple(p, d, side)
+            }
+            .filter { (p, d, side) ->
+                d <= 250.0 &&
+                    (p.bearing < 0 || Geo.angleDiff(p.bearing.toDouble(), hdg) <= 40.0) &&
+                    // Mốc khu dân cư là điểm theo tuyến: ưu tiên điểm phía trước; chấp nhận
+                    // điểm gần như thẳng hàng để không bỏ sót khi vừa rẽ tại giao lộ.
+                    (side in -8.0..35.0 || d <= 25.0)
+            }
+            .minByOrNull { (_, d, side) -> d + if (side < 0.0) 80.0 else 0.0 }?.first
         if (zone != null && zone.id != lastZonePointId) {
             lastZonePointId = zone.id
             val newUrban = zone.code == 10
@@ -337,12 +353,41 @@ internal class OfflineTrafficEngine {
 
         // Biển tốc độ phía trước: khoảng cách xa hơn khi tốc độ hiện tại >=60 km/h.
         val speedRadius = if (currentSpeed >= 60) 350.0 else 200.0
-        val speedPoint = dataset.speedGrid.near(lat, lon).asSequence()
-            .map { it to Geo.distance(lat, lon, it.lat, it.lon) }
-            .filter { (p, d) -> d <= speedRadius &&
-                (p.bearing < 0 || Geo.angleDiff(p.bearing.toDouble(), hdg) <= 35.0) &&
-                (Geo.angleDiff(hdg, Geo.bearing(lat, lon, p.lat, p.lon)) <= 45.0 || d <= 40.0) }
-            .minByOrNull { it.second }?.first
+        val speedCandidates = dataset.speedGrid.near(lat, lon).mapNotNull { p ->
+            val d = Geo.distance(lat, lon, p.lat, p.lon)
+            if (d > speedRadius) return@mapNotNull null
+            if (p.bearing >= 0 && Geo.angleDiff(p.bearing.toDouble(), hdg) > 35.0) return@mapNotNull null
+            val bearingToSign = Geo.bearing(lat, lon, p.lat, p.lon)
+            val sideAngle = Geo.signedAngle(hdg, bearingToSign) // dương = bên phải, âm = bên trái
+            val along = d * cos(Math.toRadians(sideAngle))
+            if (along < -10.0) return@mapNotNull null
+            // Biển càng xa càng phải nằm sát trục chạy; càng gần có thể chấp nhận góc lệch lớn hơn.
+            val maxRightAngle = when {
+                d <= 30.0 -> 30.0
+                d <= 80.0 -> 20.0
+                d <= 150.0 -> 12.0
+                else -> 5.0
+            }
+            val explicitMoto = p.laneCode > 0
+            val rightSide = sideAngle > 0.5 && sideAngle <= maxRightAngle
+            val centered = kotlin.math.abs(sideAngle) <= 2.0
+            // Không chọn biển bên trái (thường dành cho làn ô tô), trừ khi metadata của bảng
+            // xác nhận là biển dành riêng cho xe máy. Biển gần chính diện vẫn là phương án dự phòng.
+            if (!rightSide && !centered && !explicitMoto) return@mapNotNull null
+            Triple(p, d, sideAngle)
+        }
+        // Nếu có cụm biển chung, ưu tiên biển bên phải nhất theo góc chiếu; sau đó mới xét khoảng
+        // cách. Biển có metadata laneCode được giữ như dấu hiệu làn/biển riêng; không lấy biển trái
+        // chỉ vì nó gần GPS hơn.
+        val speedPoint = speedCandidates
+            .sortedWith(compareBy<Triple<TrafficSpeedPoint, Double, Double>> {
+                when {
+                    it.third > 0.5 -> 0
+                    it.first.laneCode > 0 -> 1
+                    else -> 2
+                }
+            }.thenByDescending { it.third }.thenBy { it.second })
+            .firstOrNull()?.first
         if (speedPoint != null && (currentRawSpeedLimit != speedPoint.speed || currentSpeedIsHcm != speedPoint.isHcmArterial)) {
             currentRawSpeedLimit = speedPoint.speed
             currentSpeedIsHcm = speedPoint.isHcmArterial
@@ -355,6 +400,10 @@ internal class OfflineTrafficEngine {
         }
 
         val candidates = ArrayList<TrafficAlert>()
+        val cameraPins = dataset.cameraGrid.near(lat, lon).filter {
+            Geo.distance(lat, lon, it.lat, it.lon) <= 1500.0
+        }
+        var nearestCamera: TrafficAlert? = null
         fun aheadDistance(pLat: Double, pLon: Double): Int? {
             val d = Geo.distance(predictedLat, predictedLon, pLat, pLon)
             if (d > 350.0) return null
@@ -362,21 +411,43 @@ internal class OfflineTrafficEngine {
             if (relative > 30.0 && d > 40.0) return null
             return d.roundToInt()
         }
-        for (cam in dataset.cameraGrid.near(predictedLat, predictedLon)) {
+        for (cam in cameraPins) {
+            val actualDistance = Geo.distance(lat, lon, cam.lat, cam.lon)
+            val cameraBearing = Geo.bearing(lat, lon, cam.lat, cam.lon)
+            val cameraAngle = Geo.angleDiff(hdg, cameraBearing)
+            // Camera có thể nằm hai bên đường, khác với biển giới hạn tốc độ; chỉ loại điểm phía
+            // sau khi đã cách đủ xa để xác định hướng. Trong 40 m giữ lại để không nhấp nháy.
+            if (actualDistance <= 900.0 && (cameraAngle <= 40.0 || actualDistance <= 40.0)) {
+                val (cameraLabel, cameraPriority, cameraColor) = when (cam.type) {
+                    CamKind.SPEED -> Triple("TỐC ĐỘ", 2, 0xFFD32F2F.toInt())
+                    CamKind.RED_LIGHT -> Triple("ĐÈN ĐỎ", 5, 0xFFE65100.toInt())
+                    CamKind.TRAFFIC -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
+                    CamKind.FINE -> Triple("PHẠT NGUỘI", 2, 0xFFD32F2F.toInt())
+                    CamKind.HAZARD -> Triple("NGUY HIỂM", 4, 0xFF4527A0.toInt())
+                    else -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
+                }
+                val cameraEvent = TrafficAlert(cam.id, cameraLabel, actualDistance.roundToInt(),
+                    cameraPriority, cam.type, cam.lat, cam.lon, cameraColor)
+                if (nearestCamera == null || cameraEvent.distanceM < nearestCamera!!.distanceM) {
+                    nearestCamera = cameraEvent
+                }
+            }
             val d = aheadDistance(cam.lat, cam.lon) ?: continue
             val (label, priority, color) = when (cam.type) {
-                0 -> Triple("TỐC ĐỘ", 2, 0xFFD32F2F.toInt())
-                4 -> Triple("PHẠT NGUỘI", 2, 0xFFD32F2F.toInt())
-                3 -> Triple("CAM AI", 4, 0xFF4527A0.toInt())
-                2 -> Triple("ĐÈN ĐỎ", 5, 0xFFE65100.toInt())
+                CamKind.SPEED -> Triple("TỐC ĐỘ", 2, 0xFFD32F2F.toInt())
+                CamKind.RED_LIGHT -> Triple("ĐÈN ĐỎ", 5, 0xFFE65100.toInt())
+                CamKind.TRAFFIC -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
+                CamKind.FINE -> Triple("PHẠT NGUỘI", 2, 0xFFD32F2F.toInt())
+                CamKind.HAZARD -> Triple("NGUY HIỂM", 4, 0xFF4527A0.toInt())
                 else -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
             }
             candidates += TrafficAlert(cam.id, label, d, priority, cam.type, cam.lat, cam.lon, color)
-            if (d <= 300 && cam.type in setOf(0, 3, 4) && !wasAnnounced(cam.lat, cam.lon, lat, lon)) {
+            if (d <= 300 && cam.type in setOf(CamKind.SPEED, CamKind.FINE, CamKind.HAZARD) &&
+                !wasAnnounced(cam.lat, cam.lon, lat, lon)) {
                 offerSpeech(priority, when (cam.type) {
-                    0 -> "Phía trước 300 mét có camera bắn tốc độ"
-                    4 -> "Phía trước 300 mét có camera phạt nguội"
-                    else -> "Phía trước 300 mét có camera AI"
+                    CamKind.SPEED -> "Phía trước 300 mét có camera bắn tốc độ"
+                    CamKind.FINE -> "Phía trước 300 mét có camera phạt nguội"
+                    else -> "Phía trước 300 mét có camera nguy hiểm"
                 })
                 rememberAnnounced(cam.id, cam.lat, cam.lon)
             }
@@ -428,7 +499,7 @@ internal class OfflineTrafficEngine {
             overspeedSpoken = false
         }
         return TrafficUpdate(hdg, limit, isInUrbanZone, visibleAlert, over && overspeedSince > 0L &&
-            nowElapsed - overspeedSince >= 2000L, speech, currentSpeed, true)
+            nowElapsed - overspeedSince >= 2000L, speech, currentSpeed, true, nearestCamera, cameraPins)
     }
 
     private data class Quad(val label: String, val priority: Int, val color: Int, val speech: String?)
