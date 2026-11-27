@@ -2013,23 +2013,11 @@ object TftLink {
             val fm = tp.fontMetrics
             c.drawText(lim.toString(), cx, cy - (fm.ascent + fm.descent) / 2f, tp)
         }
-        // Cảnh báo camera gần nhất: ghim đỏ trên bản đồ vẫn giữ nguyên; thêm nhãn khoảng cách dễ quan sát.
+        // Biểu tượng camera độc lập ngay dưới biển tốc độ; loại biểu tượng lấy từ CamKind của cameras_vn.json.
         val camDistance = Live.camDistance
-        val camLabel = Live.camText
-        if (!camLabel.isNullOrBlank() && camDistance >= 0) {
-            val label = "$camLabel · ${camDistance} m"
-            val cp = Paint().apply { color = Color.WHITE; textSize = h * 0.050f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
-            val padX = h * 0.025f
-            val boxH = h * 0.075f
-            val boxW = (cp.measureText(label) + padX * 2f).coerceAtMost(w * 0.42f)
-            val left = (w * 0.90f - boxW / 2f).coerceAtLeast(w * 0.56f)
-            val right = (left + boxW).coerceAtMost(w * 0.99f)
-            val top = h * 0.285f
-            c.drawRoundRect(android.graphics.RectF(left, top, right, top + boxH), h * 0.018f, h * 0.018f,
-                Paint().apply { color = Color.argb(230, 175, 25, 25); style = Paint.Style.FILL; isAntiAlias = true })
-            cp.textSize = minOf(cp.textSize, h * 0.050f * ((right - left - padX * 2f) / cp.measureText(label).coerceAtLeast(1f)))
-            val fm = cp.fontMetrics
-            c.drawText(label, (left + right) / 2f, top + boxH / 2f - (fm.ascent + fm.descent) / 2f, cp)
+        val camKind = Live.camKind
+        if (!Live.camText.isNullOrBlank() && camKind in CamKind.SPEED..CamKind.HAZARD && camDistance > 0) {
+            drawTftCameraIndicator(c, w * 0.90f, h * 0.345f, h * 0.060f, camKind, camDistance, dk)
         }
         val limBottomY = h * 0.03f // chỉ còn giữ cho nhánh dead-code (if(false)) phía dưới dùng tới tên biến.
         // build-457 (Sếp 16/11): dưới biển tốc độ = biểu tượng thời tiết (nắng/mây/mưa/bão); có mưa phía trước thì
@@ -2320,6 +2308,51 @@ object TftLink {
             c.drawRect(x - r * 0.2f, cy - r * 0.5f, x + r * 0.2f, cy - r * 0.3f, wp)
             c.drawCircle(x, cy + r * 0.03f, r * 0.24f, Paint().apply { color = col; style = Paint.Style.FILL; isAntiAlias = true })
         }
+    }
+
+    /** Biểu tượng camera trên TFT, đặt ngay dưới biển giới hạn tốc độ. */
+    private fun drawTftCameraIndicator(c: Canvas, cx: Float, cy: Float, r: Float, kind: Int, distanceM: Int, dark: Boolean) {
+        val color = when (kind) {
+            CamKind.SPEED -> Color.rgb(211, 47, 47)
+            CamKind.RED_LIGHT -> Color.rgb(230, 81, 0)
+            CamKind.TRAFFIC -> Color.rgb(30, 136, 229)
+            CamKind.FINE -> Color.rgb(94, 53, 177)
+            CamKind.HAZARD -> Color.rgb(245, 166, 35)
+            else -> Color.rgb(30, 136, 229)
+        }
+        c.drawCircle(cx, cy, r * 1.12f, Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true })
+        c.drawCircle(cx, cy, r, Paint().apply { this.color = color; style = Paint.Style.FILL; isAntiAlias = true })
+        val white = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+        when (kind) {
+            CamKind.RED_LIGHT -> {
+                c.drawRoundRect(android.graphics.RectF(cx-r*0.34f, cy-r*0.66f, cx+r*0.34f, cy+r*0.66f), r*0.16f, r*0.16f, white)
+                val darkLens = Paint().apply { color = color; style = Paint.Style.FILL; isAntiAlias = true }
+                c.drawCircle(cx, cy-r*0.38f, r*0.15f, darkLens)
+                c.drawCircle(cx, cy, r*0.15f, Paint().apply { this.color = Color.rgb(255,190,0); style = Paint.Style.FILL; isAntiAlias = true })
+                c.drawCircle(cx, cy+r*0.38f, r*0.15f, Paint().apply { this.color = Color.rgb(76,175,80); style = Paint.Style.FILL; isAntiAlias = true })
+            }
+            CamKind.HAZARD -> {
+                val p = android.graphics.Path().apply { moveTo(cx, cy-r*0.62f); lineTo(cx-r*0.58f, cy+r*0.48f); lineTo(cx+r*0.58f, cy+r*0.48f); close() }
+                c.drawPath(p, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r*0.13f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
+                c.drawLine(cx, cy-r*0.20f, cx, cy+r*0.16f, Paint(white).apply { strokeWidth = r*0.13f; style = Paint.Style.STROKE })
+                c.drawCircle(cx, cy+r*0.32f, r*0.06f, white)
+            }
+            else -> {
+                // Camera bắn tốc độ / phạt nguội / giám sát: thân máy và ống kính.
+                c.drawRoundRect(android.graphics.RectF(cx-r*0.58f, cy-r*0.30f, cx+r*0.58f, cy+r*0.36f), r*0.12f, r*0.12f, white)
+                c.drawRect(cx-r*0.24f, cy-r*0.48f, cx+r*0.18f, cy-r*0.28f, white)
+                c.drawCircle(cx+r*0.06f, cy+r*0.03f, r*0.20f, Paint().apply { color = color; style = Paint.Style.STROKE; strokeWidth = r*0.11f; isAntiAlias = true })
+                if (kind == CamKind.SPEED) {
+                    c.drawLine(cx-r*0.42f, cy-r*0.52f, cx-r*0.18f, cy-r*0.68f, Paint(white).apply { strokeWidth = r*0.10f })
+                }
+            }
+        }
+        val label = if (distanceM >= 1000) String.format(java.util.Locale.US, "%.1f km", distanceM / 1000.0).replace('.', ',') else "$distanceM m"
+        val tp = Paint().apply { color = if (dark) Color.WHITE else Color.BLACK; textSize = r*0.72f; textAlign = Paint.Align.CENTER; isAntiAlias = true; typeface = Typeface.DEFAULT_BOLD }
+        val halo = Paint(tp).apply { color = if (dark) Color.BLACK else Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r*0.18f; strokeJoin = Paint.Join.ROUND }
+        val y = cy + r*1.62f
+        c.drawText(label, cx, y, halo)
+        c.drawText(label, cx, y, tp)
     }
 
     /**
