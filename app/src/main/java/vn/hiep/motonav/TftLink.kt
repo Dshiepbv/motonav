@@ -2312,7 +2312,7 @@ object TftLink {
 
     /** Biểu tượng camera trên TFT, đặt ngay dưới biển giới hạn tốc độ. */
     private fun drawTftCameraIndicator(c: Canvas, cx: Float, cy: Float, r: Float, kind: Int, distanceM: Int, dark: Boolean) {
-        val this.color = when (kind) {
+        val color = when (kind) {
             CamKind.SPEED -> Color.rgb(211, 47, 47)
             CamKind.RED_LIGHT -> Color.rgb(230, 81, 0)
             CamKind.TRAFFIC -> Color.rgb(30, 136, 229)
