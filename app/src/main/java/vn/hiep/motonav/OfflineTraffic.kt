@@ -177,17 +177,17 @@ internal class OfflineTrafficDataset private constructor(
                 // kể cả khi biển đứng riêng, không phụ thuộc việc cụm có được nhận diện là đại lộ.
                 val eligible = group.filterNot { it.speed <= 40 && it.laneCode != 0 }
                 if (eligible.isEmpty()) continue
-                val selected = eligible.firstOrNull { it.laneCode != 0 && it.speed in 50..60 }
-                    ?: eligible.firstOrNull { it.laneCode == 0 }
-                    ?: eligible.first()
-                val r = selected.row
-                val p = TrafficSpeedPoint(
-                    "${selected.source}:${speeds.size}", r[0], r[1], selected.speed,
-                    selected.bearing, arterial, selected.laneCode,
-                )
-                // Biển limits là nguồn bổ sung, chỉ thêm nếu không trùng một biển đã chọn.
-                speeds += p
-                speedIndex.add(p)
+                // Giữ toàn bộ biển hợp lệ trong cụm. Việc chọn biển phải/biển làn xe máy phải được
+                // quyết định theo vị trí tương đối với xe đang chạy, không chọn sẵn theo thứ tự JSON.
+                for (selected in eligible) {
+                    val r = selected.row
+                    val point = TrafficSpeedPoint(
+                        "${selected.source}:${speeds.size}", r[0], r[1], selected.speed,
+                        selected.bearing, arterial, selected.laneCode,
+                    )
+                    speeds += point
+                    speedIndex.add(point)
+                }
             }
             for (r in limitRows) {
                 val speed = r[2].toInt()
@@ -414,9 +414,10 @@ internal class OfflineTrafficEngine {
         val speedPoint = speedCluster.sortedWith(
             compareBy<Triple<TrafficSpeedPoint, Double, Double>> {
                 when {
-                    it.third > 0.5 -> 0       // biển bên phải theo chiều kim đồng hồ
-                    it.first.laneCode != 0 && it.first.speed in 50..60 -> 1 // làn xe máy theo quy ước laneCode
-                    else -> 2                 // biển gần chính diện, chỉ dùng khi không có biển phải
+                    it.third > 0.5 && it.first.laneCode != 0 && it.first.speed in 50..60 -> 0
+                    it.third > 0.5 -> 1       // ưu tiên góc dương: biển bên phải theo chiều kim đồng hồ
+                    it.first.laneCode != 0 && it.first.speed in 50..60 -> 2 // làn xe máy theo quy ước laneCode
+                    else -> 3                 // biển gần chính diện, chỉ dùng khi không có biển phải
                 }
             }.thenByDescending { it.third }.thenBy { it.second * cos(Math.toRadians(it.third)) }
         ).firstOrNull()?.first
