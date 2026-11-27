@@ -92,6 +92,7 @@ class DriveService : Service(), LocationListener {
     private lateinit var trafficScope: CoroutineScope
 
     @Volatile private var snapshot: OsmSnapshot? = null
+    @Volatile private var offlineTrafficDataset: OfflineTrafficDataset? = null
     @Volatile private var fetching = false
     @Volatile private var lastFetchFail = 0L
 
@@ -151,6 +152,7 @@ class DriveService : Service(), LocationListener {
         trafficScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         trafficScope.launch {
             val dataset = OfflineTrafficDataset.load(applicationContext)
+            offlineTrafficDataset = dataset
             trafficEngine.install(dataset)
             handler.post {
                 Live.trafficDataReady = dataset.loadedFiles.size == 3 && dataset.errors.isEmpty()
@@ -854,13 +856,21 @@ class DriveService : Service(), LocationListener {
         val now = SystemClock.elapsedRealtime()
         val snap = snapshot
         val user = CameraStore.all(this) + OfficialCameras.cameras(this)
-        if (snap === iconsSnap && user.size == iconsCount && now - lastIcons < 30000) return
+        // Bổ sung toàn bộ camera trong cameras_vn.json vào lớp ghim bản đồ.
+        // Trước đây dataset này chỉ được đưa vào cảnh báo/TFT, nên đổi icon ở mn-alerts
+        // không thể hiện ra các camera offline trên bản đồ điện thoại.
+        val offlineCameras = offlineTrafficDataset?.cameras.orEmpty()
+        val userCount = user.size + offlineCameras.size
+        if (snap === iconsSnap && userCount == iconsCount && now - lastIcons < 30000) return
         lastIcons = now
         iconsSnap = snap
-        iconsCount = user.size
+        iconsCount = userCount
         val all = ArrayList<Camera>()
         if (snap != null) all.addAll(snap.cameras)
         all.addAll(user)
+        for (point in offlineCameras) {
+            all.add(Camera(point.id, point.lat, point.lon, point.kind, -1.0, false))
+        }
         val sb = StringBuilder("""{"type":"FeatureCollection","features":[""")
         var first = true
         for (c in all) {
