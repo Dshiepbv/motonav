@@ -674,7 +674,7 @@ class DriveService : Service(), LocationListener {
         Live.trafficCurrentSpeedKmh = trafficUpdate.currentSpeedKmh
 
         // Hợp nhất camera từ cameras_vn.json vào đúng luồng dữ liệu mà TFT đang vẽ.
-        // JSON dùng type 0..4 tương ứng trực tiếp CamKind.SPEED..CamKind.HAZARD.
+        // JSON type được ánh xạ riêng: 0 tốc độ, 1 giám sát, 2 đèn đỏ, 3 AI, 4 phạt nguội.
         if (trafficUpdate.cameraPins.isNotEmpty()) {
             val mergedCameras = ArrayList<Camera>(Live.tftCams)
             for (point in trafficUpdate.cameraPins) {
