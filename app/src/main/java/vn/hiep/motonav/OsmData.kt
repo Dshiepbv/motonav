@@ -65,6 +65,11 @@ object CamKind {
     /** Điểm cố định (không phải camera): báo gần hơn và theo khoảng cách tới đường. */
     fun isPlace(kind: Int) = kind == SCHOOL || kind == MARKET
 
+    fun isTftCamera(kind: Int): Boolean = when (kind) {
+        SPEED, RED_LIGHT, TRAFFIC, FINE, HAZARD, AI -> true
+        else -> false
+    }
+
     /** Biểu tượng hiện trên bản đồ. */
     fun emoji(kind: Int): String = when (kind) {
         SPEED -> "🚨"
