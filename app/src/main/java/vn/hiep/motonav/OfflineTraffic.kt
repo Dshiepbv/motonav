@@ -209,7 +209,7 @@ internal class OfflineTrafficDataset private constructor(
 
             val cameras = cameraRows.mapIndexedNotNull { i, r ->
                 val type = r[3].toInt()
-                if (type !in 0..4) null else TrafficCameraPoint("cam:$i", r[0], r[1], r[2].toInt(), type)
+                if (type !in 0..5) null else TrafficCameraPoint("cam:$i", r[0], r[1], r[2].toInt(), type)
             }
             val zones = zoneRows.mapIndexedNotNull { i, r ->
                 val code = r[2].toInt()
