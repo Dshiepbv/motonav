@@ -60,6 +60,7 @@ object CamKind {
     const val RAIL = 6
     const val SCHOOL = 7
     const val MARKET = 8
+    const val AI = 9
 
     /** Điểm cố định (không phải camera): báo gần hơn và theo khoảng cách tới đường. */
     fun isPlace(kind: Int) = kind == SCHOOL || kind == MARKET
@@ -74,6 +75,7 @@ object CamKind {
         RAIL -> "🚂"
         SCHOOL -> "🏫"
         MARKET -> "🛒"
+        AI -> "🤖"
         else -> "📹"
     }
 
@@ -81,6 +83,7 @@ object CamKind {
         SPEED, POLICE -> "#E53935"
         FINE, RED_LIGHT, TRAFFIC -> "#E65100"
         HAZARD, RAIL -> "#F9A825"
+        AI -> "#4527A0"
         else -> "#1E88E5"
     }
 
@@ -93,6 +96,7 @@ object CamKind {
         RAIL -> "đường sắt cắt ngang"
         SCHOOL -> "khu vực trường học"
         MARKET -> "khu chợ, đông người"
+        AI -> "camera AI"
         else -> "camera giám sát"
     }
 
@@ -106,6 +110,7 @@ object CamKind {
         RAIL -> "ĐƯỜNG SẮT"
         SCHOOL -> "TRƯỜNG HỌC"
         MARKET -> "KHU CHỢ"
+        AI -> "CAM AI"
         else -> "CAMERA"
     }
 
