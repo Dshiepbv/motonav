@@ -392,7 +392,7 @@ internal class OfflineTrafficEngine {
             // laneCode khác 0 với tốc độ <=40 là làn xe tải/container/xe khách, tuyệt đối không nhận.
             val explicitMoto = p.laneCode != 0 && p.speed in 50..60
             val rightSide = sideAngle > 0.5 && sideAngle <= maxRightAngle
-            val centered = kotlin.math.abs(sideAngle) <= 2.0
+            val centered = sideAngle >= -0.5 && sideAngle <= 2.0
             // Không chọn biển bên trái (thường dành cho làn ô tô), trừ khi metadata của bảng
             // xác nhận là biển dành riêng cho xe máy. Biển gần chính diện vẫn là phương án dự phòng.
             if (!rightSide && !centered && !explicitMoto) return@mapNotNull null
