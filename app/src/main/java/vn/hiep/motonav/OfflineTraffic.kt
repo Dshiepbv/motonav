@@ -21,6 +21,7 @@ internal data class TrafficCameraPoint(
     val id: String, val lat: Double, val lon: Double, val speedFlag: Int, val type: Int,
 ) {
     // Mã loại trong cameras_vn.json: 0 tốc độ, 1 giám sát, 2 đèn đỏ, 3 AI, 4 phạt nguội.
+    // Ánh xạ sang CamKind nội bộ (không dùng trực tiếp mã JSON vì thứ tự hằng số khác nhau).
     val kind: Int get() = when (type) {
         0 -> CamKind.SPEED
         1 -> CamKind.TRAFFIC
@@ -476,7 +477,7 @@ internal class OfflineTrafficEngine {
                 CamKind.HAZARD -> Triple("NGUY HIỂM", 4, 0xFFF57F17.toInt())
                 else -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
             }
-            candidates += TrafficAlert(cam.id, label, d, priority, cam.type, cam.lat, cam.lon, color)
+            candidates += TrafficAlert(cam.id, label, d, priority, cam.kind, cam.lat, cam.lon, color)
             if (d <= 300 && cam.kind in setOf(CamKind.SPEED, CamKind.FINE, CamKind.AI) &&
                 !wasAnnounced(cam.lat, cam.lon, lat, lon)) {
                 offerSpeech(priority, when (cam.kind) {
