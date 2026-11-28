@@ -66,6 +66,7 @@ class DriveService : Service(), LocationListener {
         private const val CAM_RADIUS = 4000      // tải camera trong bán kính 4 km
         private const val REFETCH_AT = 600.0     // đi xa tâm vùng đã tải 600 m thì tải lại
         private const val MATCH_MAX = 45.0       // điểm khớp đường tối đa (mét + phạt hướng)
+        private const val RED_LIGHT_SIGNAL_M = 45.0 // camera trong 45 m quanh nút đèn OSM → đèn đỏ (chỉ để hiện icon)
         private const val CAM_ALERT_START = 500.0 // bắt đầu báo camera từ 500 m
         private val CAM_COUNTDOWN = intArrayOf(300, 100)
 
@@ -88,7 +89,7 @@ class DriveService : Service(), LocationListener {
     private val overlayListener: () -> Unit = { overlay.update() }
     private val executor = Executors.newSingleThreadExecutor()
     private val navExecutor = Executors.newSingleThreadExecutor()
-    private val trafficEngine = OfflineTrafficEngine()
+    private val trafficEngine = OfflineTrafficEngine().also { it.cameraKindOf = { p -> fileCamKind(p) } }
     private lateinit var trafficScope: CoroutineScope
 
     @Volatile private var snapshot: OsmSnapshot? = null
@@ -214,7 +215,7 @@ class DriveService : Service(), LocationListener {
         handler.postDelayed(fgWatch, 1500)
         handler.postDelayed(tftWatch, 1000)
         // Camera theo thông báo CSGT: tìm toạ độ ngã tư trên OSM (chạy nền, chỉ khi còn điểm chưa có)
-        if (OfficialCameras.needsResolve(this)) {
+        if (false && OfficialCameras.needsResolve(this)) { // build-592 (Sếp): bỏ OfficialCameras, chỉ dùng cameras_vn.json
             Thread {
                 try {
                     OfficialCameras.resolveAll(this) { i, n ->
@@ -680,7 +681,7 @@ class DriveService : Service(), LocationListener {
         if (trafficUpdate.cameraPins.isNotEmpty()) {
             val mergedCameras = ArrayList<Camera>(Live.tftCams)
             for (point in trafficUpdate.cameraPins) {
-                val camera = Camera(point.id, point.lat, point.lon, point.kind, -1.0, false)
+                val camera = Camera(point.id, point.lat, point.lon, fileCamKind(point), -1.0, false)
                 val duplicate = mergedCameras.any { existing ->
                     existing.kind == camera.kind &&
                         Geo.distance(existing.lat, existing.lon, camera.lat, camera.lon) < 20.0
@@ -855,7 +856,8 @@ class DriveService : Service(), LocationListener {
     private fun updateAlertIcons(lat: Double, lon: Double) {
         val now = SystemClock.elapsedRealtime()
         val snap = snapshot
-        val user = CameraStore.all(this) + OfficialCameras.cameras(this)
+        // build-592 (Sếp): bỏ CameraStore/OfficialCameras/camera OSM; camera chỉ lấy từ cameras_vn.json.
+        val user = emptyList<Camera>()
         // Bổ sung toàn bộ camera trong cameras_vn.json vào lớp ghim bản đồ.
         // Trước đây dataset này chỉ được đưa vào cảnh báo/TFT, nên đổi icon ở mn-alerts
         // không thể hiện ra các camera offline trên bản đồ điện thoại.
@@ -866,10 +868,10 @@ class DriveService : Service(), LocationListener {
         iconsSnap = snap
         iconsCount = userCount
         val all = ArrayList<Camera>()
-        if (snap != null) all.addAll(snap.cameras)
-        all.addAll(user)
+        if (snap != null) all.addAll(snap.cameras.filter { !isCameraKind(it.kind) })
         for (point in offlineCameras) {
-            all.add(Camera(point.id, point.lat, point.lon, point.kind, -1.0, false))
+            if (Geo.distance(lat, lon, point.lat, point.lon) > 4000) continue
+            all.add(Camera(point.id, point.lat, point.lon, fileCamKind(point), -1.0, false))
         }
         val sb = StringBuilder("""{"type":"FeatureCollection","features":[""")
         var first = true
@@ -1400,11 +1402,43 @@ class DriveService : Service(), LocationListener {
         return out
     }
 
+    // ---------- build-592 (Sếp): camera đèn đỏ suy từ vị trí ----------
+    // cameras_vn.json chỉ có mã 0 (tốc độ) và 1 (giám sát). Camera nằm trong RED_LIGHT_SIGNAL_M
+    // quanh một nút đèn giao thông OSM (highway=traffic_signals, đã có sẵn trong snapshot) → đèn đỏ.
+    private val redLightLock = Any()
+    private var redLightSnap: OsmSnapshot? = null
+    private var redLightSignals: List<RoadSign> = emptyList()
+    private val redLightCache = HashMap<String, Int>()
+
+    private fun isCameraKind(kind: Int) =
+        kind == CamKind.SPEED || kind == CamKind.RED_LIGHT || kind == CamKind.TRAFFIC || kind == CamKind.FINE || kind == CamKind.AI
+
+    private fun fileCamKind(p: TrafficCameraPoint): Int {
+        val snap = snapshot ?: return p.kind
+        synchronized(redLightLock) {
+            if (snap !== redLightSnap) {
+                redLightSnap = snap
+                redLightSignals = snap.signs.filter { it.type == SignType.SIGNALS }
+                redLightCache.clear()
+            }
+            return redLightCache.getOrPut(p.id) {
+                val near = redLightSignals.any { s ->
+                    Math.abs(s.lat - p.lat) < 0.001 && Math.abs(s.lon - p.lon) < 0.001 &&
+                        Geo.distance(s.lat, s.lon, p.lat, p.lon) <= RED_LIGHT_SIGNAL_M
+                }
+                if (near) CamKind.RED_LIGHT else p.kind
+            }
+        }
+    }
+
     private fun checkCameras(snap: OsmSnapshot?, lat: Double, lon: Double, speedMps: Double, hdg: Double?) {
         val rawCams = ArrayList<Camera>()
-        if (snap != null) rawCams.addAll(snap.cameras)
-        rawCams.addAll(CameraStore.all(this))
-        rawCams.addAll(OfficialCameras.cameras(this))
+        // build-592 (Sếp): camera chỉ lấy từ cameras_vn.json (bỏ OSM/CameraStore/OfficialCameras).
+        // OSM chỉ còn giữ điểm không phải camera (ổ gà, đường sắt…).
+        if (snap != null) rawCams.addAll(snap.cameras.filter { !isCameraKind(it.kind) })
+        offlineTrafficDataset?.cameraGrid?.near(lat, lon)?.forEach { p ->
+            rawCams.add(Camera(p.id, p.lat, p.lon, fileCamKind(p), -1.0, false))
+        }
         // Cùng một camera có thể xuất hiện đồng thời trong OSM, dữ liệu nhập và danh sách chính thức.
         // Gộp các điểm cùng loại trong bán kính 20 m; vẫn giữ các loại camera khác nhau tại cùng vị trí.
         val cams = ArrayList<Camera>()

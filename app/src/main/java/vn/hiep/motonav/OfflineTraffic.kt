@@ -228,6 +228,8 @@ internal class OfflineTrafficDataset private constructor(
 }
 
 internal class OfflineTrafficEngine {
+    /** build-592 (Sếp): cho phép DriveService đổi loại camera (vd sát nút đèn OSM → đèn đỏ). */
+    @Volatile var cameraKindOf: (TrafficCameraPoint) -> Int = { it.kind }
     @Volatile private var data: OfflineTrafficDataset? = null
     private var stableBearing = -1.0
     private var pendingBearing: Double? = null
@@ -447,13 +449,14 @@ internal class OfflineTrafficEngine {
             return d.roundToInt()
         }
         for (cam in cameraPins) {
+            val camKind = cameraKindOf(cam)
             val actualDistance = Geo.distance(lat, lon, cam.lat, cam.lon)
             val cameraBearing = Geo.bearing(lat, lon, cam.lat, cam.lon)
             val cameraAngle = Geo.angleDiff(hdg, cameraBearing)
             // Camera có thể nằm hai bên đường, khác với biển giới hạn tốc độ; chỉ loại điểm phía
             // sau khi đã cách đủ xa để xác định hướng. Trong 40 m giữ lại để không nhấp nháy.
             if (actualDistance <= 900.0 && (cameraAngle <= 40.0 || actualDistance <= 40.0)) {
-                val (cameraLabel, cameraPriority, cameraColor) = when (cam.kind) {
+                val (cameraLabel, cameraPriority, cameraColor) = when (camKind) {
                     CamKind.SPEED -> Triple("TỐC ĐỘ", 2, 0xFFD32F2F.toInt())
                     CamKind.RED_LIGHT -> Triple("ĐÈN ĐỎ", 5, 0xFFE65100.toInt())
                     CamKind.TRAFFIC -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
@@ -463,13 +466,13 @@ internal class OfflineTrafficEngine {
                     else -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
                 }
                 val cameraEvent = TrafficAlert(cam.id, cameraLabel, actualDistance.roundToInt(),
-                    cameraPriority, cam.kind, cam.lat, cam.lon, cameraColor)
+                    cameraPriority, camKind, cam.lat, cam.lon, cameraColor)
                 if (nearestCamera == null || cameraEvent.distanceM < nearestCamera!!.distanceM) {
                     nearestCamera = cameraEvent
                 }
             }
             val d = aheadDistance(cam.lat, cam.lon) ?: continue
-            val (label, priority, color) = when (cam.kind) {
+            val (label, priority, color) = when (camKind) {
                 CamKind.SPEED -> Triple("TỐC ĐỘ", 2, 0xFFD32F2F.toInt())
                 CamKind.RED_LIGHT -> Triple("ĐÈN ĐỎ", 5, 0xFFE65100.toInt())
                 CamKind.TRAFFIC -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
@@ -478,10 +481,10 @@ internal class OfflineTrafficEngine {
                 CamKind.HAZARD -> Triple("NGUY HIỂM", 4, 0xFFF57F17.toInt())
                 else -> Triple("GIÁM SÁT", 7, 0xFFF57F17.toInt())
             }
-            candidates += TrafficAlert(cam.id, label, d, priority, cam.kind, cam.lat, cam.lon, color)
-            if (d <= 300 && cam.kind in setOf(CamKind.SPEED, CamKind.FINE, CamKind.AI) &&
+            candidates += TrafficAlert(cam.id, label, d, priority, camKind, cam.lat, cam.lon, color)
+            if (d <= 300 && camKind in setOf(CamKind.SPEED, CamKind.FINE, CamKind.AI) &&
                 !wasAnnounced(cam.lat, cam.lon, lat, lon)) {
-                offerSpeech(priority, when (cam.kind) {
+                offerSpeech(priority, when (camKind) {
                     CamKind.SPEED -> "Phía trước 300 mét có camera bắn tốc độ"
                     CamKind.FINE -> "Phía trước 300 mét có camera phạt nguội"
                     CamKind.AI -> "Phía trước 300 mét có camera AI"
