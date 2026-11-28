@@ -1978,7 +1978,8 @@ object TftLink {
                 if (Live.destFlag && Live.destLat != 0.0) addPin(Live.destLat, Live.destLon, 2)
                 // xa trước, gần sau (ghim gần đè lên ghim xa); tối đa 8 ghim
                 pins.sortBy { it.second }
-                for (pn in pins.takeLast(8)) drawPin(c, Math.round(pn.first).toFloat(), Math.round(pn.second).toFloat(), Math.round(h * 0.06f).toFloat(), pn.third)
+                // 28/11 (Sếp: "cho sắc nét lên"): to hơn 0.06->0.075 để chi tiết icon (đèn, speedometer...) có đủ điểm ảnh, đỡ vỡ nét sau nén JPEG.
+                for (pn in pins.takeLast(8)) drawPin(c, Math.round(pn.first).toFloat(), Math.round(pn.second).toFloat(), Math.round(h * 0.075f).toFloat(), pn.third)
             } catch (_: Throwable) {}
         }
         // Tam giác chỉ vị trí xe, luôn hướng lên (heading-up) — to hơn trước (0.06->0.085) theo yêu
@@ -2295,7 +2296,9 @@ object TftLink {
             addCircle(x, cy, r, android.graphics.Path.Direction.CW)
             moveTo(x - r * 0.62f, cy + r * 0.78f); lineTo(x, y); lineTo(x + r * 0.62f, cy + r * 0.78f); close()
         }
-        c.drawPath(body, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r * 0.28f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
+        // build (28/11, Sếp: "cho sắc nét lên"): viền trắng dày hơn để icon nổi rõ sau khi nén JPEG,
+        // ảnh hưởng tới các chi tiết mảnh bên trong (vạch speedometer, vòng đèn) nhiều hơn ảnh lớn.
+        c.drawPath(body, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r * 0.36f; isAntiAlias = true; strokeJoin = Paint.Join.ROUND })
         c.drawPath(body, Paint().apply { color = col; style = Paint.Style.FILL; isAntiAlias = true })
         val wp = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
         if (kind == 0) {
@@ -2306,23 +2309,20 @@ object TftLink {
             c.drawLine(x + r * 0.15f, cy - r * 0.3f, x + r * 0.45f, cy - r * 0.1f, hose)
             c.drawLine(x + r * 0.45f, cy - r * 0.1f, x + r * 0.45f, cy + r * 0.35f, hose)
         } else if (cameraKind == CamKind.RED_LIGHT) {
-            // Camera đèn đỏ: cột đèn giao thông 3 bóng đỏ - vàng - xanh.
-            c.drawRoundRect(android.graphics.RectF(x-r*0.34f, cy-r*0.62f, x+r*0.34f, cy+r*0.62f), r*0.15f, r*0.15f, wp)
-            c.drawCircle(x, cy-r*0.36f, r*0.15f, Paint().apply { color = Color.rgb(244,67,54); style = Paint.Style.FILL; isAntiAlias = true })
-            c.drawCircle(x, cy, r*0.15f, Paint().apply { color = Color.rgb(255,193,7); style = Paint.Style.FILL; isAntiAlias = true })
-            c.drawCircle(x, cy+r*0.36f, r*0.15f, Paint().apply { color = Color.rgb(76,175,80); style = Paint.Style.FILL; isAntiAlias = true })
+            // Camera đèn đỏ: cột đèn giao thông 3 bóng đỏ - vàng - xanh. Bóng to hơn, không viền mảnh
+            // quanh khối chữ nhật để tránh bị nén JPEG làm mờ/nhoè giữa 3 màu.
+            c.drawRoundRect(android.graphics.RectF(x-r*0.38f, cy-r*0.64f, x+r*0.38f, cy+r*0.64f), r*0.15f, r*0.15f, wp)
+            c.drawCircle(x, cy-r*0.37f, r*0.20f, Paint().apply { color = Color.rgb(244,67,54); style = Paint.Style.FILL; isAntiAlias = true })
+            c.drawCircle(x, cy, r*0.20f, Paint().apply { color = Color.rgb(255,193,7); style = Paint.Style.FILL; isAntiAlias = true })
+            c.drawCircle(x, cy+r*0.37f, r*0.20f, Paint().apply { color = Color.rgb(76,175,80); style = Paint.Style.FILL; isAntiAlias = true })
         } else if (cameraKind == CamKind.SPEED) {
-            // Speedometer: nửa vòng cung có vạch chia và kim chỉ tốc độ.
+            // Speedometer: nửa vòng cung + kim chỉ tốc độ. Bỏ 5 vạch chia mảnh (dễ bị nén JPEG biến
+            // thành nhiễu ở icon nhỏ), chỉ giữ vòng cung dày và kim rõ để dễ nhận ở xa.
             val gauge = android.graphics.RectF(x-r*0.58f, cy-r*0.45f, x+r*0.58f, cy+r*0.62f)
-            val gp = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r*0.14f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
+            val gp = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r*0.22f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND }
             c.drawArc(gauge, 200f, 140f, false, gp)
-            for (a in intArrayOf(205, 240, 275, 310, 335)) {
-                val rad = Math.toRadians(a.toDouble())
-                c.drawLine(x+(r*0.43f*Math.cos(rad)).toFloat(), cy+(r*0.43f*Math.sin(rad)).toFloat(),
-                    x+(r*0.57f*Math.cos(rad)).toFloat(), cy+(r*0.57f*Math.sin(rad)).toFloat(), gp)
-            }
-            c.drawLine(x, cy+r*0.12f, x+r*0.34f, cy-r*0.30f, Paint().apply { color = Color.WHITE; strokeWidth = r*0.13f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND })
-            c.drawCircle(x, cy+r*0.12f, r*0.10f, wp)
+            c.drawLine(x, cy+r*0.12f, x+r*0.34f, cy-r*0.30f, Paint().apply { color = Color.WHITE; strokeWidth = r*0.20f; isAntiAlias = true; strokeCap = Paint.Cap.ROUND })
+            c.drawCircle(x, cy+r*0.12f, r*0.14f, wp)
         } else {
             // Camera giám sát / AI / phạt nguội: thân camera và ống kính.
             c.drawRoundRect(android.graphics.RectF(x - r * 0.55f, cy - r * 0.35f, x + r * 0.55f, cy + r * 0.4f), r * 0.12f, r * 0.12f, wp)

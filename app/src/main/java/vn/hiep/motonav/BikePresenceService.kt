@@ -32,15 +32,10 @@ class BikePresenceService : CompanionDeviceService() {
     @Suppress("NewApi")
     override fun onDeviceDisappeared(address: String) {
         super.onDeviceDisappeared(address)
-        val prefs = Prefs(this)
-        if (address.equals(prefs.tftDevice, ignoreCase = true)) {
-            try {
-                TftLink.stop()
-                DriveService.stop(this)
-                Log.i("MotoNavBike", "Companion disappeared; connection stopped")
-            } catch (e: Exception) {
-                Log.w("MotoNavBike", "Unable to stop bike session", e)
-            }
-        }
+        // Không dừng TftLink/DriveService theo tín hiệu "disappeared" của CompanionDeviceManager:
+        // tín hiệu này dựa trên RSSI BLE, rất chập chờn trên xe đang chạy (rung, che sóng),
+        // gây tắt/mở kết nối liên tục ("rớt kết nối ầm ầm" — log 28/11). RFCOMM transport tự
+        // quản lý kết nối/retry riêng (giống triết lý AclReceiver với ACTION_ACL_DISCONNECTED).
+        Log.i("MotoNavBike", "Companion disappeared; keep connection lifecycle unchanged")
     }
 }
